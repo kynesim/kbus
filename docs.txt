@@ -1,0 +1,163 @@
+KBUS -- Lightweight kernel-mediated messaging
+=============================================
+
+This is emergent documentation for the KBUS kernel module. It is intended to
+be usable as a "doctest" file, and it is quite possible that ``nosetests``
+will run any tests included.
+
+Messages and binding and suchlike
+=================================
+Boring setup stuff:
+
+    >>> import fcntl
+    >>> KBUS_IOC_BIND = 0x40046b02
+    >>> KBUS_IOC_UNBIND = 0x40046b03
+
+Mesage names (e.g., "$.Zwave.Sensors.Kitchen") allow alphanumerics between the
+dots. Upper and lower case are distinct.
+
+A message id is created when a client binds to a message name:
+
+    >>> f = open('/dev/kbus0')
+    >>> fcntl.ioctl(f,KBUS_IOC_BIND,'$.Fred')
+
+and is notionally formed from the client id (let's say 'f') and the message
+name -- so in this case, we have a message id ``(f,'$.Fred')``. Such message
+ids are also given a numeric id as well.
+
+A client can bind to a message *exclusively* which means that it can reply to
+it. In the initial implementation, only non-wildcarded messages can have
+exclusive recipients.
+
+A sender can use an ioctl to find out who (if anyone) has bound to a message
+exclusively - this will return the numeric id for a (recipient,message name)
+entity.
+
+When constructing a message "packet" (datastructure), it is possible to
+indicate what the message is by giving its name or its id. Since the id is (by
+definition, above) bound to a particular recipient, this can (usefully) fail
+if that exact recipient has "gone away" (unbound from the message name, for
+whatever reason). This is indicated by a synthetic reply to the caller.
+
+Just notes, no particular order yet
+===================================
+
+``/proc/kbus/bindings`` is a debugging aid for reporting the listener id,
+exclusive flag and message name for each binding.
+
+A listener who needs to reply needs to know the listener id of the entity to
+reply to -- this will be the "reply to" field in a message.
+
+A sender may want to know who is listening (exclusively only) to a particular
+message, so that they can guarantee not to be talking to someone else -
+consider::
+
+   A binds to "$.Fred"
+   B sends to "$.Fred"
+   A goes away (for some reason, it may just be unbinding)
+   C binds to "$.Fred"
+   B sends to "$.Fred"
+
+Naively, this will succeed, since there is always a recipient for "$.Fred"
+messages. Whereas what B actually wants is to be told that the intended
+recipient has gone away/is not listening any more.
+
+There are useful scenarios where B wants to know that it is still A receiving
+the "$.Fred" messages - state may be evil, but it can make life a lot easier.
+
+    *Insert convincing example*
+
+*So*, we need to be able to send messages to:
+
+    * anyone
+    * a particular listener id
+
+This implies an ioctl to find out the exclusive listener (if any) for a
+particular message name.
+
+Change of heart
+===============
+Getting nearer to worrying about actual messages brings up some issues.
+
+So. Each listener needs a queue of messages waiting to be read (technically,
+two queues, because there's an "urgent" idiom as well, but I shall ignore that
+until later).
+
+Two issues arise from that.
+
+First, what happens when such a queue runs out of room?
+
+Second, who gets blocked when that happens?
+
+Looking at listener queues, clearly a listener queue cannot be given more
+messages if it has run out of room (and we can't afford to crash the kernel!).
+So there are two choices available -- either the sender blocks (waiting for
+the listener to clear some queue space), or we have to lose some messages so
+that the new message can be queued (or, perhaps, the new message gets thrown
+away -- for the moment these are equivalent).
+
+Both solutions make sense in different circumstances, so it would appear that
+
+a. A listener must be able to declare if it *requires* to receive all
+   messages, or if it can lose (random!) messages - this means a new flag to
+   the "bind" mechanism.
+
+b. A sender needs to be able to say if it wants a message to be:
+
+   1. added to all the listener queues, regardless (subject to the above
+      lossiness), in which case it will block until that can be done
+      (ALL or WAIT, sender blocks)
+   2. added to all the listener queues, and fail if that can't be done
+      (ALL or FAIL)
+   3. added to all the listener queues that *require* the message, and any
+      other listener queues that have room
+      (REQUIRED)
+
+Meanwhile, I had misunderstood the "exclusive" binding idea. The intent is
+actually to distinguish "replier" from "non-replier". Thus a message can be
+bound to exactly one replier (or none, of course), but any number of
+non-repliers.
+
+Note that a replier can opt to be a non-required listener -- if a message
+requiring a reply is sent to its queue, and then gets thrown away, kbus should
+generate an appropriate synthetic reply (saying, for instance, that N messages
+requiring reply have been dropped).
+
+Moreover, wildcards and repliers
+================================
+If a listener binds as a replier with a wildcard - for instance, on  
+'$.sensors.*' (or '$.sensors', which Richard would have as the same  
+thing - this is important to remember later on), then they are the *default*
+replier for all the implicated  message names.
+
+If another listener then binds as a specific replier - for instance,  
+on '$.sensors.kitchen', then they are the sole replier for that  
+message, and the default replier will no longer be passed  
+'$.sensores.kitchen' messages that need a reply.
+
+If the default listener still wants to find out about such messages,  
+it needs to (also) bind as a plain listener on '$.sensors.*' (so that  
+it gets all messages just as a listener),
+
+kbus does not need to tell the default listener that it has done this  
+(but note the documentation describes how to find out about people  
+binding as listeners, so if it cared it could find out that way, and  
+of course it can always find out its own id, and then ask who is the  
+current replier for a specific message - although it might not know  
+about it -- it would have to use the /kbus/proc/bindings interface to  
+find out about all message bindings).
+
+Emergent terminology
+====================
+* Sender
+* Listener and replier
+* Guaranteed or lossy receipt (i.e., is the listener guaranteed to get all
+  messages with that name, or might some be dropped)
+
+
+// Local Variables:
+// tab-width: 8
+// indent-tabs-mode: nil
+// c-basic-offset: 2
+// End:
+// vim: set filetype=rst tabstop=8 shiftwidth=2 expandtab:
