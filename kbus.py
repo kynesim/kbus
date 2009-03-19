@@ -90,11 +90,12 @@ def _IOWR(t,nr,size):
     return _IOC(_IOC_READ | _IOC_WRITE, t, nr, size)
 
 KBUS_IOC_MAGIC = 'k'
-KBUS_IOC_RESET	  = _IO(KBUS_IOC_MAGIC, 1)
-KBUS_IOC_BIND	  = _IOW(KBUS_IOC_MAGIC, 2, ctypes.sizeof(ctypes.c_char_p))
-KBUS_IOC_UNBIND	  = _IOW(KBUS_IOC_MAGIC, 3, ctypes.sizeof(ctypes.c_char_p))
-KBUS_IOC_BOUNDAS  = _IOR(KBUS_IOC_MAGIC, 4, ctypes.sizeof(ctypes.c_char_p))
+KBUS_IOC_RESET	  = _IO(KBUS_IOC_MAGIC,   1)
+KBUS_IOC_BIND	  = _IOW(KBUS_IOC_MAGIC,  2, ctypes.sizeof(ctypes.c_char_p))
+KBUS_IOC_UNBIND	  = _IOW(KBUS_IOC_MAGIC,  3, ctypes.sizeof(ctypes.c_char_p))
+KBUS_IOC_BOUNDAS  = _IOR(KBUS_IOC_MAGIC,  4, ctypes.sizeof(ctypes.c_char_p))
 KBUS_IOC_REPLIER  = _IOWR(KBUS_IOC_MAGIC, 5, ctypes.sizeof(ctypes.c_char_p))
+KBUS_IOC_NEXTLEN  = _IO(KBUS_IOC_MAGIC,   6)
 
 def setup_module():
     retcode = system('sudo insmod kbus.ko')
@@ -399,6 +400,11 @@ def bound_as(f):
     id = array.array('L',[0])
     fcntl.ioctl(f, KBUS_IOC_BOUNDAS, id, True)
     return id[0]
+
+def next_len(f):
+    """Return the length of the next message (if any) on this file descriptor
+    """
+    return fcntl.ioctl(f, KBUS_IOC_NEXTLEN, 0)
 
 class KbufListenerStruct(ctypes.Structure):
     """The datastucture we need to describe a KBUS_IOC_REPLIER argument
@@ -865,5 +871,71 @@ class TestKernelModule:
 
         finally:
             assert self.detach(f) is None
+
+    def test_read_write_2files(self):
+        """Test reading and writing between two files.
+        """
+        f1 = self.attach('wb+')
+        assert f1 != None
+        try:
+            f2 = self.attach('wb+')
+            assert f2 != None
+            try:
+                self.bind(f1,'$.Fred')
+                self.bind(f1,'$.Fred',False)
+                self.bind(f1,'$.Fred',False)
+
+                self.bind(f2,'$.Jim')
+
+                # Writing to $.Fred on f1 - writes messages N, N+1. N+2
+                msgF = Message('$.Fred','data')
+                msgF.to_file(f1)
+
+                # No one is listening for $.William
+                msgW = Message('$.William')
+                nose.tools.assert_raises(IOError,msgW.to_file,f1)
+                nose.tools.assert_raises(IOError,msgW.to_file,f2)
+
+                # Writing to $.Jim on f1 - writes message N+3
+                msgJ = Message('$.Jim','moredata')
+                msgJ.to_file(f1)
+
+                # Reading f1 - message N
+                assert next_len(f1) == msgF.length*4
+                # By the way - it's still the next length until we read
+                assert next_len(f1) == msgF.length*4
+                data = Message(f1.read(msgF.length*4))
+                # Extract the message id -- this is N
+                n0 = data.extract()[0]
+
+                # Reading f2 - should be message N+3 ...
+                assert next_len(f2) == msgJ.length*4
+                data = Message(f2.read(msgJ.length*4))
+                n3 = data.extract()[0]
+                assert n3 == n0+3
+
+                # Reading f1 - should be message N+1 ...
+                assert next_len(f1) == msgF.length*4
+                data = Message(f1.read(msgF.length*4))
+                n1 = data.extract()[0]
+                assert n1 == n0+1
+
+                # Reading f1 - should be message N+2 ...
+                assert next_len(f1) == msgF.length*4
+                data = Message(f1.read(msgF.length*4))
+                n2 = data.extract()[0]
+                assert n2 == n0+2
+
+                # No more messages on f1
+                assert next_len(f1) == 0
+                assert f1.read(1) == ''
+
+                # No more messages on f2
+                assert next_len(f2) == 0
+                assert f1.read(2) == ''
+            finally:
+                assert self.detach(f2) is None
+        finally:
+            assert self.detach(f1) is None
 
 # vim: set tabstop=8 shiftwidth=4 expandtab:

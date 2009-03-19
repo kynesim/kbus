@@ -1,5 +1,5 @@
 import os
-from kbus import Message, bind
+from kbus import Message, bind, next_len
 from array import array
 
 print 'Opening device f1 for read/write'
@@ -35,7 +35,7 @@ msg = Message('$.Jim','data')
 msg.to_file(f1)
 
 print 'Reading f1 - message N'
-data = Message(f1.read(msg.length*4))
+data = Message(f1.read(next_len(f1)))
 print data.extract()
 n0 = data.extract()[0]
 

@@ -202,8 +202,16 @@ struct kbus_message_struct {
 /*
  * Given name_len (in bytes) and data_len (in 32-bit words), return the
  * length of the appropriate kbus_message_struct, in bytes
+ *
+ * Don't forget the end guard at the end...
+ *
+ * Note that "sizeof" doesn't count the 'rest' field in our message structure
+ * (I still want to *use* "sizeof", so it tracks the number of fields for me,
+ * in case I add another field and forget to amend this macro...)
  */
-#define KBUS_MSG_LEN(name_len,data_len)    4*(8 + data_len + (name_len+3)/4)
+#define KBUS_MSG_LEN(name_len,data_len)    (sizeof(struct kbus_message_struct) + \
+					    4 * ((name_len+3)/4 + data_len + 1))
+
 /*
  * The message name starts at msg->rest[0].
  * The message data starts after the message name - given the message
@@ -295,7 +303,6 @@ static struct kbus_dev       kbus_dev;
 struct kbus_message_queue_item {
 	struct list_head		 list;
 	struct kbus_message_struct	*msg;
-
 };
 
 /*
@@ -333,6 +340,7 @@ static int kbus_dissect_message(struct kbus_message_struct	 *msg,
 	}
 
 	*msg_len = KBUS_MSG_LEN(msg->name_len,msg->data_len);
+	printk(KERN_DEBUG "XXXX: message len %u\n",*msg_len);
 
 	data_idx = KBUS_MSG_DATA_INDEX(msg->name_len);
 	end_guard_idx = KBUS_MSG_END_GUARD_INDEX(msg->name_len,
@@ -491,6 +499,49 @@ static struct kbus_message_struct *kbus_pop_message(struct kbus_private_data *pr
 done:
 	up(&dev->sem);
 	return msg;
+}
+
+/*
+ * Return the length of the next message waiting to be read (if any) on this
+ * listener's file descriptor
+ *
+ * Returns 0 if there is no message, the message size (in bytes) if there is,
+ * and a negative number if something goes wrong.
+ */
+static int kbus_next_message_len(struct kbus_private_data  *priv)
+{
+	struct kbus_dev		  	*dev = priv->dev;
+	struct list_head		*queue = &priv->message_queue;
+	struct kbus_message_queue_item	*ptr;
+	struct kbus_message_struct	*msg;
+	int    retval = 0;
+
+	printk(KERN_DEBUG "kbus: ** Looking for length of next message\n");
+
+	if (down_interruptible(&dev->sem))
+		return -ERESTARTSYS;
+
+	if (list_empty(queue))
+		goto done;
+
+	/* Retrieve the next message */
+	ptr = list_first_entry(queue, struct kbus_message_queue_item, list);
+	msg = ptr->msg;
+	retval = KBUS_MSG_LEN(msg->name_len,msg->data_len);
+
+	{
+		uint32_t  data_idx = KBUS_MSG_DATA_INDEX(msg->name_len);
+		char     *name_p = (char *)&msg->rest[0];
+		uint32_t *data_p = &msg->rest[data_idx];
+		printk(KERN_DEBUG "kbus: First message len %d id:%u to:%u from:%u"
+		       " flags:%08x name:'%*s' data/%u:%08x\n",retval,
+		       msg->id,msg->to,msg->from,msg->flags,msg->name_len,
+		       name_p,msg->data_len,data_p[0]);
+	}
+
+done:
+	up(&dev->sem);
+	return retval;
 }
 
 /*
@@ -904,7 +955,7 @@ static int kbus_forget_open_file(struct kbus_dev	*dev,
 	/* We don't want anyone writing to the list whilst we do this */
 	list_for_each_entry_safe(ptr, next, &dev->open_files_list, list) {
 		if (id == ptr->id) {
-			printk(KERN_DEBUG "kbus: Forgetting 'open file' id %u",
+			printk(KERN_DEBUG "kbus: Forgetting 'open file' id %u\n",
 			       id);
 			/* So remove it from our list */
 			list_del(&ptr->list);
@@ -931,7 +982,7 @@ static void kbus_forget_all_open_files(struct kbus_dev	*dev)
 	struct kbus_private_data *next;
 
 	list_for_each_entry_safe(ptr, next, &dev->open_files_list, list) {
-		printk(KERN_DEBUG "kbus: Forgetting 'open file' id %u",
+		printk(KERN_DEBUG "kbus: Forgetting 'open file' id %u\n",
 		       ptr->id);
 		/* So remove it from our list */
 		list_del(&ptr->list);
@@ -1020,7 +1071,7 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 	struct kbus_dev			*dev = priv->dev;
 	struct kbus_message_struct	*msg = NULL;
 
-	unsigned	 msg_len;
+	uint32_t	 msg_len;
 	char		*name_p;
 	uint32_t	*data_p;
 	ssize_t		 retval = -EADDRNOTAVAIL; /* Hmm, is this sensible? */
@@ -1213,13 +1264,14 @@ done:
 
 #include <linux/ioctl.h>
 #define KBUS_IOC_MAGIC	'k'	/* 0x6b - which seems fair enough for now */
-#define KBUS_IOC_RESET	  _IO(KBUS_IOC_MAGIC, 1)		/* 0x00006b01 */
+#define KBUS_IOC_RESET	  _IO(KBUS_IOC_MAGIC,  1)		/* 0x00006b01 */
 #define KBUS_IOC_BIND	  _IOW(KBUS_IOC_MAGIC, 2, char *)	/* 0x40046b02 */
 #define KBUS_IOC_UNBIND	  _IOW(KBUS_IOC_MAGIC, 3, char *)	/* 0x40046b03 */
 #define KBUS_IOC_BOUNDAS  _IOR(KBUS_IOC_MAGIC, 4, char *)	/* 0x80046b04 */
-#define KBUS_IOC_REPLIER  _IOWR(KBUS_IOC_MAGIC, 5, char *)	/* 0xC0046b05 */
+#define KBUS_IOC_REPLIER  _IOWR(KBUS_IOC_MAGIC,5, char *)	/* 0xC0046b05 */
+#define KBUS_IOC_NEXTLEN  _IO(KBUS_IOC_MAGIC,  6)		/* 0x00046b06 */
 /* XXX If adding another IOCTL, remember to increment the next number! XXX */
-#define KBUS_IOC_MAXNR	5
+#define KBUS_IOC_MAXNR	6
 
 static int kbus_ioctl(struct inode *inode, struct file *filp,
 		      unsigned int cmd, unsigned long arg)
@@ -1368,6 +1420,14 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 						   query->len,
 						   query->name);
 		}
+		break;
+
+	case KBUS_IOC_NEXTLEN:
+		/*
+		 * What is the length of the next message queued for this
+		 * file descriptor (0 if no next message)
+		 */
+		retval = kbus_next_message_len(priv);
 		break;
 
 	default:  /* *Should* be redundant, if we got our range checks right */
@@ -1562,8 +1622,8 @@ static void __exit kbus_exit(void)
 module_init(kbus_init);
 module_exit(kbus_exit);
 
-MODULE_DESCRIPTION("KBUS lighweight messaging system");
-MODULE_AUTHOR("tibs@kynesim.co.uk, tony.ibbs@gmail.com");
+MODULE_DESCRIPTION("KBUS lightweight messaging system");
+MODULE_AUTHOR("tibs@tibsnjoan.co.uk, tony.ibbs@gmail.com");
 /*
  * All well-behaved Linux kernel modules should be licensed under GPL v2.
  * So shall it be.
