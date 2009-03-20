@@ -1513,6 +1513,12 @@ static int __init kbus_init(void)
 	/* XXX The above underlining is to allow me to see transitions in */
 	/* XXX the dmesg output (obviously) */
 
+	if (kbus_num_devices < MIN_NUM_DEVICES ||
+	    kbus_num_devices > MAX_NUM_DEVICES) {
+		printk(KERN_ERR "kbus: requested number of devices %d not %d..%d\n",
+		       kbus_num_devices,MIN_NUM_DEVICES,MAX_NUM_DEVICES);
+		return -EINVAL;
+	}
 
 	/* ================================================================= */
 	/*
