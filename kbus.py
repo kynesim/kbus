@@ -51,6 +51,7 @@ it is likely enough not to do this, as the "user" will be root.
 #
 # ***** END LICENSE BLOCK *****
 
+import sys
 import os
 import subprocess
 import nose
@@ -58,6 +59,7 @@ import fcntl
 import time
 import ctypes
 import array
+import errno
 
 # Kernel definitions for ioctl commands
 # Following closely from #include <asm[-generic]/ioctl.h>
@@ -535,6 +537,24 @@ def bindings_match(bindings):
             print '  %10u %c %c %s'%(f,str_rep(r),str_all(a),n)
     return False
 
+def check_IOError(expected_errno,fn,*stuff):
+    """When calling apply(fn,stuff), check for IOError with the given errno.
+
+    Check that is what happens...
+    """
+    try:
+        apply(fn,stuff)
+        # We're not expecting to get here...
+        assert False, 'Applying %s did not fail with IOError'%stuff
+    except IOError, e:
+        actual_errno = e.args[0]
+        errno_name = errno.errorcode[actual_errno]
+        expected_errno_name = errno.errorcode[expected_errno]
+        assert actual_errno == expected_errno, \
+                'expected %s, got %s'%(expected_errno_name,errno_name)
+    except Exception, e:
+        print e
+        assert False, 'Applying %s failed with %s, not IOError'%(stuff,sys.exc_type)
 
 class TestKernelModule:
 
@@ -615,7 +635,7 @@ class TestKernelModule:
 
             # We can't write to it
             msg2 = Message('$.Fred','data')
-            nose.tools.assert_raises(IOError, msg2.to_file,f)
+            check_IOError(errno.EBADF,msg2.to_file,f)
         finally:
             assert self.detach(f) is None
 
@@ -644,14 +664,8 @@ class TestKernelModule:
 
             # If we try to write a message that nobody is listening for,
             # we get an appropriate error
-            try:
-                msg3 = Message('$.D','fred')
-                msg3.to_file(f)
-                assert 1 == 2   # we should never reach this!
-            except IOError, exc:
-                assert exc.args[0] == 99
-            except:
-                assert 1 == 2   # again, we should never get here
+            msg3 = Message('$.D','fred')
+            check_IOError(errno.EADDRNOTAVAIL,msg3.to_file,f)
 
         finally:
             assert self.detach(f) is None
@@ -699,15 +713,15 @@ class TestKernelModule:
         try:
             # - BIND
             # The "Bind" ioctl requires a proper argument
-            nose.tools.assert_raises(IOError,fcntl.ioctl,f, KBUS_IOC_BIND, 0)
+            check_IOError(errno.EINVAL, fcntl.ioctl,f, KBUS_IOC_BIND, 0)
             # Said string must not be zero length
-            nose.tools.assert_raises(IOError, self.bind, f, '', True)
+            check_IOError(errno.EINVAL, self.bind, f, '', True)
             # At some point, it will have restrictions on what it *should* look
             # like
             self.bind(f,'$.Fred')
             # - UNBIND
-            nose.tools.assert_raises(IOError,fcntl.ioctl,f, KBUS_IOC_UNBIND, 0)
-            nose.tools.assert_raises(IOError,fcntl.ioctl,f, KBUS_IOC_UNBIND, '')
+            check_IOError(errno.EINVAL, fcntl.ioctl,f, KBUS_IOC_UNBIND, 0)
+            check_IOError(errno.EINVAL, self.unbind,f, '', True)
             self.unbind(f,'$.Fred')
         finally:
             assert self.detach(f) is None
@@ -754,10 +768,10 @@ class TestKernelModule:
             self.unbind(f,'$.Fred',False)
             self.unbind(f,'$.Fred',False)
             # But not too many
-            nose.tools.assert_raises(IOError,self.unbind,f,'$.Fred')
-            nose.tools.assert_raises(IOError,self.unbind,f,'$.Fred',False)
+            check_IOError(errno.EINVAL, self.unbind,f, '$.Fred')
+            check_IOError(errno.EINVAL, self.unbind,f, '$.Fred',False)
             # We can't unbind something we've not bound
-            nose.tools.assert_raises(IOError,self.unbind,f,'$.JimBob',False)
+            check_IOError(errno.EINVAL, self.unbind,f, '$.JimBob',False)
         finally:
             assert self.detach(f) is None
 
@@ -781,7 +795,7 @@ class TestKernelModule:
                 self.bind(f1,'$.Fred',replier=False)
                 # But we can only have one replier
                 self.bind(f1,'$.Fred',replier=True)
-                nose.tools.assert_raises(IOError,self.bind,f1,'$.Fred',True)
+                check_IOError(errno.EADDRINUSE, self.bind,f1, '$.Fred',True)
 
                 # Two files can bind to the same thing
                 self.bind(f1,'$.Jim.Bob',replier=False)
@@ -791,7 +805,7 @@ class TestKernelModule:
                 # general there should be one, and if the binder is *not* a
                 # replier, they probably should have thought about this).
                 self.bind(f1,'$.Jim.Bob')
-                nose.tools.assert_raises(IOError,self.bind,f2,'$.Jim.Bob')
+                check_IOError(errno.EADDRINUSE, self.bind,f2, '$.Jim.Bob')
 
                 # Oh, and not all messages need to be received
                 # - in our interfaces, we default to allowing kbus to drop
@@ -853,8 +867,9 @@ class TestKernelModule:
             msg1.to_file(f)
             print 'Wrote:',msg1
 
+            # There are no listeners for '$.Fred.Bob.William'
             msg2 = Message(name2,data=data2)
-            nose.tools.assert_raises(IOError, msg2.to_file, f)
+            check_IOError(errno.EADDRNOTAVAIL, msg2.to_file, f)
 
             data = f.read(msg1.length*4)
             msg1r = Message(data)
@@ -893,8 +908,8 @@ class TestKernelModule:
 
                 # No one is listening for $.William
                 msgW = Message('$.William')
-                nose.tools.assert_raises(IOError,msgW.to_file,f1)
-                nose.tools.assert_raises(IOError,msgW.to_file,f2)
+                check_IOError(errno.EADDRNOTAVAIL,msgW.to_file,f1)
+                check_IOError(errno.EADDRNOTAVAIL,msgW.to_file,f2)
 
                 # Writing to $.Jim on f1 - writes message N+3
                 msgJ = Message('$.Jim','moredata')
