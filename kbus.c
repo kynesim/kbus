@@ -1215,20 +1215,14 @@ done:
 	return retval;
 }
 
-// XXX For my elucidation whilst coding -- to be removed!
-//#define _IO(type,nr)            _IOC(_IOC_NONE,(type),(nr),0)
-//#define _IOR(type,nr,size)      _IOC(_IOC_READ,(type),(nr),(_IOC_TYPECHECK(size)))
-//#define _IOW(type,nr,size)      _IOC(_IOC_WRITE,(type),(nr),(_IOC_TYPECHECK(size)))
-//#define _IOWR(type,nr,size)     _IOC(_IOC_READ|_IOC_WRITE,(type),(nr),(_IOC_TYPECHECK(size)))
-
 #include <linux/ioctl.h>
 #define KBUS_IOC_MAGIC	'k'	/* 0x6b - which seems fair enough for now */
-#define KBUS_IOC_RESET	  _IO(KBUS_IOC_MAGIC,  1)		/* 0x00006b01 */
-#define KBUS_IOC_BIND	  _IOW(KBUS_IOC_MAGIC, 2, char *)	/* 0x40046b02 */
-#define KBUS_IOC_UNBIND	  _IOW(KBUS_IOC_MAGIC, 3, char *)	/* 0x40046b03 */
-#define KBUS_IOC_BOUNDAS  _IOR(KBUS_IOC_MAGIC, 4, char *)	/* 0x80046b04 */
-#define KBUS_IOC_REPLIER  _IOWR(KBUS_IOC_MAGIC,5, char *)	/* 0xC0046b05 */
-#define KBUS_IOC_NEXTLEN  _IO(KBUS_IOC_MAGIC,  6)		/* 0x00046b06 */
+#define KBUS_IOC_RESET	  _IO(KBUS_IOC_MAGIC,  1)
+#define KBUS_IOC_BIND	  _IOW(KBUS_IOC_MAGIC, 2, char *)
+#define KBUS_IOC_UNBIND	  _IOW(KBUS_IOC_MAGIC, 3, char *)
+#define KBUS_IOC_BOUNDAS  _IOR(KBUS_IOC_MAGIC, 4, char *)
+#define KBUS_IOC_REPLIER  _IOWR(KBUS_IOC_MAGIC,5, char *)
+#define KBUS_IOC_NEXTLEN  _IO(KBUS_IOC_MAGIC,  6)
 /* XXX If adding another IOCTL, remember to increment the next number! XXX */
 #define KBUS_IOC_MAXNR	6
 
