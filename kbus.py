@@ -100,7 +100,8 @@ KBUS_IOC_REPLIER  = _IOWR(KBUS_IOC_MAGIC, 5, ctypes.sizeof(ctypes.c_char_p))
 KBUS_IOC_NEXTLEN  = _IO(KBUS_IOC_MAGIC,   6)
 
 def setup_module():
-    retcode = system('sudo insmod kbus.ko')
+    retcode = system('sudo insmod kbus.ko kbus_num_devices=3')
+    #retcode = system('sudo insmod kbus.ko')
     assert retcode == 0
     # Via the magic of hotplugging, that should cause our device to exist
     # ...eventually
@@ -432,9 +433,9 @@ def read_bindings(names):
 
     /proc/kbus/bindings gives us data like::
 
-            10 R T $.Fred
-            11 L T $.Fred.Bob
-            12 R F $.William
+            0: 10 R T $.Fred
+            0: 11 L T $.Fred.Bob
+            0: 12 R F $.William
 
     'names' is a dictionary of file descriptor binding id to string (name)
     - for instance:
@@ -454,7 +455,10 @@ def read_bindings(names):
     f.close()
     bindings = []
     for line in l:
-        id,rep,all,name = line.split()
+        # 'dev' is the device index (default is 0, may be 0..9 depending on how
+        # many /dev/kbus<N> devices there are).
+        # For the moment, we're going to ignore it.
+        dev,id,rep,all,name = line.split()
         id = int(id)
         if id in names:
             id = names[int(id)]

@@ -51,13 +51,27 @@
 #include <linux/list.h>
 #include <asm/uaccess.h>	/* copy_*_user() functions */
 
+/*
+ * The actual number of /dev/kbus<N> devices can be set at module
+ * startup. We set hard limits so it is between 1 and 10, and default
+ * to 1.
+ *
+ * For instance::
+ *
+ *     # insmod kbus.ko kbus_num_devices=5
+ */
+#define MIN_NUM_DEVICES		 1
+#define MAX_NUM_DEVICES		10
+#define DEF_NUM_DEVICES		 1
+
+static int  kbus_num_devices = DEF_NUM_DEVICES;
+
 /* Who we are -- devices */
 static int  kbus_major = 0;             /* We'll go for dynamic allocation */
 static int  kbus_minor = 0;             /* We're happy to start with device 0 */
-static int  kbus_num_devices = 1;       /* And we only want one device */
 
-static struct class     *kbus_class_p;
-static struct device    *kbus_class_device_p; /* We only have one device */
+static struct class      *kbus_class_p;
+static struct device    **kbus_class_devices;
 
 /* When the user asks to bind a message name to an interface, they use: */
 struct kbus_m_bind_struct {
@@ -298,15 +312,10 @@ struct kbus_dev
 	 * want to reply. We reserve the id 0 as a special value ("none").
 	 */
 	uint32_t		next_id;/* Next value for file id */
-
-	/*
-	 * For initial testing, we only have a single message...
-	 */
-	struct kbus_message_struct	*message;
 };
 
-/* However, we only have a single device, /dev/kbus0 */
-static struct kbus_dev       kbus_dev;
+/* Our actual devices, 0 through kbus_num_devices */
+static struct kbus_dev       *kbus_devices;
 
 /*
  * Each entry in a message queue holds a single message.
@@ -1414,6 +1423,13 @@ static void kbus_setup_cdev(struct kbus_dev *dev, int devno)
 	 */
 	init_MUTEX(&dev->sem);
 
+	/*
+	 * This seems like a sensible place to setup other device specific
+	 * stuff, too.
+	 */
+	INIT_LIST_HEAD(&dev->bound_message_list);
+	INIT_LIST_HEAD(&dev->open_files_list);
+
 	dev->next_id = 0;
 
 	cdev_init(&dev->cdev, &kbus_fops);
@@ -1422,11 +1438,14 @@ static void kbus_setup_cdev(struct kbus_dev *dev, int devno)
 	err = cdev_add(&dev->cdev, devno, 1);
 	if (err)
 		printk(KERN_ERR "Error %d adding kbus0 as a character device\n",err);
+}
 
-	/*
-	 * For the moment we maintain a single message, which starts empty
-	 */
-	dev->message = NULL;
+static void kbus_teardown_cdev(struct kbus_dev *dev)
+{
+	cdev_del(&dev->cdev);
+
+	kbus_forget_all_bindings(dev);
+	kbus_forget_all_open_files(dev);
 }
 
 /* ========================================================================= */
@@ -1443,34 +1462,40 @@ static struct proc_dir_entry *kbus_proc_file_bindings;
 static int kbus_read_proc_bindings(char *buf, char **start, off_t offset,
 				   int count, int *eof, void *data)
 {
-	/* We only have one KBUS device */
-	struct kbus_dev	*dev = &kbus_dev;
-
-	struct kbus_message_binding *ptr;
-	struct kbus_message_binding *next;
+	int ii;
 	int len = 0;
 	int limit = count - 4;		/* Leaving room for "...\n" */
 
-	if (down_interruptible(&dev->sem))
-		return -ERESTARTSYS;
+	/* We report on all of the KBUS devices */
+	for (ii=0; ii<kbus_num_devices; ii++) {
+		struct kbus_dev	*dev = &kbus_devices[ii];
 
-	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
-		if (len + 11 + 3 + 3 + strlen(ptr->name) + 1 < limit)
-		{
-			len += sprintf(buf+len,
-				       "%11u %c %c %s\n",
-				       ptr->bound_to,
-				       (ptr->replier?'R':'L'),
-				       (ptr->guaranteed?'T':'F'),
-				       ptr->name);
-		} else {
-			/* Icky trick to indicate we didn't finish */
-			len += sprintf(buf+len,"...\n");
+		struct kbus_message_binding *ptr;
+		struct kbus_message_binding *next;
+
+		if (down_interruptible(&dev->sem))
+			return -ERESTARTSYS;
+
+		list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
+			if (len + 4 + 10 + 3 + 3 +
+			    strlen(ptr->name) + 1 < limit)
+			{
+				len += sprintf(buf+len,
+					       "%2d: %1u %c %c %s\n",
+					       ii,
+					       ptr->bound_to,
+					       (ptr->replier?'R':'L'),
+					       (ptr->guaranteed?'T':'F'),
+					       ptr->name);
+			} else {
+				/* Icky trick to indicate we didn't finish */
+				len += sprintf(buf+len,"...\n");
+			}
 		}
-	}
 
-	up(&dev->sem);
-	*eof = 1;
+		up(&dev->sem);
+		*eof = 1;
+	}
 	return len;
 }
 
@@ -1479,31 +1504,44 @@ static int kbus_read_proc_bindings(char *buf, char **start, off_t offset,
 static int __init kbus_init(void)
 {
 	int   result;
+	int   ii;
 	dev_t devno = 0;
 
-	printk(KERN_NOTICE "Initialising kbus module\n");
+	printk(KERN_NOTICE "Initialising kbus module (%d device%s)\n",
+	       kbus_num_devices, kbus_num_devices==1?"":"s");
 	printk(KERN_NOTICE "========================\n"); /* XXX Naughty me */
 	/* XXX The above underlining is to allow me to see transitions in */
 	/* XXX the dmesg output (obviously) */
 
-	INIT_LIST_HEAD(&kbus_dev.bound_message_list);
-	INIT_LIST_HEAD(&kbus_dev.open_files_list);
 
 	/* ================================================================= */
 	/*
 	 * Our main purpose is to provide /dev/kbus
-	 * We want 1 device number, and are happy to start with device 0
+	 * We are happy to start our device numbering with device 0
 	 */
 	result = alloc_chrdev_region(&devno, kbus_minor, kbus_num_devices, "kbus");
 	/* We're quite happy with dynamic allocation of our major number */
 	kbus_major = MAJOR(devno);
 	if (result < 0) {
-		printk(KERN_WARNING "kbus: Cannot allocate device\n");
+		printk(KERN_WARNING "kbus: Cannot allocate character device region\n");
 		return result;
 	}
 
-	/* Connect the device up with its operations */
-	kbus_setup_cdev(&kbus_dev,devno);
+	kbus_devices = kmalloc(kbus_num_devices * sizeof(struct kbus_dev),
+			       GFP_KERNEL);
+	if (!kbus_devices) {
+		printk(KERN_WARNING "kbus: Cannot allocate devices\n");
+		unregister_chrdev_region(devno, kbus_num_devices);
+		return -ENOMEM;
+	}
+	memset(kbus_devices, 0, kbus_num_devices * sizeof(struct kbus_dev));
+
+	for (ii=0; ii<kbus_num_devices; ii++)
+	{
+		/* Connect the device up with its operations */
+		devno = MKDEV(kbus_major,kbus_minor+ii);
+		kbus_setup_cdev(&kbus_devices[ii],devno);
+	}
 
 	/* ================================================================= */
 	/* +++ NB: before kernel 2.6.13, the functions below were
@@ -1533,7 +1571,23 @@ static int __init kbus_init(void)
 	 * Whilst we only want one device at the moment, name it "kbus0" in case we
 	 * decide we're wrong later on.
 	 */
-	kbus_class_device_p = device_create(kbus_class_p, NULL, devno, NULL, "kbus0");
+
+	kbus_class_devices = kmalloc(kbus_num_devices * sizeof(*kbus_class_devices),
+				     GFP_KERNEL);
+	if (!kbus_class_devices)
+	{
+		printk(KERN_ERR "kbus: Error creating kbus class device array\n");
+		unregister_chrdev_region(devno, kbus_num_devices);
+		class_destroy(kbus_class_p);
+		/* XXX Is this enough tidying up? CHECK XXX */
+		return -ENOMEM;
+	}
+
+	for (ii=0; ii<kbus_num_devices; ii++) {
+		dev_t this_devno = MKDEV(kbus_major,kbus_minor+ii);
+		kbus_class_devices[ii] = device_create(kbus_class_p, NULL,
+						       this_devno, NULL, "kbus%d", ii);
+	}
 
 	/* ================================================================= */
 	/*
@@ -1554,7 +1608,8 @@ static void __exit kbus_exit(void)
 {
 	/* No locking done, as we're standing down */
 
-	dev_t  devno = MKDEV(kbus_major, kbus_minor);
+	int   ii;
+	dev_t devno = MKDEV(kbus_major,kbus_minor);
 
 	printk(KERN_NOTICE "Standing down kbus module\n");
 
@@ -1562,10 +1617,15 @@ static void __exit kbus_exit(void)
 	 * If I'm destroying the class, do I actually need to destroy the
 	 * individual device therein first? Best safe...
 	 */
-	device_destroy(kbus_class_p, devno);
+	for (ii=0; ii<kbus_num_devices; ii++) {
+		dev_t this_devno = MKDEV(kbus_major,kbus_minor+ii);
+		device_destroy(kbus_class_p, this_devno);
+	}
 	class_destroy(kbus_class_p);
 
-	cdev_del(&kbus_dev.cdev);
+	for (ii=0; ii<kbus_num_devices; ii++) {
+		kbus_teardown_cdev(&kbus_devices[ii]);
+	}
 	unregister_chrdev_region(devno, kbus_num_devices);
 
 	if (kbus_proc_dir) {
@@ -1573,11 +1633,9 @@ static void __exit kbus_exit(void)
 			remove_proc_entry("bindings",kbus_proc_dir);
 		remove_proc_entry("kbus",NULL);
 	}
-
-	kbus_forget_all_bindings(&kbus_dev);
-	kbus_forget_all_open_files(&kbus_dev);
 }
 
+module_param(kbus_num_devices, int, S_IRUGO);
 module_init(kbus_init);
 module_exit(kbus_exit);
 
