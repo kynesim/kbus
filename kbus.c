@@ -351,7 +351,6 @@ static int kbus_dissect_message(struct kbus_message_struct	 *msg,
 	}
 
 	*msg_len = KBUS_MSG_LEN(msg->name_len,msg->data_len);
-	printk(KERN_DEBUG "XXXX: message len %u\n",*msg_len);
 
 	data_idx = KBUS_MSG_DATA_INDEX(msg->name_len);
 	end_guard_idx = KBUS_MSG_END_GUARD_INDEX(msg->name_len,
