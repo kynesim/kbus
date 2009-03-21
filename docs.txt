@@ -1,158 +1,248 @@
 KBUS -- Lightweight kernel-mediated messaging
 =============================================
 
-This is emergent documentation for the KBUS kernel module. It is intended to
-be usable as a "doctest" file, and it is quite possible that ``nosetests``
-will run any tests included.
+This is emergent documentation for the KBUS kernel module.
 
-Messages and binding and suchlike
-=================================
-Boring setup stuff:
+It is intended that (if kbus is installed) this document should work as a
+doctest, testing that all Python examples actually work.
 
-    >>> import fcntl
-    >>> KBUS_IOC_BIND = 0x40046b02
-    >>> KBUS_IOC_UNBIND = 0x40046b03
+The basics
+==========
+KBUS provides lightweight kernel-mediated messaging for Linux.
 
-Mesage names (e.g., "$.Zwave.Sensors.Kitchen") allow alphanumerics between the
-dots. Upper and lower case are distinct.
+* "lightweight" means that there is no intent to provide complex or
+  sophisticated mechanisms - if you need something more, consider DBUS or
+  other alternatives.
 
-A message id is created when a client binds to a message name:
+* "kernel-mediated" means that the actual business of message passing and
+  message synchronisation is handled by a kernel module.
 
-    >>> f = open('/dev/kbus0')
-    >>> fcntl.ioctl(f,KBUS_IOC_BIND,'$.Fred')
+* "for Linux" means what it says - the initial code is for the Linux kernel.
 
-and is notionally formed from the client id (let's say 'f') and the message
-name -- so in this case, we have a message id ``(f,'$.Fred')``. Such message
-ids are also given a numeric id as well.
+Initial use is expected to be in embedded systems.
 
-A client can bind to a message *exclusively* which means that it can reply to
-it. In the initial implementation, only non-wildcarded messages can have
-exclusive recipients.
+There is (at least initially) no intent to aim for a "fast" system - this is
+not aimed at real-time systems.
 
-A sender can use an ioctl to find out who (if anyone) has bound to a message
-exclusively - this will return the numeric id for a (recipient,message name)
-entity.
+Although the initial implementation is kernel-mediated, it is assumed that
+there will eventually be bindings for message transmission over ethernet.
 
-When constructing a message "packet" (datastructure), it is possible to
-indicate what the message is by giving its name or its id. Since the id is (by
-definition, above) bound to a particular recipient, this can (usefully) fail
-if that exact recipient has "gone away" (unbound from the message name, for
-whatever reason). This is indicated by a synthetic reply to the caller.
+The basics
+==========
+Python
+------
+Although the KBUS kernel module is written in C, the modules tests are written
+in Python, and there is a Python module providing useful interfaces, which is
+expected to be the normal way of using KBUS (at least initially).
 
-Just notes, no particular order yet
-===================================
+The KBUS devices
+----------------
+Message interactions happen via the KBUS devices. Installing the KBUS kernel
+module always creates ``/dev/kbus0``, it may also create ``/dev/kbus1``, and
+so on.
 
+    The number of devices to create is indicated by an argument at module
+    installation, for instance::
+
+        # insmod kbus.ko num_kbus_devices=10
+
+Messages are sent by writing to a KBUS device, and received by reading from
+the same device. A variety of useful ioctls are also provided. Each KBUS
+device is independent - messages cannot be sent from ``/dev/kbus0`` to
+``/dev/kbus1``, since there is no shared information.
+
+Messages
+--------
+All messages have names - for instance "$.Sensors.Kitchen".
+
+All message names start with "$.", followed by one or more alphanumeric words
+separated by dots. There are two wildcard characters, "*" and "%", which can
+be the last word of a name.
+
+Thus (in some notation or other)::
+
+    name := '$.' + more
+    more := ( word [ '.' more ]* ) | '*' | '%'
+    word := alphanumerics
+
+Case is significant. There is probably a limit on the maximum size of a
+subname, and also on the maximum length of a message name.
+
+Names form a name hierarchym or tree - so "$.Sensors" has children
+"$.Sensors.Kitchen" and "$.Sensors.Bedroom".
+
+If the last word of a name is "*", then this name also includes all the
+child names at that level and below -- i.e., all the names that start with the
+name up to the "*". So "$.Sensors.*" includes "$.Sensors.Kitchen",
+"$.Sensors.Bedroom", "$.Sensors.Kitchen.FireAlarm",
+"$.Sensors.Kitchen.Toaster", "$.Sensors.Bedroom.FireAlarm", and so on.
+
+If the last word of a name is "%", then this name also includes all the child
+names at that level -- i.e., all the names obtained by replacing the "%" by
+another word. So "$.Sensors.%" includes "$.Sensors.Kitchen" and
+"$.Sensors.Bedroom", but not "$.Sensors.Kitchen.Toaster".
+
+Message ids
+-----------
+Every message is given a unique id by KBUS. Message ids ascend.
+
+    Message id 0 is reserved for messages from KBUS, and may or may not
+    participate in this scheme. Message ids are held as unsigned 32-bit
+    integers, and thus will eventually wrap.
+
+Due to the internal queueing mechanisms used, messages order is deterministic.
+
+Listeners
+---------
+Message recipients are called "listeners".
+
+Listeners indicate that they want to receive particular messages. This is done
+by:
+
+1. Opening the appropriate kbus device.
+2. Using the BIND ioctl on the resultant file descriptor to specify the name
+   of the message that is to be listened for.
+
+An ordinary listener will receive all messages with that name (on the relevant
+kbus device). More bindings may be made by repeated use of the BIND ioctl.
+
+For each message name, there may be a single "replier". A replier uses the
+same binding mechanism, but sets the "REPLIER" flag in the BIND ioctl. If
+someone else has already bound as a replier, the request will fail.
+
+Messages are received by reading the file descriptor.
+
+A replier may (should? must?) reply to the message - this is done by writing
+to the file descriptor.
+
+    Thus, the kbus device can be opened read-only for a normal listener,
+    but must be opened read-write for a replier, or if the same file
+    descriptor is also to be used for sending messages.
+
+It is perfectly legitimate to bind to a message as both replier and listener,
+in which case the listener will get a copy of the message as replier (flagged
+as needing a reply), and also a copy of the message as a normal listener.
+
+If a replier binds to a wildcarded message name, then they are the *default*
+replier for any message names satisfying that wildcard. If another listener
+binds as a replier to a specific message name (included in that wildcard),
+then the specific message name binding "wins" - the wildcard replier will no
+longer receive that message name.
+
+This means that if a wildcard replier wants to guarantee to see all the
+messages, they also need to bind as a listner for the same wildcarded name.
+
+If a listener no longer wants to receive a particular message name, then they
+can unbind from it, using the UNBIND ioctl. The message name and flags used in
+an UNBIND must match those in the corresponding BIND.
+
+    Note that this has implication for binding and unbinding wildcards,
+    which must also match.
+
+Closing the file descriptor also unbinds all the message bindings made on it.
+It does not affect message bindings made on other file descriptors.
+
+Senders
+-------
+Message senders are called "senders".
+
+A message is sent by:
+
+1. opening the appropriate kbus device (for write)
+2. writing a messsage to the resultant file descriptor
+
+If there are no listeners bound to that message name, then the write will fail
+(with error XXX).
+
+If the message is flagged as needing a reply, and there are no repliers bound
+to that message name, then the write will fail (with error XXX).
+
+Stateful transactions
+---------------------
+It is possible to make stateful message transactions, by:
+
+1. sending a message that requires a reply
+2. receiving the reply, and noting the listener id of the replier
+3. sending a message (normally, one needing a reply) to that specific listener
+4. and so on
+
+Sending a message to a particular listener will fail if that listener is no
+longer bound to the relevant message name. This allows a sender to guarantee
+that it is communicating with a particular instance of the replier for a
+message name.
+
+Guaranteed delivery, or not
+---------------------------
+Messages are sent by a mechanism which:
+
+1. Takes the message
+2. Finds the listener ids of all the listeners and repliers bound to that
+   messages name
+3. Adds the message to the queue for each listener
+
+This can cause problems if one of the queues is already full (allowing
+infinite expansion of queues would also cause problems, of couse).
+
+There are two mechanisms that can be used to (help) avoid such problems.
+
+Firstly, a listener can choose, when binding to a message name, whether or not
+it is *guaranteed* to receive all messages with that name. If a listener is
+not guaranteed to receive a particular message, and its queue is full, then
+the message will not be added to its queue.
+
+If a *replier* is not guaranteed to receive a particular message, and its
+queue is full, then the message will not be added to its queue, and the sender
+will be sent a synthetic message (an exception) to let it know that this has
+happened.
+
+    The synthetic message may only indicate that N messages have been lost,
+    rather than having a message for each lost message.
+
+Secondly, a sender can indicate if it wants a message to be:
+
+1. Added to all the listener queues, regardless (subject to the above
+   listener guarantee flags), in which case it will block until that can be
+   done (ALL_or_WAIT, sender blocks)
+2. Added to all the listener queues, and fail if that can't be done
+   (ALL_or_FAIL)
+3. Added to all the listener queues that *guarantee* to receive the message,
+   and any other listener queues that have room (GUARANTEED)
+
+Urgent messages
+---------------
+Messages may be flagged urgent. In this case they will be dealt with
+separately -- this is still to be described.
+
+Useful ioctls
+-------------
+
+    Reorganise this section later on, to make it easier to read/use.
+
+There are ioctls to:
+
+* BIND: Bind to a particular message name.
+
+* UNBIND: Unbind a particular binding.
+
+* BOUNDAS: Allow a listener to identify its listener id.
+
+* REPLIER: Find out who is bound as replier to a particular message name. This
+  returns 0 or the listener id of the replier.
+
+* NEXTLEN: Find out the length of the next message (waiting to be read) on a
+  file descriptor. This returns 0 or the message length.
+
+Messages
+--------
+For the moment, see the C and/or Python code for the layout of a message.
+
+Note the Python class Message, which makes message construction and
+manipulation easier.
+
+/proc/kbus/bindings
+-------------------
 ``/proc/kbus/bindings`` is a debugging aid for reporting the listener id,
-exclusive flag and message name for each binding.
-
-A listener who needs to reply needs to know the listener id of the entity to
-reply to -- this will be the "reply to" field in a message.
-
-A sender may want to know who is listening (exclusively only) to a particular
-message, so that they can guarantee not to be talking to someone else -
-consider::
-
-   A binds to "$.Fred"
-   B sends to "$.Fred"
-   A goes away (for some reason, it may just be unbinding)
-   C binds to "$.Fred"
-   B sends to "$.Fred"
-
-Naively, this will succeed, since there is always a recipient for "$.Fred"
-messages. Whereas what B actually wants is to be told that the intended
-recipient has gone away/is not listening any more.
-
-There are useful scenarios where B wants to know that it is still A receiving
-the "$.Fred" messages - state may be evil, but it can make life a lot easier.
-
-    *Insert convincing example*
-
-*So*, we need to be able to send messages to:
-
-    * anyone
-    * a particular listener id
-
-This implies an ioctl to find out the exclusive listener (if any) for a
-particular message name.
-
-Change of heart
-===============
-Getting nearer to worrying about actual messages brings up some issues.
-
-So. Each listener needs a queue of messages waiting to be read (technically,
-two queues, because there's an "urgent" idiom as well, but I shall ignore that
-until later).
-
-Two issues arise from that.
-
-First, what happens when such a queue runs out of room?
-
-Second, who gets blocked when that happens?
-
-Looking at listener queues, clearly a listener queue cannot be given more
-messages if it has run out of room (and we can't afford to crash the kernel!).
-So there are two choices available -- either the sender blocks (waiting for
-the listener to clear some queue space), or we have to lose some messages so
-that the new message can be queued (or, perhaps, the new message gets thrown
-away -- for the moment these are equivalent).
-
-Both solutions make sense in different circumstances, so it would appear that
-
-a. A listener must be able to declare if it *requires* to receive all
-   messages, or if it can lose (random!) messages - this means a new flag to
-   the "bind" mechanism.
-
-b. A sender needs to be able to say if it wants a message to be:
-
-   1. added to all the listener queues, regardless (subject to the above
-      lossiness), in which case it will block until that can be done
-      (ALL or WAIT, sender blocks)
-   2. added to all the listener queues, and fail if that can't be done
-      (ALL or FAIL)
-   3. added to all the listener queues that *require* the message, and any
-      other listener queues that have room
-      (REQUIRED)
-
-Meanwhile, I had misunderstood the "exclusive" binding idea. The intent is
-actually to distinguish "replier" from "non-replier". Thus a message can be
-bound to exactly one replier (or none, of course), but any number of
-non-repliers.
-
-Note that a replier can opt to be a non-required listener -- if a message
-requiring a reply is sent to its queue, and then gets thrown away, kbus should
-generate an appropriate synthetic reply (saying, for instance, that N messages
-requiring reply have been dropped).
-
-Moreover, wildcards and repliers
-================================
-If a listener binds as a replier with a wildcard - for instance, on  
-'$.sensors.*' (or '$.sensors', which Richard would have as the same  
-thing - this is important to remember later on), then they are the *default*
-replier for all the implicated  message names.
-
-If another listener then binds as a specific replier - for instance,  
-on '$.sensors.kitchen', then they are the sole replier for that  
-message, and the default replier will no longer be passed  
-'$.sensores.kitchen' messages that need a reply.
-
-If the default listener still wants to find out about such messages,  
-it needs to (also) bind as a plain listener on '$.sensors.*' (so that  
-it gets all messages just as a listener),
-
-kbus does not need to tell the default listener that it has done this  
-(but note the documentation describes how to find out about people  
-binding as listeners, so if it cared it could find out that way, and  
-of course it can always find out its own id, and then ask who is the  
-current replier for a specific message - although it might not know  
-about it -- it would have to use the /kbus/proc/bindings interface to  
-find out about all message bindings).
-
-Emergent terminology
-====================
-* Sender
-* Listener and replier
-* Guaranteed or lossy receipt (i.e., is the listener guaranteed to get all
-  messages with that name, or might some be dropped)
+exclusive flag and message name for each binding, for each kbus device.
 
 
 // Local Variables:
