@@ -919,15 +919,19 @@ class TestKernelModule:
                 # Writing to $.Fred on f1 - writes message id N
                 msgF = Message('$.Fred','data')
                 msgF.to_file(f1)
+                n = last_msg(f1)
 
                 # No one is listening for $.William
                 msgW = Message('$.William')
                 check_IOError(errno.EADDRNOTAVAIL,msgW.to_file,f1)
                 check_IOError(errno.EADDRNOTAVAIL,msgW.to_file,f2)
+                # (and attempting to write it doesn't increment KBUS's
+                # counting of the message id)
 
                 # Writing to $.Jim on f1 - writes message N+1
                 msgJ = Message('$.Jim','moredata')
                 msgJ.to_file(f1)
+                assert last_msg(f1) == n+1
 
                 # Reading f1 - message N
                 assert next_len(f1) == msgF.length*4
@@ -936,6 +940,7 @@ class TestKernelModule:
                 data = Message(f1.read(msgF.length*4))
                 # Extract the message id -- this is N
                 n0 = data.extract()[0]
+                assert n == n0
 
                 # Reading f2 - should be message N+1
                 assert next_len(f2) == msgJ.length*4
