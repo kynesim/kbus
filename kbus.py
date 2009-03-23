@@ -98,6 +98,7 @@ KBUS_IOC_UNBIND	  = _IOW(KBUS_IOC_MAGIC,  3, ctypes.sizeof(ctypes.c_char_p))
 KBUS_IOC_BOUNDAS  = _IOR(KBUS_IOC_MAGIC,  4, ctypes.sizeof(ctypes.c_char_p))
 KBUS_IOC_REPLIER  = _IOWR(KBUS_IOC_MAGIC, 5, ctypes.sizeof(ctypes.c_char_p))
 KBUS_IOC_NEXTLEN  = _IO(KBUS_IOC_MAGIC,   6)
+KBUS_IOC_LASTSENT = _IOR(KBUS_IOC_MAGIC,  7, ctypes.sizeof(ctypes.c_char_p))
 
 def setup_module():
     retcode = system('sudo insmod kbus.ko kbus_num_devices=3')
@@ -408,6 +409,15 @@ def next_len(f):
     """Return the length of the next message (if any) on this file descriptor
     """
     return fcntl.ioctl(f, KBUS_IOC_NEXTLEN, 0)
+
+def last_msg(f):
+    """Return the id of the last message written on this file descriptor.
+
+    Returns 0 before any messages have been sent.
+    """
+    id = array.array('L',[0])
+    fcntl.ioctl(f, KBUS_IOC_LASTSENT, id, True)
+    return id[0]
 
 class KbufListenerStruct(ctypes.Structure):
     """The datastucture we need to describe a KBUS_IOC_REPLIER argument
@@ -906,7 +916,7 @@ class TestKernelModule:
 
                 self.bind(f2,'$.Jim')
 
-                # Writing to $.Fred on f1 - writes messages N, N+1. N+2
+                # Writing to $.Fred on f1 - writes message id N
                 msgF = Message('$.Fred','data')
                 msgF.to_file(f1)
 
@@ -915,7 +925,7 @@ class TestKernelModule:
                 check_IOError(errno.EADDRNOTAVAIL,msgW.to_file,f1)
                 check_IOError(errno.EADDRNOTAVAIL,msgW.to_file,f2)
 
-                # Writing to $.Jim on f1 - writes message N+3
+                # Writing to $.Jim on f1 - writes message N+1
                 msgJ = Message('$.Jim','moredata')
                 msgJ.to_file(f1)
 
@@ -927,23 +937,23 @@ class TestKernelModule:
                 # Extract the message id -- this is N
                 n0 = data.extract()[0]
 
-                # Reading f2 - should be message N+3 ...
+                # Reading f2 - should be message N+1
                 assert next_len(f2) == msgJ.length*4
                 data = Message(f2.read(msgJ.length*4))
                 n3 = data.extract()[0]
-                assert n3 == n0+3
+                assert n3 == n0+1
 
-                # Reading f1 - should be message N+1 ...
+                # Reading f1 - should be message N again
                 assert next_len(f1) == msgF.length*4
                 data = Message(f1.read(msgF.length*4))
                 n1 = data.extract()[0]
-                assert n1 == n0+1
+                assert n1 == n0
 
-                # Reading f1 - should be message N+2 ...
+                # Reading f1 - should be message N again
                 assert next_len(f1) == msgF.length*4
                 data = Message(f1.read(msgF.length*4))
                 n2 = data.extract()[0]
-                assert n2 == n0+2
+                assert n2 == n0
 
                 # No more messages on f1
                 assert next_len(f1) == 0

@@ -108,11 +108,14 @@ struct kbus_message_struct {
 	 *
 	 * - 'id' identifies this particular message.
 	 *
-	 *   When writing a new message, set this to 0.
+	 *   When writing a new message, set this to 0 (actually, KBUS will
+	 *   entirely ignore this field, as it set it itself).
 	 *
 	 *   When reading a message, this will have been set by KBUS.
 	 *
-	 *   When replying to a message, use that value.
+	 *   When replying to a message, copy this value into the 'orig_id'
+	 *   field, so that the recipient will know what message this was a
+	 *   reply to.
 	 *
 	 * - 'to' is who the message is to be sent to.
 	 *
@@ -266,11 +269,23 @@ struct kbus_message_binding {
  * Each such "opening" also has a message queue associated with it. Any
  * messages this "opening" has declared itself a listener (or replier)
  * for will be added to that queue.
+ *
+ * 'id' is the unique id for this file descriptor - it enables stateful message
+ * transtions, etc. It is local to the particular KBUS device.
+ *
+ * 'last_msg_id' is the message id of the last message that was (successfully)
+ * written to this file descriptor. It is needed when constructing a reply.
+ *
+ * XXX 'message_count' is a count of the number of messages currently in the
+ * XXX 'message_queue' -- i.e., the number of messages waiting to be read. I'm
+ * XXX not * convinced that this is actually necessary, and it might go away
+ * XXX later on.
  */
 struct kbus_private_data {
 	struct list_head	 list;
 	struct kbus_dev		*dev;		/* Which device we are on */
-	uint32_t	 	 id;		/* Taken from kbus_dev->next_id */
+	uint32_t	 	 id;		/* Our own id */
+	uint32_t		 last_msg_id;	/* Last message written to us */
 	uint32_t		 message_count;	/* How many messages for us */
 	struct list_head	 message_queue;	/* Messages for us */
 };
@@ -311,7 +326,13 @@ struct kbus_dev
 	 * when binding messages to listeners, but is also needed when we
 	 * want to reply. We reserve the id 0 as a special value ("none").
 	 */
-	uint32_t		next_id;/* Next value for file id */
+	uint32_t		next_file_id;
+
+	/*
+	 * Every message sent has a unique id (again, unique per device).
+	 * We're the obvious keeper of this...
+	 */
+	uint32_t		next_msg_id;
 };
 
 /* Our actual devices, 0 through kbus_num_devices */
@@ -421,8 +442,6 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 	struct kbus_message_struct	*new_msg;
 	struct kbus_message_queue_item	*item;
 
-	static uint32_t		next_msg_id = 0;
-
 	printk(KERN_DEBUG "kbus: ** Pushing message onto queue\n");
 
 	/* Check it makes some degreee of sense */
@@ -457,16 +476,6 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 
 	new_msg->from = priv->id;	/* Remember it is from us */
 	item->msg = new_msg;
-
-	/* XXX For the moment, the message id is assigned here. */
-	/*
-	 *    (NB: This *MUST* be inside the lock, as we want unambiguous
-	 *     ordering)
-	 */
-	/* We reserve id 0, for use by kbus for synthetic messages */
-	if (next_msg_id == 0)
-		next_msg_id ++;
-	new_msg->id = next_msg_id ++;
 
 	/*
 	 * We want a FIFO, so add to the end of the list (just before the list
@@ -975,10 +984,11 @@ static int kbus_open(struct inode *inode, struct file *filp)
 	 * Listener id 0 is reserved, and we'll use that (on occasion) to mean
 	 * kbus itself.
 	 */
-	if (dev->next_id == 0)
-		dev->next_id ++;
-	priv->id = dev->next_id ++;
+	if (dev->next_file_id == 0)
+		dev->next_file_id ++;
+	priv->id = dev->next_file_id ++;
 	priv->message_count = 0;
+	priv->last_msg_id = 0;	/* What else could it be... */
 	INIT_LIST_HEAD(&priv->message_queue);
 
 	(void) kbus_remember_open_file(dev,priv);
@@ -1073,6 +1083,8 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 		uint32_t	*listeners = NULL;
 		int		 num_listeners;
 		int		 ii;
+		int		 num_sent = 0;	/* # successfully "sent" */
+		uint32_t	 old_next_msg_id = dev->next_msg_id;
 
 		num_listeners = kbus_find_listeners(dev,&listeners,&replier,
 						    msg->name_len,name_p);
@@ -1087,6 +1099,17 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 			printk(KERN_DEBUG "kbus/write: Listeners %d [%d,..], replier %u\n",
 			       num_listeners,listeners[0],replier);
 		}
+
+		/*
+		 * Since we apparently have some listeners, it seems safe
+		 * to assume we're going to be able to send this message,
+		 * so (slightly tentatively) assign it a message id.
+		 *
+		 * We reserve id 0, for use by kbus for synthetic messages.
+		 */
+		if (dev->next_msg_id == 0)
+			dev->next_msg_id ++;
+		msg->id = dev->next_msg_id ++;
 
 		/*
 		 * XXX Remember that (a) a listener may occur more than once
@@ -1119,13 +1142,17 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 				l_priv = kbus_find_open_file(dev,listener);
 			}
 
-			if (listener == replier)
-			{
-				// Do whatever we need to do for the replier
+			if (listener == replier) {
+				// XXX Do whatever we need to do for the replier
 				// ...
 				// and then forget about it (because the same
 				// id may occur as another listener)
 				replier = 0;
+				/*
+				 * XXX At least for the moment, the sending of
+				 * XXX a replier's message still gets done
+				 * XXX below, the same as any other listener
+				 */
 			}
 
 			if (l_priv == NULL) {
@@ -1140,6 +1167,8 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 				 * of it.
 				 */
 				retval = kbus_push_message(l_priv,msg_len,msg);
+				if (retval == 0)
+					num_sent ++;
 			}
 		}
 
@@ -1152,6 +1181,26 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 		/* XXX Mustn't forget */
 		if (listeners)
 			kfree(listeners);
+
+		if (num_sent == 0) {
+			/*
+			 * We didn't actually manage to send this message to
+			 * anyone, so we can reuse the message id...
+			 *
+			 * Luckily (!) we remembered what the "next msg id"
+			 * used to be, so we don't have to worry about
+			 * decrementing back over the unsigned overflow
+			 * boundary...
+			 */
+			dev->next_msg_id = old_next_msg_id;
+		} else {
+			/*
+			 * We did send the message, so it becomes the last
+			 * message we sent, which can be queried
+			 */
+			priv->last_msg_id = msg->id;
+		}
+
 	}
 
 done:
@@ -1232,8 +1281,9 @@ done:
 #define KBUS_IOC_BOUNDAS  _IOR(KBUS_IOC_MAGIC, 4, char *)
 #define KBUS_IOC_REPLIER  _IOWR(KBUS_IOC_MAGIC,5, char *)
 #define KBUS_IOC_NEXTLEN  _IO(KBUS_IOC_MAGIC,  6)
+#define KBUS_IOC_LASTSENT _IOR(KBUS_IOC_MAGIC, 7, char *)
 /* XXX If adding another IOCTL, remember to increment the next number! XXX */
-#define KBUS_IOC_MAXNR	6
+#define KBUS_IOC_MAXNR	7
 
 static int kbus_ioctl(struct inode *inode, struct file *filp,
 		      unsigned int cmd, unsigned long arg)
@@ -1395,6 +1445,22 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 		retval = kbus_next_message_len(priv);
 		break;
 
+	case KBUS_IOC_LASTSENT:
+		/*
+		 * What was the message id of the last message written to this
+		 * file descriptor? Before any messages have been written to this
+		 * file descriptor, this ioctl will return 0.
+		 */
+		printk(KERN_DEBUG "kbus: %p last message id %u\n",filp,priv->last_msg_id);
+		if (arg == 0) {
+			printk(KERN_ERR "kbus: lastmsg ioctl argument is 0\n");
+			retval = -EINVAL;
+		} else {
+			uint32_t *last_msg_id = (uint32_t *)arg;
+			*last_msg_id = priv->last_msg_id;
+		}
+		break;
+
 	default:  /* *Should* be redundant, if we got our range checks right */
 		return -ENOTTY;
 	}
@@ -1430,7 +1496,8 @@ static void kbus_setup_cdev(struct kbus_dev *dev, int devno)
 	INIT_LIST_HEAD(&dev->bound_message_list);
 	INIT_LIST_HEAD(&dev->open_files_list);
 
-	dev->next_id = 0;
+	dev->next_file_id = 0;
+	dev->next_msg_id = 0;
 
 	cdev_init(&dev->cdev, &kbus_fops);
 	dev->cdev.owner = THIS_MODULE;
