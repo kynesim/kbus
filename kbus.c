@@ -488,14 +488,15 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 		 * replier, so they need to be told that they are to reply to
 		 * this message
 		 */
-		msg->flags |= KBUS_BIT_WANT_YOU_TO_REPLY;
-		printk(KERN_DEBUG "kbus: Setting WANT_YOU_TO_REPLY flag\n");
+		new_msg->flags |= KBUS_BIT_WANT_YOU_TO_REPLY;
+		printk(KERN_DEBUG "kbus: Setting WANT_YOU_TO_REPLY flag %08x\n",
+		       new_msg->flags);
 	} else {
 		/*
 		 * The recipient is *not* the replier for this message,
 		 * so it is not responsible for replying.
 		 */
-		msg->flags &= ~KBUS_BIT_WANT_YOU_TO_REPLY;
+		new_msg->flags &= ~KBUS_BIT_WANT_YOU_TO_REPLY;
 	}
 
 	/* And join it up... */

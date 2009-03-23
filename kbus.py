@@ -1019,4 +1019,56 @@ class TestKernelModule:
         finally:
             assert self.detach(f1) is None
 
+    def test_reply_single_file(self):
+        """Test replying with a single file
+        """
+        f = self.attach('wb+')
+        assert f != None
+        try:
+
+            name1 = '$.Fred.Jim'
+            name2 = '$.Fred.Bob.William'
+            name3 = '$.Fred.Bob.Jonathan'
+
+            self.bind(f,name1,True)     # replier
+            self.bind(f,name2,True)     # replier
+            self.bind(f,name3,False)    # just listener
+
+
+            msg1 = Message(name1,data='dat1')
+            msg2 = Message(name2,data='dat2',flags=Message.WANT_A_REPLY)
+            msg3 = Message(name3,data='dat3',flags=Message.WANT_A_REPLY)
+
+            msg1.to_file(f)
+            msg2.to_file(f)
+            msg3.to_file(f)
+
+            m1 = Message(f.read(next_len(f)))
+            m2 = Message(f.read(next_len(f)))
+            m3 = Message(f.read(next_len(f)))
+
+            # For message 1, there is no reply needed
+            assert not m1.should_reply()
+
+            # For message 2, a reply is wanted, and we are the replier
+            assert m2.should_reply()
+
+            # For message 3, a reply is wanted, and we are not the replier
+            assert not m1.should_reply()
+
+            # So, we should reply to message 2 - let's do so
+            (id,in_reply_to,to,from_,flags,name,data_array) = msg2.extract()
+
+            reply = Message(name, data=None, in_reply_to=id, to=from_)
+            reply.to_file(f)
+
+            # And we should be able to read it...
+            m4 = Message(f.read(next_len(f)))
+            assert m4.equivalent(reply)
+
+            # And there shouldn't be anything else to read
+            assert next_len(f) == 0
+        finally:
+            assert self.detach(f) is None
+
 # vim: set tabstop=8 shiftwidth=4 expandtab:
