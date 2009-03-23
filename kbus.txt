@@ -2,6 +2,8 @@
 KBUS
 ====
 
+    *Old notes - to be incorporated into docs.txt*
+
 We support sending a MESSAGE to an OBJECT and maybe waiting for a REPLY.
 
 Object names
