@@ -133,56 +133,6 @@ def system(command):
     except OSError, e:
         print "Execution of '%s' failed: %s"%(command,e)
 
-class File(object):
-    """A wrapper around a KBUS device, for pusposes of message sending.
-    """
-
-    def __init__(self,which=0,mode='rb'):
-        self.which = which
-        self.name = '/dev/kbus%d'%which
-        self.mode = mode
-        self.fd = open(self.name,self.mode)
-
-    def __repr__(self):
-        if self.fd:
-            return '<File %s open for %s>'%(self.name,self.mode)
-        else:
-            return '<File %s closed>'%(self.name)
-
-    def close(self):
-        self.fd.close()
-        self.fd = None
-        self.mode = None
-
-    def bind(self,name,replier=True,guaranteed=False):
-        return bind(self.fd,name,replier=True,guaranteed=False)
-
-    def unbind(self,name,replier=True,guaranteed=False):
-        return unbind(self.fd,name,replier,guaranteed)
-
-    def bound_as(self):
-        return bound_as(self.fd)
-
-    def next_len(self):
-        return next_len(self.fd)
-
-    def last_msg_id(self):
-        return last_msg_id(self.fd)
-
-    def find_listener(self,name):
-        return find_listener(self.fd,name)
-
-    def write(self,message):
-        # Let the message write itself out (?)
-        message.to_file(self.fd)
-
-    def read(self):
-        data = self.fd.read(self.next_len())
-        if data:
-            return Message(data)
-        else:
-            return None
-
 class Message(object):
     """A wrapper for a KBUS message
 
@@ -515,6 +465,56 @@ def last_msg_id(f):
     id = array.array('L',[0])
     fcntl.ioctl(f, KBUS_IOC_LASTSENT, id, True)
     return id[0]
+
+class File(object):
+    """A wrapper around a KBUS device, for pusposes of message sending.
+    """
+
+    def __init__(self,which=0,mode='rb'):
+        self.which = which
+        self.name = '/dev/kbus%d'%which
+        self.mode = mode
+        self.fd = open(self.name,self.mode)
+
+    def __repr__(self):
+        if self.fd:
+            return '<File %s open for %s>'%(self.name,self.mode)
+        else:
+            return '<File %s closed>'%(self.name)
+
+    def close(self):
+        self.fd.close()
+        self.fd = None
+        self.mode = None
+
+    def bind(self,name,replier=True,guaranteed=False):
+        return bind(self.fd,name,replier=True,guaranteed=False)
+
+    def unbind(self,name,replier=True,guaranteed=False):
+        return unbind(self.fd,name,replier,guaranteed)
+
+    def bound_as(self):
+        return bound_as(self.fd)
+
+    def next_len(self):
+        return next_len(self.fd)
+
+    def last_msg_id(self):
+        return last_msg_id(self.fd)
+
+    def find_listener(self,name):
+        return find_listener(self.fd,name)
+
+    def write(self,message):
+        # Let the message write itself out (?)
+        message.to_file(self.fd)
+
+    def read(self):
+        data = self.fd.read(self.next_len())
+        if data:
+            return Message(data)
+        else:
+            return None
 
 class KbufListenerStruct(ctypes.Structure):
     """The datastucture we need to describe a KBUS_IOC_REPLIER argument
