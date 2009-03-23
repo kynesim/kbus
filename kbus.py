@@ -100,6 +100,9 @@ KBUS_IOC_REPLIER  = _IOWR(KBUS_IOC_MAGIC, 5, ctypes.sizeof(ctypes.c_char_p))
 KBUS_IOC_NEXTLEN  = _IO(KBUS_IOC_MAGIC,   6)
 KBUS_IOC_LASTSENT = _IOR(KBUS_IOC_MAGIC,  7, ctypes.sizeof(ctypes.c_char_p))
 
+def BIT(nr):
+    return 1L << nr
+
 def setup_module():
     retcode = system('sudo insmod kbus.ko kbus_num_devices=3')
     #retcode = system('sudo insmod kbus.ko')
@@ -137,7 +140,7 @@ class Message(object):
 
         >>> msg1 = Message('$.Fred',data='1234')
         >>> msg1
-        Message('$.Fred', array('L', [875770417L]), 0L, 0L, 0x00000000)
+        Message('$.Fred', data=array('L', [875770417L]), to=0L, from_=0L, in_reply_to=0L, flags=0x00000000, id=0L)
 
     Note that if the 'data' is specified as a string, there must be a multiple
     of 4 characters -- i.e., it must "fill out" an array of unsigned int-32
@@ -165,7 +168,7 @@ class Message(object):
     Or one can use an array (of unsigned 32-bit words):
 
         >>> msg1.array
-        array('L', [1937072747L, 0L, 0L, 0L, 0L, 6L, 1L, 1917201956L, 25701L, 875770417L, 1801614707L])
+        array('L', [1937072747L, 0L, 0L, 0L, 0L, 0L, 6L, 1L, 1917201956L, 25701L, 875770417L, 1801614707L])
         >>> msg3 = Message(msg1.array)
         >>> msg3 == msg1
         True
@@ -185,9 +188,23 @@ class Message(object):
     """
 
     START_GUARD = 0x7375626B
-    END_GUARD = 0x6B627573
+    END_GUARD   = 0x6B627573
 
-    def __init__(self, arg, data=None, to=0, from_=0, flags=0):
+    WANT_A_REPLY        = BIT(0)
+    WANT_YOU_TO_REPLY   = BIT(1)
+
+    # Header offsets (in case I change them again)
+    IDX_START_GUARD     = 0
+    IDX_ID              = 1
+    IDX_IN_REPLY_TO     = 2
+    IDX_TO              = 3
+    IDX_FROM            = 4
+    IDX_FLAGS           = 5
+    IDX_NAME_LEN        = 6
+    IDX_DATA_LEN        = 7     # required to be the last fixed item
+    IDX_END_GUARD       = -1
+
+    def __init__(self, arg, data=None, to=0, from_=0, in_reply_to=0, flags=0, id=0):
         """Initialise a Message.
         """
 
@@ -195,15 +212,21 @@ class Message(object):
             self.array = array.array('L',arg.array)
         elif isinstance(arg,tuple) or isinstance(arg,list):
             # A tuple from .extract(), or an equivalent tuple/list
-            if len(arg) != 6:
+            if len(arg) != 7:
                 raise ValueError("Tuple arg to Message() must have"
-                        " 6 values, not %d"%len(arg))
+                        " 7 values, not %d"%len(arg))
             else:
-                self.array = self._from_data(arg[-2],data=arg[-1],to=arg[1],
-                                             from_=arg[2],flags=arg[3])
+                # See the extract() method for the order of args
+                self.array = self._from_data(arg[-2],           # message name
+                                             data=arg[-1],
+                                             in_reply_to=arg[1],
+                                             to=arg[2],
+                                             from_=arg[3],
+                                             flags=arg[4],
+                                             id=arg[0])
         elif isinstance(arg,str) and arg.startswith('$.'):
             # It looks like a message name
-            self.array = self._from_data(arg,data,to,from_,flags)
+            self.array = self._from_data(arg,data,to,from_,in_reply_to,flags,id)
         elif arg:
             # Assume it's sensible data...
             # (note that even if 'arg' was an array of the correct type.
@@ -219,7 +242,7 @@ class Message(object):
         # And I personally find it useful to have the length available
         self.length = len(self.array)
 
-    def _from_data(self,name,data=None,to=0,from_=0,flags=0):
+    def _from_data(self,name,data=None,to=0,from_=0,in_reply_to=0,flags=0,id=0):
         """Set our data from individual arguments.
 
         Note that 'data' must be:
@@ -234,7 +257,8 @@ class Message(object):
 
         # Start guard, id, to, from, flags -- all defaults for the moment
         msg.append(self.START_GUARD)    # start guard
-        msg.append(0)                   # id -- assigned by kbus
+        msg.append(id)                  # remember KBUS will overwrite the id
+        msg.append(in_reply_to)
         msg.append(to)
         msg.append(from_)
         msg.append(flags)
@@ -279,40 +303,57 @@ class Message(object):
         """Perform some basic sanity checks on our data.
         """
         # XXX Make the reporting of problems nicer for the user!
-        assert self.array[0] == self.START_GUARD
-        assert self.array[-1] == self.END_GUARD
-        name_len_bytes = self.array[5]
-        name_len = (name_len_bytes+3) / 4   # in 32-bit words
-        data_len = self.array[6]            # in 32-bit words
+        assert self.array[self.IDX_START_GUARD] == self.START_GUARD
+        assert self.array[self.IDX_END_GUARD] == self.END_GUARD
+        name_len_bytes = self.array[self.IDX_NAME_LEN]
+        name_len = (name_len_bytes+3) / 4        # in 32-bit words
+        data_len = self.array[self.IDX_DATA_LEN] # in 32-bit words
         if name_len_bytes < 3:
             raise ValueError("Message name is %d long, minimum is 3"
                              " (e.g., '$.*')"%name_len_bytes)
         assert data_len >= 0
-        assert 8 + name_len + data_len == len(self.array)
+        assert (self.IDX_DATA_LEN + 2) + name_len + data_len == len(self.array)
 
     def __repr__(self):
-        (id,to,from_,flags,name,data_array) = self.extract()
+        (id,in_reply_to,to,from_,flags,name,data_array) = self.extract()
         args = [repr(name),
-                repr(data_array),
-                repr(to),
-                repr(from_),
-                '0x%08x'%flags]
+                'data='+repr(data_array),
+                'to='+repr(to),
+                'from_='+repr(from_),
+                'in_reply_to='+repr(in_reply_to),
+                'flags=0x%08x'%flags,
+                'id='+repr(id)]
         return 'Message(%s)'%(', '.join(args))
 
     def __eq__(self,other):
         return self.array == other.array
 
     def equivalent(self,other):
-        """Returns true if the two messages only differ in 'id' and 'from'
+        """Returns true if the two messages only differ in 'id', 'in_reply_to' and 'from'
         """
         if self.length != other.length:
             return False
         # Somewhat clumsily...
         parts1 = list(self.extract())
         parts2 = list(other.extract())
-	parts1[0] = parts2[0]	# id
-	parts1[2] = parts2[2]	# from
+        parts1[0] = parts2[0]   # id
+	parts1[1] = parts2[1]   # in_reply_to
+	parts1[3] = parts2[3]   # from_
         return parts1 == parts2
+
+    def set_want_reply(self,value=True):
+        """Set or unset the 'we want a reply' flag.
+        """
+        if value:
+            self.array[self.IDX_FLAGS] = self.array[self.IDX_FLAGS] | Message.WANT_A_REPLY
+        elif self.array[self.IDX_FLAGS] & Message.WANT_A_REPLY:
+            mask = ~Message.WANT_A_REPLY
+            self.array[self.IDX_FLAGS] = self.array[self.IDX_FLAGS] & mask
+
+    def should_reply(self):
+        """Return true if we're meant to reply to this message.
+        """
+        return self.array[self.IDX_FLAGS] & Message.WANT_YOU_TO_REPLY
 
     def extract(self):
         """Return our parts as a tuple.
@@ -320,22 +361,28 @@ class Message(object):
         The values are returned in something approximating the order
         within the message itself:
 
-            (id,to,from_,flags,name,data_array)
+            (id,in_reply_to,to,from_,flags,name,data_array)
+
+        This is not the same order as arguments to Message().
         """
 
         # Sanity check:
-        assert self.array[0] == self.START_GUARD
-        assert self.array[-1] == self.END_GUARD
+        assert self.array[self.IDX_START_GUARD] == self.START_GUARD
+        assert self.array[self.IDX_END_GUARD] == self.END_GUARD
 
         msg = self.array
-        id = msg[1]
-        to = msg[2]
-        from_ = msg[3]
-        flags = msg[4]
-        name_len = msg[5]
-        data_len = msg[6]
+        id = msg[self.IDX_ID]
+        in_reply_to = msg[self.IDX_IN_REPLY_TO]
+        to = msg[self.IDX_TO]
+        from_ = msg[self.IDX_FROM]
+        flags = msg[self.IDX_FLAGS]
+        name_len = msg[self.IDX_NAME_LEN]
+        data_len = msg[self.IDX_DATA_LEN]
         name_array_len = (name_len+3)/4
-        name_array = msg[7:7+name_array_len]
+
+        base = self.IDX_DATA_LEN + 1
+
+        name_array = msg[base:base+name_array_len]
         name = name_array.tostring()
         # Note that if the message was well constructed, any padding bytes
         # at the end of the name will be '\0', and thus not show when printed
@@ -343,11 +390,11 @@ class Message(object):
         # Make sure we remove the padding bytes
         name = name[:name_len]
 
-        data_offset = 7+name_array_len
+        data_offset = base+name_array_len
         data_array = msg[data_offset:data_offset+data_len]
         #print '<%s>'%(data_array.tostring())
 
-        return (id,to,from_,flags,name,data_array)
+        return (id,in_reply_to,to,from_,flags,name,data_array)
 
     def to_file(self,f):
         """Write the Message's data to a file.
@@ -410,7 +457,7 @@ def next_len(f):
     """
     return fcntl.ioctl(f, KBUS_IOC_NEXTLEN, 0)
 
-def last_msg(f):
+def last_msg_id(f):
     """Return the id of the last message written on this file descriptor.
 
     Returns 0 before any messages have been sent.
@@ -629,7 +676,7 @@ class TestKernelModule:
         """Check that we can read back an equivalent message to 'expected'
         """
         if expected:
-            data = f.read(expected.length*4)
+            data = f.read(next_len(f))
             assert data != None
             new_message = Message(data)
             assert expected.equivalent(new_message)
@@ -889,11 +936,11 @@ class TestKernelModule:
             msg1r = Message(data)
             print 'Read: ',msg1r
 
+            # The message read should essentially match
+            assert msg1.equivalent(msg1r)
+
             data = f.read(msg2.length*4)
             assert len(data) == 0
-
-            # The message read should match in all but the "id" and "from" fields
-            assert msg1.equivalent(msg1r)
 
             # There shouldn't be anything else to read
             assert f.read(1) == ''
@@ -919,7 +966,7 @@ class TestKernelModule:
                 # Writing to $.Fred on f1 - writes message id N
                 msgF = Message('$.Fred','data')
                 msgF.to_file(f1)
-                n = last_msg(f1)
+                n = last_msg_id(f1)
 
                 # No one is listening for $.William
                 msgW = Message('$.William')
@@ -931,7 +978,7 @@ class TestKernelModule:
                 # Writing to $.Jim on f1 - writes message N+1
                 msgJ = Message('$.Jim','moredata')
                 msgJ.to_file(f1)
-                assert last_msg(f1) == n+1
+                assert last_msg_id(f1) == n+1
 
                 # Reading f1 - message N
                 assert next_len(f1) == msgF.length*4

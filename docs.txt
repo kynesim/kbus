@@ -208,6 +208,36 @@ Secondly, a sender can indicate if it wants a message to be:
 3. Added to all the listener queues that *guarantee* to receive the message,
    and any other listener queues that have room (GUARANTEED)
 
+Replying
+--------
+A sender can mark a message as needing a reply.
+
+Sending such a message will fail if there is no replier bound for that
+message.
+
+The message will, as normal, be delivered to all listeners, and will have the
+"needs a reply" flag set wherever it is received. However, the copy of the
+message received by the replier will be marked as "you need to reply".
+
+The replier should create a reply message with:
+
+1. The same message name.
+2. The "to" field set to the original message's "from" field (i.e., the
+   reply message is specifically for the sender).
+3. The "in_reply_to" field set to the original message's "id" field (i.e., it
+   is a reply to that specific message). This field being non-zero is what
+   distinguishes a reply message from an ordinary message.
+4. The message data set to whatever is appropriate.
+
+When a reply is sent, all listeners for that message name will receive it.
+However, the original replier will not.
+
+    So, if a particular file descriptor is bound as listener and replier
+    for '.Fred', it will receive two copies of the original message (one
+    marked as needing reply from that file descriptor). However, when the
+    reply is sent, only the "plain" listener will receive a copy of the reply
+    message.
+
 Urgent messages
 ---------------
 Messages may be flagged urgent. In this case they will be dealt with

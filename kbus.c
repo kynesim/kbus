@@ -49,6 +49,7 @@
 #include <linux/device.h>       /* device classes (for hotplugging), &c */
 #include <linux/cdev.h>         /* registering character devices */
 #include <linux/list.h>
+#include <linux/bitops.h>
 #include <asm/uaccess.h>	/* copy_*_user() functions */
 
 /*
@@ -113,9 +114,15 @@ struct kbus_message_struct {
 	 *
 	 *   When reading a message, this will have been set by KBUS.
 	 *
-	 *   When replying to a message, copy this value into the 'orig_id'
+	 *   When replying to a message, copy this value into the 'in_reply_to'
 	 *   field, so that the recipient will know what message this was a
 	 *   reply to.
+	 *
+	 * - 'in_reply_to' identifies the message this is a reply to.
+	 *
+	 *   This shall be set to 0 unless this message *is* a reply to a
+	 *   previous message. In other words, if this value is non-0, then
+	 *   the message *is* a reply.
 	 *
 	 * - 'to' is who the message is to be sent to.
 	 *
@@ -124,8 +131,7 @@ struct kbus_message_struct {
 	 *   maintained).
 	 *
 	 *   When replying to a message, it should be set to the 'from' value
-	 *   of the orginal message (hmm: having to swap to/from in a reply is
-	 *   traditional but a pain and a source of error - think about this).
+	 *   of the orginal message
 	 *
 	 *   In a "stateful dialogue", 'to' can be set to the id of the
 	 *   expected replier, in which case KBUS will raise an
@@ -187,24 +193,10 @@ struct kbus_message_struct {
 	 * The last element of 'name_and_data' must always be an end guard,
 	 * with value 0x7375626B ('subk') (so the *actual* data is always one
 	 * 32-bit word shorter than that indicated).
-	 *
-	 * The total length of a kbus_message_struct, in 32-bit words, is
-	 * thus::
-	 *
-	 *       1			start_guard
-	 *     + 1			id
-	 *     + 1			to
-	 *     + 1			from
-	 *     + 1			flags
-	 *     + 1			name_len
-	 *     + 1			data_len
-	 *     + (name_len+3)/4		name
-	 *     + data_len		data
-	 *     + 1			end_guard
-	 *
 	 */
 	uint32_t	 start_guard;
 	uint32_t	 id;		/* Unique to this message */
+	uint32_t	 in_reply_to;	/* Which message this is a reply to */
 	uint32_t	 to;		/* 0 (normally) or a replier id */
 	uint32_t	 from;		/* 0 (KBUS) or the sender's id */
 	uint32_t	 flags;		/* Message type/flags */
@@ -216,6 +208,19 @@ struct kbus_message_struct {
 
 #define KBUS_MSG_START_GUARD	0x7375626B
 #define KBUS_MSG_END_GUARD	0x6B627573
+
+/*
+ * Flags for the message 'flags' word
+ *
+ * The KBUS_BIT_WANT_A_REPLY bit is set by the sender to indicate that a
+ * reply is wanted.
+ *
+ * The KBUS_BIT_WANT_YOU_TO_REPLY is set by KBUS on a particular message
+ * to indicate that the particular recipient is responsible for replying
+ * to (this instance of the) message.
+ */
+#define	KBUS_BIT_WANT_A_REPLY		BIT(0)
+#define KBUS_BIT_WANT_YOU_TO_REPLY	BIT(1)
 
 /*
  * Given name_len (in bytes) and data_len (in 32-bit words), return the
@@ -430,19 +435,24 @@ static void kbus_report_message(char				*kern_prefix,
  *
  * We assume the message has been checked for sanity.
  *
+ * 'for_replier' is true if this particular message is being pushed to the
+ * message's replier's queue.
+ *
  * Note that 'msg_len' is the number of *bytes* there are in the message.
  *
  * Returns 0 if all goes well, or a negative error.
  */
 static int kbus_push_message(struct kbus_private_data	  *priv,
 			     uint32_t			   msg_len,
-			     struct kbus_message_struct   *msg)
+			     struct kbus_message_struct   *msg,
+			     int			   for_replier)
 {
 	struct list_head		*queue = &priv->message_queue;
 	struct kbus_message_struct	*new_msg;
 	struct kbus_message_queue_item	*item;
 
-	printk(KERN_DEBUG "kbus: ** Pushing message onto queue\n");
+	printk(KERN_DEBUG "kbus: ** Pushing message onto queue (for %s)\n",
+	       for_replier?"replier":"listener");
 
 	/* Check it makes some degreee of sense */
 	if (kbus_check_message(msg))
@@ -471,6 +481,22 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 	/* XXX Just in case */
 	printk(KERN_DEBUG "kbus: Message copied to add to queue\n");
 	kbus_report_message(KERN_DEBUG,new_msg);
+
+	if (for_replier && (KBUS_BIT_WANT_A_REPLY & msg->flags)) {
+		/*
+		 * This message wants a reply, and is for the message's
+		 * replier, so they need to be told that they are to reply to
+		 * this message
+		 */
+		msg->flags |= KBUS_BIT_WANT_YOU_TO_REPLY;
+		printk(KERN_DEBUG "kbus: Setting WANT_YOU_TO_REPLY flag\n");
+	} else {
+		/*
+		 * The recipient is *not* the replier for this message,
+		 * so it is not responsible for replying.
+		 */
+		msg->flags &= ~KBUS_BIT_WANT_YOU_TO_REPLY;
+	}
 
 	/* And join it up... */
 
@@ -1140,40 +1166,60 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 				/* OK, look it up */
 				printk(KERN_DEBUG "kbus/write: -- Looking them up\n");
 				l_priv = kbus_find_open_file(dev,listener);
+				if (l_priv == NULL) {
+					printk(KERN_DEBUG "kbus/write: Can't find listener %u\n",
+					       listener);
+					/* Can we do anything other than ignore it? */
+					continue;	   /* XXX Review this choice */
+				}
 			}
 
+			/*
+			 * Remember that kbus_push_message takes a copy
+			 * of the message for us.
+			 *
+			 * This is inefficient, since otherwise we could keep a
+			 * single copy of the message (or at least the message
+			 * header) and just bump a reference count for each
+			 * "use" of the message,
+			 *
+			 * However, it also allows us to easily set the
+			 * "needs a reply" flag (and associated data) when
+			 * sending a "needs a reply" message to a replier,
+			 * and *unset* the same when sending said message
+			 * to "just" listeners...
+			 *
+			 * Be careful if altering this...
+			 */
 			if (listener == replier) {
-				// XXX Do whatever we need to do for the replier
-				// ...
-				// and then forget about it (because the same
-				// id may occur as another listener)
+				/*
+				 * We've now dealt with that replier, so forget
+				 * about it (the same id may also occur just as
+				 * a listener, so we don't want to "be" a
+				 * replier more than once)
+				 */
 				replier = 0;
 				/*
-				 * XXX At least for the moment, the sending of
-				 * XXX a replier's message still gets done
-				 * XXX below, the same as any other listener
+				 * If this message is a reply, then we don't want to
+				 * send it to the replier (they're the one sending it)
 				 */
-			}
+				if (msg->in_reply_to != 0)
+					continue;
 
-			if (l_priv == NULL) {
-				printk(KERN_DEBUG "kbus/write: NULL\n");
-				retval = -EFAULT;  /* XXX Review this choice */
+				retval = kbus_push_message(l_priv,msg_len,msg,
+							   true);
 			} else {
-				/*
-				 * Remember that kbus_push_message takes a copy
-				 * of the message for us. It might well be more
-				 * sensible for *us* to take a copy of the
-				 * message, and then reference count each "use"
-				 * of it.
-				 */
-				retval = kbus_push_message(l_priv,msg_len,msg);
-				if (retval == 0)
-					num_sent ++;
+				retval = kbus_push_message(l_priv,msg_len,msg,
+							   false);
 			}
+			if (retval == 0)
+				num_sent ++;
+			else
+				break;	/* Since an error was probably serious */
 		}
 
 		if (retval == 0 && replier != 0) {
-			/* XXX Worry myself */
+			/* XXX Worry myself - does this do anything useful? */
 			printk(KERN_DEBUG "kbus/write: After dealing with listeners,"
 			       " didn't handle replier\n");
 		}
@@ -1200,7 +1246,6 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 			 */
 			priv->last_msg_id = msg->id;
 		}
-
 	}
 
 done:
