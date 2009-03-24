@@ -1,8 +1,8 @@
 import os
-from kbus import Message, File
+from kbus import Message, Interface
 
 print 'Opening device f for read/write'
-f = File(0,'wb+')
+f = Interface(0,'rw')
 print f
 
 name1 = '$.Fred.Jim'

@@ -16,10 +16,10 @@ To get the doctests (for instance, in Message) as well, try::
     nosetests kbus.py -d --doctest-tests --with-doctest
 
 On Ubuntu, if I want ordinary users (in the admin group) to be able to
-read/write '/dev/kbus0' then I need to have a file '/etc/udec/rules.d/45-kbus'
-which contains::
+read/write '/dev/kbus0' then I need to have a file
+'/etc/udev/rules.d/45-kbus.rules' which contains::
 
-    KERNEL=="kbus0",  MODE="0666", GROUP="admin"
+    KERNEL=="kbus[0-9]*",  MODE="0666", GROUP="admin"
 
 Other operating systems will have other mechanisms, and on an embedded system
 it is likely enough not to do this, as the "user" will be root.
@@ -103,9 +103,10 @@ KBUS_IOC_LASTSENT = _IOR(KBUS_IOC_MAGIC,  7, ctypes.sizeof(ctypes.c_char_p))
 def BIT(nr):
     return 1L << nr
 
+NUM_DEVICES = 3
+
 def setup_module():
-    retcode = system('sudo insmod kbus.ko kbus_num_devices=3')
-    #retcode = system('sudo insmod kbus.ko')
+    retcode = system('sudo insmod kbus.ko kbus_num_devices=%d'%NUM_DEVICES)
     assert retcode == 0
     # Via the magic of hotplugging, that should cause our device to exist
     # ...eventually
@@ -417,105 +418,6 @@ class KbufBindStruct(ctypes.Structure):
                 ('len',        ctypes.c_uint),
                 ('name',       ctypes.c_char_p)]
 
-def bind(f,name,replier=True,guaranteed=False):
-    """Bind the given name to the file descriptor.
-
-    If 'replier', then we are binding as the only fd that can reply to this
-    message name.
-
-        XXX Is 'True' actually a sensible default for 'replier'? Normally one
-        XXX *does* want a single replier, but I've found myself calling 'bind'
-        XXX multiple times with the same message name, and forgetting that I
-        XXX need to say the listeners are not repliers. Is there a better
-        XXX (separate) error code that the ioctl could return in this case?
-
-    If 'guaranteed', then we require that *all* messages to us be delivered,
-    otherwise kbus may drop messages if necessary.
-    """
-    arg = KbufBindStruct(replier,guaranteed,len(name),name)
-    return fcntl.ioctl(f, KBUS_IOC_BIND, arg);
-
-def unbind(f,name,replier=True,guaranteed=False):
-    """Unbind the given name from the file descriptor.
-
-    The arguments need to match the binding that we want to unbind.
-    """
-    arg = KbufBindStruct(replier,guaranteed,len(name),name)
-    return fcntl.ioctl(f, KBUS_IOC_UNBIND, arg);
-
-def bound_as(f):
-    """Return the 'bind number' for this file descriptor.
-    """
-    # Instead of using a ctypes.Structure, we can retrieve homogenious
-    # arrays of data using, well, arrays. This one is a bit minimalist.
-    id = array.array('L',[0])
-    fcntl.ioctl(f, KBUS_IOC_BOUNDAS, id, True)
-    return id[0]
-
-def next_len(f):
-    """Return the length of the next message (if any) on this file descriptor
-    """
-    return fcntl.ioctl(f, KBUS_IOC_NEXTLEN, 0)
-
-def last_msg_id(f):
-    """Return the id of the last message written on this file descriptor.
-
-    Returns 0 before any messages have been sent.
-    """
-    id = array.array('L',[0])
-    fcntl.ioctl(f, KBUS_IOC_LASTSENT, id, True)
-    return id[0]
-
-class File(object):
-    """A wrapper around a KBUS device, for pusposes of message sending.
-    """
-
-    def __init__(self,which=0,mode='rb'):
-        self.which = which
-        self.name = '/dev/kbus%d'%which
-        self.mode = mode
-        self.fd = open(self.name,self.mode)
-
-    def __repr__(self):
-        if self.fd:
-            return '<File %s open for %s>'%(self.name,self.mode)
-        else:
-            return '<File %s closed>'%(self.name)
-
-    def close(self):
-        self.fd.close()
-        self.fd = None
-        self.mode = None
-
-    def bind(self,name,replier=True,guaranteed=False):
-        return bind(self.fd,name,replier=True,guaranteed=False)
-
-    def unbind(self,name,replier=True,guaranteed=False):
-        return unbind(self.fd,name,replier,guaranteed)
-
-    def bound_as(self):
-        return bound_as(self.fd)
-
-    def next_len(self):
-        return next_len(self.fd)
-
-    def last_msg_id(self):
-        return last_msg_id(self.fd)
-
-    def find_listener(self,name):
-        return find_listener(self.fd,name)
-
-    def write(self,message):
-        # Let the message write itself out (?)
-        message.to_file(self.fd)
-
-    def read(self):
-        data = self.fd.read(self.next_len())
-        if data:
-            return Message(data)
-        else:
-            return None
-
 class KbufListenerStruct(ctypes.Structure):
     """The datastucture we need to describe a KBUS_IOC_REPLIER argument
     """
@@ -523,17 +425,125 @@ class KbufListenerStruct(ctypes.Structure):
                 ('len',  ctypes.c_uint),
                 ('name', ctypes.c_char_p)]
 
-def find_listener(f,name):
-    """Find the id of the replier (if any) for this message.
+class Interface(object):
+    """A wrapper around a KBUS device, for pusposes of message sending.
 
-    Returns None if there was no replier, otherwise the replier's id.
+    'which' is which KBUS device to open -- so if 'which' is 3, we open
+    /dev/kbus3.
+
+    'mode' should be 'r' or 'rw' -- i.e., whether to open the device for read or
+    write (opening for write also allows reading, of course).
+
+    I'm not really very keen on the name Interface, but it's better than the
+    original "File", which I think was actively misleading.
     """
-    arg = KbufListenerStruct(0,len(name),name)
-    retval = fcntl.ioctl(f, KBUS_IOC_REPLIER, arg);
-    if retval:
-        return arg.return_id
-    else:
-        return None
+
+    def __init__(self,which=0,mode='r'):
+        if mode not in ('r','rw'):
+            raise ValueError("Interface mode should be 'r' or 'rw', not '%s'"%mode)
+        self.which = which
+        self.name = '/dev/kbus%d'%which
+        if mode == 'r':
+            self.mode = 'read'
+        else:
+            mode = 'w+'
+            self.mode = 'read/write'
+        # Although Unix doesn't mind whether a file is opened with a 'b'
+        # for binary, it is possible that some version of Python may
+        self.fd = open(self.name,mode+'b')
+
+    def __repr__(self):
+        if self.fd:
+            return '<KBUS Interface %s open for %s>'%(self.name,self.mode)
+        else:
+            return '<KBUS Interface %s closed>'%(self.name)
+
+    def close(self):
+        ret = self.fd.close()
+        self.fd = None
+        self.mode = None
+        return ret
+
+    def bind(self,name,replier=True,guaranteed=False):
+        """Bind the given name to the file descriptor.
+
+        If 'replier', then we are binding as the only fd that can reply to this
+        message name.
+
+            XXX Is 'True' actually a sensible default for 'replier'? Normally one
+            XXX *does* want a single replier, but I've found myself calling 'bind'
+            XXX multiple times with the same message name, and forgetting that I
+            XXX need to say the listeners are not repliers. Is there a better
+            XXX (separate) error code that the ioctl could return in this case?
+
+        If 'guaranteed', then we require that *all* messages to us be delivered,
+        otherwise kbus may drop messages if necessary.
+        """
+        arg = KbufBindStruct(replier,guaranteed,len(name),name)
+        return fcntl.ioctl(self.fd, KBUS_IOC_BIND, arg);
+
+    def unbind(self,name,replier=True,guaranteed=False):
+        """Unbind the given name from the file descriptor.
+
+        The arguments need to match the binding that we want to unbind.
+        """
+        arg = KbufBindStruct(replier,guaranteed,len(name),name)
+        return fcntl.ioctl(self.fd, KBUS_IOC_UNBIND, arg);
+
+    def bound_as(self):
+        """Return the 'bind number' for this file descriptor.
+        """
+        # Instead of using a ctypes.Structure, we can retrieve homogenious
+        # arrays of data using, well, arrays. This one is a bit minimalist.
+        id = array.array('L',[0])
+        fcntl.ioctl(self.fd, KBUS_IOC_BOUNDAS, id, True)
+        return id[0]
+
+    def next_len(self):
+        """Return the length of the next message (if any) on this file descriptor
+        """
+        return fcntl.ioctl(self.fd, KBUS_IOC_NEXTLEN, 0)
+
+    def last_msg_id(self):
+        """Return the id of the last message written on this file descriptor.
+
+        Returns 0 before any messages have been sent.
+        """
+        id = array.array('L',[0])
+        fcntl.ioctl(self.fd, KBUS_IOC_LASTSENT, id, True)
+        return id[0]
+
+    def find_listener(self,name):
+        """Find the id of the replier (if any) for this message.
+
+        Returns None if there was no replier, otherwise the replier's id.
+        """
+        arg = KbufListenerStruct(0,len(name),name)
+        retval = fcntl.ioctl(self.fd, KBUS_IOC_REPLIER, arg);
+        if retval:
+            return arg.return_id
+        else:
+            return None
+
+    def write(self,message):
+        """Write a Message.
+        """
+        # Message data is held in an array.array, and arrays know
+        # how to write themselves out
+        message.array.tofile(self.fd)
+        # But we are responsible for flushing
+        self.fd.flush()
+
+    def read(self):
+        """Read the next Message.
+
+        Returns None if there was nothing to be read.
+        """
+        data = self.fd.read(self.next_len())
+        if data:
+            return Message(data)
+        else:
+            return None
 
 def read_bindings(names):
     """Read the bindings from /proc/kbus/bindings, and return a list
@@ -621,8 +631,8 @@ def bindings_match(bindings):
     names = {}
     for (fd,rep,all,name) in bindings:
         if fd not in names:
-            names[fd] = bound_as(fd)
-        testwith.append((bound_as(fd),rep,all,name))
+            names[fd] = fd.bound_as()
+        testwith.append((fd.bound_as(),rep,all,name))
 
     actual = read_bindings(names)
 
@@ -667,6 +677,35 @@ def check_IOError(expected_errno,fn,*stuff):
         print e
         assert False, 'Applying %s failed with %s, not IOError'%(stuff,sys.exc_type)
 
+class TestInterface:
+    """Some basic testing of Interface.
+
+    Not much here, because most of its testing is done implicitly via
+    its use in other tests. And it really is fairly simple.
+    """
+
+    def test_opening(self):
+        """Test opening/closing Interface objects.
+        """
+        # We should be able to open each device that exists
+        for ii in range(NUM_DEVICES):
+            f = Interface(ii)
+            f.close()
+        # and not those that don't
+        check_IOError(errno.ENOENT,Interface,-1)
+        check_IOError(errno.ENOENT,Interface,NUM_DEVICES)
+
+    def test_modes(self):
+        """Test only the allowed modes are allowed
+        """
+        f = Interface(0,'r')
+        f.close()
+        f = Interface(0,'rw')
+        f.close()
+        nose.tools.assert_raises(ValueError,Interface,0,'fred')
+        nose.tools.assert_raises(ValueError,Interface,0,'w+')
+        nose.tools.assert_raises(ValueError,Interface,0,'x')
+
 class TestKernelModule:
 
     # A dictionary linking open /dev/kbus0 instances to replier True/False
@@ -683,13 +722,13 @@ class TestKernelModule:
     def bind(self,f,name,replier=True,guaranteed=False):
         """A wrapper around the 'bind' function. to keep track of bindings.
         """
-        bind(f,name,replier,guaranteed)
+        f.bind(name,replier,guaranteed)
         TestKernelModule.bindings[f].append( (replier,guaranteed,name) )
 
     def unbind(self,f,name,replier=True,guaranteed=False):
         """A wrapper around the 'unbind' function, to keep track of bindings.
         """
-        unbind(f,name,replier,guaranteed)
+        f.unbind(name,replier,guaranteed)
         l = TestKernelModule.bindings[f]
         # If there are multiple matches, we'll delete the first,
         # which is what we want (well, to delete a single instance)
@@ -702,7 +741,7 @@ class TestKernelModule:
     def attach(self,mode):
         """A wrapper around opening /dev/kbus0, to keep track of bindings.
         """
-        f = open('/dev/kbus0',mode)
+        f = Interface(0,mode)
         if f:
             TestKernelModule.bindings[f] = []
         return f
@@ -726,34 +765,36 @@ class TestKernelModule:
         """Check that we can read back an equivalent message to 'expected'
         """
         if expected:
-            data = f.read(next_len(f))
-            assert data != None
-            new_message = Message(data)
+            new_message = f.read()
+            assert new_message != None
             assert expected.equivalent(new_message)
         else:
-            #nose.tools.assert_raises(EOFError,f.read,1)
-            data = f.read(1)
+            # We're not expecting anything -- check that's what we get
+            # - first, directly
+            data = f.fd.read(1)
             assert data == ''
+            # - secondly, in terms of Interface and Message
+            assert f.read() == None
 
     def test_readonly(self):
         """If we open the device readonly, we can't do much(!)
         """
-        f = self.attach('rb')
+        f = self.attach('r')
         assert f != None
         try:
             # Nothing to read
-            assert f.read(1) == ''
+            assert f.read() == None
 
             # We can't write to it
             msg2 = Message('$.Fred','data')
-            check_IOError(errno.EBADF,msg2.to_file,f)
+            check_IOError(errno.EBADF,f.write,msg2)
         finally:
             assert self.detach(f) is None
 
     def test_readwrite_kbus0(self):
         """If we open the device read/write, we can read and write.
         """
-        f = self.attach('wb+')
+        f = self.attach('rw')
         assert f != None
 
         try:
@@ -765,18 +806,18 @@ class TestKernelModule:
 
             # We can write a message and read it back
             msg1 = Message('$.B','data')
-            msg1.to_file(f)
+            f.write(msg1)
             self._check_read(f,msg1)
 
             # We can write a message and read it back, again
             msg2 = Message('$.C','fred')
-            msg2.to_file(f)
+            f.write(msg2)
             self._check_read(f,msg2)
 
             # If we try to write a message that nobody is listening for,
             # we get an appropriate error
             msg3 = Message('$.D','fred')
-            check_IOError(errno.EADDRNOTAVAIL,msg3.to_file,f)
+            check_IOError(errno.EADDRNOTAVAIL,f.write,msg3)
 
         finally:
             assert self.detach(f) is None
@@ -784,10 +825,10 @@ class TestKernelModule:
     def test_two_opens_kbus0(self):
         """If we open the device multiple times, they communicate
         """
-        f1 = self.attach('wb+')
+        f1 = self.attach('rw')
         assert f1 != None
         try:
-            f2 = self.attach('wb+')
+            f2 = self.attach('rw')
             assert f2 != None
             try:
                 # Both files listen to both messages
@@ -802,12 +843,12 @@ class TestKernelModule:
 
                 # If we write, we can read appropriately
                 msg1 = Message('$.B','data')
-                msg1.to_file(f1)
+                f1.write(msg1)
                 self._check_read(f2,msg1)
                 self._check_read(f1,msg1)
 
                 msg2 = Message('$.C','data')
-                msg2.to_file(f2)
+                f2.write(msg2)
                 self._check_read(f1,msg2)
                 self._check_read(f2,msg2)
             finally:
@@ -818,21 +859,21 @@ class TestKernelModule:
     def test_bind(self):
         """Initial ioctl/bind test.
         """
-        f = self.attach('wb+')
+        f = self.attach('rw')
         assert f != None
 
         try:
             # - BIND
-            # The "Bind" ioctl requires a proper argument
-            check_IOError(errno.EINVAL, fcntl.ioctl,f, KBUS_IOC_BIND, 0)
+            # Low level check: The "Bind" ioctl requires a proper argument
+            check_IOError(errno.EINVAL, fcntl.ioctl, f.fd, KBUS_IOC_BIND, 0)
             # Said string must not be zero length
             check_IOError(errno.EINVAL, self.bind, f, '', True)
             # At some point, it will have restrictions on what it *should* look
             # like
             self.bind(f,'$.Fred')
             # - UNBIND
-            check_IOError(errno.EINVAL, fcntl.ioctl,f, KBUS_IOC_UNBIND, 0)
-            check_IOError(errno.EINVAL, self.unbind,f, '', True)
+            check_IOError(errno.EINVAL, fcntl.ioctl, f.fd, KBUS_IOC_UNBIND, 0)
+            check_IOError(errno.EINVAL, self.unbind, f, '', True)
             self.unbind(f,'$.Fred')
         finally:
             assert self.detach(f) is None
@@ -840,7 +881,7 @@ class TestKernelModule:
     def test_many_bind_1(self):
         """Initial ioctl/bind test -- make lots of bindings
         """
-        f = self.attach('wb+')
+        f = self.attach('rw')
         assert f != None
 
         try:
@@ -854,7 +895,7 @@ class TestKernelModule:
     def test_many_bind_2(self):
         """Initial ioctl/bind test -- make lots of the same binding
         """
-        f = self.attach('wb+')
+        f = self.attach('rw')
         assert f != None
 
         try:
@@ -868,7 +909,7 @@ class TestKernelModule:
     def test_many_bind_3(self):
         """Initial ioctl/bind test -- multiple matching bindings/unbindings
         """
-        f = self.attach('wb+')
+        f = self.attach('rw')
         assert f != None
 
         try:
@@ -889,10 +930,10 @@ class TestKernelModule:
     def test_bind_more(self):
         """Initial ioctl/bind test - with more bindings.
         """
-        f1 = self.attach('wb+')
+        f1 = self.attach('rw')
         assert f1 != None
         try:
-            f2 = self.attach('wb+')
+            f2 = self.attach('rw')
             assert f2 != None
             try:
                 # We can bind and unbind
@@ -931,10 +972,10 @@ class TestKernelModule:
     def test_bindings_match1(self):
         """Check that bindings match inside and out.
         """
-        f1 = self.attach('wb+')
+        f1 = self.attach('rw')
         assert f1 != None
         try:
-            f2 = self.attach('wb+')
+            f2 = self.attach('rw')
             assert f2 != None
             try:
                 self.bind(f1,'$.Fred')
@@ -960,7 +1001,7 @@ class TestKernelModule:
     def test_rw_single_file(self):
         """Test reading and writing two messages on a single file
         """
-        f = self.attach('wb+')
+        f = self.attach('rw')
         assert f != None
         try:
 
@@ -975,25 +1016,24 @@ class TestKernelModule:
             self.bind(f,'$.William')
 
             msg1 = Message(name1,data=data1)
-            msg1.to_file(f)
+            f.write(msg1)
             print 'Wrote:',msg1
 
             # There are no listeners for '$.Fred.Bob.William'
             msg2 = Message(name2,data=data2)
-            check_IOError(errno.EADDRNOTAVAIL, msg2.to_file, f)
+            check_IOError(errno.EADDRNOTAVAIL, f.write, msg2)
 
-            data = f.read(msg1.length*4)
-            msg1r = Message(data)
+            msg1r = f.read()
             print 'Read: ',msg1r
 
             # The message read should essentially match
             assert msg1.equivalent(msg1r)
 
-            data = f.read(msg2.length*4)
-            assert len(data) == 0
+            msg2r = f.read()
+            assert msg2r == None
 
             # There shouldn't be anything else to read
-            assert f.read(1) == ''
+            assert f.read() == None
 
         finally:
             assert self.detach(f) is None
@@ -1001,10 +1041,10 @@ class TestKernelModule:
     def test_read_write_2files(self):
         """Test reading and writing between two files.
         """
-        f1 = self.attach('wb+')
+        f1 = self.attach('rw')
         assert f1 != None
         try:
-            f2 = self.attach('wb+')
+            f2 = self.attach('rw')
             assert f2 != None
             try:
                 self.bind(f1,'$.Fred')
@@ -1015,55 +1055,55 @@ class TestKernelModule:
 
                 # Writing to $.Fred on f1 - writes message id N
                 msgF = Message('$.Fred','data')
-                msgF.to_file(f1)
-                n = last_msg_id(f1)
+                f1.write(msgF)
+                n = f1.last_msg_id()
 
                 # No one is listening for $.William
                 msgW = Message('$.William')
-                check_IOError(errno.EADDRNOTAVAIL,msgW.to_file,f1)
-                check_IOError(errno.EADDRNOTAVAIL,msgW.to_file,f2)
+                check_IOError(errno.EADDRNOTAVAIL, f1.write, msgW)
+                check_IOError(errno.EADDRNOTAVAIL, f2.write, msgW)
                 # (and attempting to write it doesn't increment KBUS's
                 # counting of the message id)
 
                 # Writing to $.Jim on f1 - writes message N+1
                 msgJ = Message('$.Jim','moredata')
-                msgJ.to_file(f1)
-                assert last_msg_id(f1) == n+1
+                f1.write(msgJ)
+                assert f1.last_msg_id() == n+1
 
                 # Reading f1 - message N
-                assert next_len(f1) == msgF.length*4
+                assert f1.next_len() == msgF.length*4
                 # By the way - it's still the next length until we read
-                assert next_len(f1) == msgF.length*4
-                data = Message(f1.read(msgF.length*4))
+                assert f1.next_len() == msgF.length*4
+                data = f1.read()
                 # Extract the message id -- this is N
                 n0 = data.extract()[0]
                 assert n == n0
 
                 # Reading f2 - should be message N+1
-                assert next_len(f2) == msgJ.length*4
-                data = Message(f2.read(msgJ.length*4))
+                assert f2.next_len() == msgJ.length*4
+                data = f2.read()
                 n3 = data.extract()[0]
                 assert n3 == n0+1
 
                 # Reading f1 - should be message N again
-                assert next_len(f1) == msgF.length*4
-                data = Message(f1.read(msgF.length*4))
+                assert f1.next_len() == msgF.length*4
+                data = f1.read()
                 n1 = data.extract()[0]
                 assert n1 == n0
 
                 # Reading f1 - should be message N again
-                assert next_len(f1) == msgF.length*4
-                data = Message(f1.read(msgF.length*4))
+                assert f1.next_len() == msgF.length*4
+                data = f1.read()
                 n2 = data.extract()[0]
                 assert n2 == n0
 
                 # No more messages on f1
-                assert next_len(f1) == 0
-                assert f1.read(1) == ''
+                assert f1.next_len() == 0
+                assert f1.read() == None
 
                 # No more messages on f2
-                assert next_len(f2) == 0
-                assert f1.read(2) == ''
+                assert f2.next_len() == 0
+                assert f2.read() == None
             finally:
                 assert self.detach(f2) is None
         finally:
@@ -1072,7 +1112,7 @@ class TestKernelModule:
     def test_reply_single_file(self):
         """Test replying with a single file
         """
-        f = self.attach('wb+')
+        f = self.attach('rw')
         assert f != None
         try:
 
@@ -1089,13 +1129,13 @@ class TestKernelModule:
             msg2 = Message(name2,data='dat2',flags=Message.WANT_A_REPLY)
             msg3 = Message(name3,data='dat3',flags=Message.WANT_A_REPLY)
 
-            msg1.to_file(f)
-            msg2.to_file(f)
-            msg3.to_file(f)
+            f.write(msg1)
+            f.write(msg2)
+            f.write(msg3)
 
-            m1 = Message(f.read(next_len(f)))
-            m2 = Message(f.read(next_len(f)))
-            m3 = Message(f.read(next_len(f)))
+            m1 = f.read()
+            m2 = f.read()
+            m3 = f.read()
 
             # For message 1, there is no reply needed
             assert not m1.should_reply()
@@ -1110,14 +1150,14 @@ class TestKernelModule:
             (id,in_reply_to,to,from_,flags,name,data_array) = msg2.extract()
 
             reply = Message(name, data=None, in_reply_to=id, to=from_)
-            reply.to_file(f)
+            f.write(reply)
 
             # And we should be able to read it...
-            m4 = Message(f.read(next_len(f)))
+            m4 = f.read()
             assert m4.equivalent(reply)
 
             # And there shouldn't be anything else to read
-            assert next_len(f) == 0
+            assert f.next_len() == 0
         finally:
             assert self.detach(f) is None
 
