@@ -464,17 +464,11 @@ class Interface(object):
         self.mode = None
         return ret
 
-    def bind(self,name,replier=True,guaranteed=False):
+    def bind(self,name,replier=False,guaranteed=False):
         """Bind the given name to the file descriptor.
 
         If 'replier', then we are binding as the only fd that can reply to this
         message name.
-
-            XXX Is 'True' actually a sensible default for 'replier'? Normally one
-            XXX *does* want a single replier, but I've found myself calling 'bind'
-            XXX multiple times with the same message name, and forgetting that I
-            XXX need to say the listeners are not repliers. Is there a better
-            XXX (separate) error code that the ioctl could return in this case?
 
         If 'guaranteed', then we require that *all* messages to us be delivered,
         otherwise kbus may drop messages if necessary.
@@ -482,7 +476,7 @@ class Interface(object):
         arg = KbufBindStruct(replier,guaranteed,len(name),name)
         return fcntl.ioctl(self.fd, KBUS_IOC_BIND, arg);
 
-    def unbind(self,name,replier=True,guaranteed=False):
+    def unbind(self,name,replier=False,guaranteed=False):
         """Unbind the given name from the file descriptor.
 
         The arguments need to match the binding that we want to unbind.
@@ -719,13 +713,13 @@ class TestKernelModule:
     # Automatically managed by the local bind and unbind *methods*
     bindings = {}
 
-    def bind(self,f,name,replier=True,guaranteed=False):
+    def bind(self,f,name,replier=False,guaranteed=False):
         """A wrapper around the 'bind' function. to keep track of bindings.
         """
         f.bind(name,replier,guaranteed)
         TestKernelModule.bindings[f].append( (replier,guaranteed,name) )
 
-    def unbind(self,f,name,replier=True,guaranteed=False):
+    def unbind(self,f,name,replier=False,guaranteed=False):
         """A wrapper around the 'unbind' function, to keep track of bindings.
         """
         f.unbind(name,replier,guaranteed)
@@ -913,10 +907,10 @@ class TestKernelModule:
         assert f != None
 
         try:
-            self.bind(f,'$.Fred')       # But remember, only one replier
+            self.bind(f,'$.Fred',True)  # But remember, only one replier
             self.bind(f,'$.Fred',False)
             self.bind(f,'$.Fred',False)
-            self.unbind(f,'$.Fred')
+            self.unbind(f,'$.Fred',True)
             self.unbind(f,'$.Fred',False)
             self.unbind(f,'$.Fred',False)
             # But not too many
@@ -953,11 +947,8 @@ class TestKernelModule:
                 self.bind(f1,'$.Jim.Bob',replier=False)
                 self.bind(f2,'$.Jim.Bob',replier=False)
                 # But we can still only have one replier
-                # (the default is to bind a replier, since we expect that in
-                # general there should be one, and if the binder is *not* a
-                # replier, they probably should have thought about this).
-                self.bind(f1,'$.Jim.Bob')
-                check_IOError(errno.EADDRINUSE, self.bind,f2, '$.Jim.Bob')
+                self.bind(f1,'$.Jim.Bob',replier=True)
+                check_IOError(errno.EADDRINUSE, self.bind,f2, '$.Jim.Bob', True)
 
                 # Oh, and not all messages need to be received
                 # - in our interfaces, we default to allowing kbus to drop
@@ -978,18 +969,18 @@ class TestKernelModule:
             f2 = self.attach('rw')
             assert f2 != None
             try:
-                self.bind(f1,'$.Fred')
-                self.bind(f1,'$.Fred.Jim')
-                self.bind(f1,'$.Fred.Bob')
-                self.bind(f1,'$.Fred.Jim.Bob')
-                self.bind(f1,'$.Fred.Jim.Derek',False)
+                self.bind(f1,'$.Fred',True)
+                self.bind(f1,'$.Fred.Jim',True)
+                self.bind(f1,'$.Fred.Bob',True)
+                self.bind(f1,'$.Fred.Jim.Bob',True)
+                self.bind(f1,'$.Fred.Jim.Derek')
                 # /proc/kbus/bindings should reflect all of the above, and none other
                 self._check_bindings()
-                self.bind(f2,'$.Fred.Jim.Derek',False)
-                self.bind(f2,'$.William',False)
-                self.bind(f2,'$.William',False)
-                self.bind(f2,'$.William',False)
-                self.bind(f1,'$.Fred.Jim.Bob.Eric')
+                self.bind(f2,'$.Fred.Jim.Derek')
+                self.bind(f2,'$.William')
+                self.bind(f2,'$.William')
+                self.bind(f2,'$.William')
+                self.bind(f1,'$.Fred.Jim.Bob.Eric',True)
                 self._check_bindings()
             finally:
                 assert self.detach(f2) is None
@@ -1012,8 +1003,8 @@ class TestKernelModule:
             data2 = array.array('L','This is surely some data')
 
             # Bind so that we can write/read the first, but not the second
-            self.bind(f,name1)
-            self.bind(f,'$.William')
+            self.bind(f,name1,True)
+            self.bind(f,'$.William',True)
 
             msg1 = Message(name1,data=data1)
             f.write(msg1)
@@ -1047,11 +1038,11 @@ class TestKernelModule:
             f2 = self.attach('rw')
             assert f2 != None
             try:
-                self.bind(f1,'$.Fred')
+                self.bind(f1,'$.Fred',True)
                 self.bind(f1,'$.Fred',False)
                 self.bind(f1,'$.Fred',False)
 
-                self.bind(f2,'$.Jim')
+                self.bind(f2,'$.Jim',True)
 
                 # Writing to $.Fred on f1 - writes message id N
                 msgF = Message('$.Fred','data')
