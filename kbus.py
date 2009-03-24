@@ -1327,4 +1327,36 @@ class TestKernelModule:
         finally:
             assert self.detach(f) is None
 
+    def test_wildcards_a_bit(self):
+        """Some initial testing of wildcards.
+        """
+        f = self.attach('rw')
+        assert f != None
+        try:
+            f.bind('$.Fred.*',True)
+
+            m = Message('$.Fred.Jim')
+            f.write(m)
+            r = f.read()
+            assert r.equivalent(m)
+
+            m = Message('$.Fred.JimBob.William')
+            f.write(m)
+            r = f.read()
+            assert r.equivalent(m)
+
+            m = Message('$.Fred')
+            check_IOError(errno.EADDRNOTAVAIL, f.write, m)
+
+            # A more specific binding, overlapping the wildcard
+            f.bind('$.Fred.Jim',True)
+            m = Message('$.Fred.Jim')
+            f.write(m)
+            r = f.read()
+            assert r.equivalent(m)
+            r = f.read()
+            assert r.equivalent(m)
+        finally:
+            assert self.detach(f) is None
+
 # vim: set tabstop=8 shiftwidth=4 expandtab:

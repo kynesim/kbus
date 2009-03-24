@@ -393,6 +393,49 @@ static int kbus_bad_message_name(char *name, size_t len)
 }
 
 /*
+ * Does this message name match the given binding?
+ *
+ * The binding may be a normal message name, or a wildcard.
+ *
+ * We assume that both names are legitimate.
+ */
+static int kbus_message_name_matches(char *name, size_t name_len, char *other)
+{
+	size_t	 other_len = strlen(other);
+
+	if (other[other_len-1] == '*' || other[other_len-1] == '%') {
+		char	*rest = name + other_len - 1;
+		size_t	 rest_len = name_len - other_len + 1;
+
+		/*
+		 * If we have '$.Fred.*', then we need at least '$.Fred.X' to match
+		 */
+		if (name_len < other_len)
+			return false;
+		/*
+		 * Does the name match all of the wildcard except the last character?
+		 */
+		if (strncmp(other,name,other_len-1))
+			return false;
+
+		/* '*' matches anything at all, so we're done */
+		if (other[other_len-1] == '*')
+			return true;
+
+		/* '%' only matches if we don't have another dot */
+		if (strnchr(rest,rest_len,'.'))
+			return false;
+		else
+			return true;
+	} else {
+		if (name_len != other_len)
+			return false;
+		else
+			return (!strncmp(name,other,name_len));
+	}
+}
+
+/*
  * Extract useful information from a message.
  *
  * Return 0 if the message is well strutured, -EINVAL if it is not.
@@ -721,7 +764,7 @@ static int kbus_find_replier(struct kbus_dev	*dev,
 static int kbus_find_listeners(struct kbus_dev	 *dev,
 			       uint32_t		**listeners,
 			       uint32_t		 *replier,
-			       uint32_t		  len,
+			       uint32_t		  name_len,
 			       char		 *name)
 {
 	/* XXX Silly values for debugging XXX */
@@ -737,22 +780,20 @@ static int kbus_find_listeners(struct kbus_dev	 *dev,
 	struct kbus_message_binding *next;
 
 	printk(KERN_DEBUG "kbus: Looking for a listener for %d:'%s'\n",
-	       len,name);
+	       name_len,name);
 
 	/* Start with some guess at a size, picked from the wind */
 	*listeners = kmalloc(sizeof(uint32_t) * array_size,GFP_KERNEL);
 	if (!(*listeners))
 		return -EFAULT;
 
-	/* We don't want anyone writing to the list whilst we do this */
 	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
-		if ( ptr->len == len &&
-		     !strncmp(name,ptr->name,len) )
+
+		if (kbus_message_name_matches(name,name_len,ptr->name))
 		{
-			printk(KERN_DEBUG "kbus: %d:'%s' has listener %u%s\n",
-			       ptr->len,ptr->name,
-			       ptr->bound_to,
-			       (ptr->replier?" (replier)":""));
+			printk(KERN_DEBUG "kbus: '%*s' matches '%s' for listener %u%s\n",
+			       name_len,name, ptr->name,
+			       ptr->bound_to, (ptr->replier?" (replier)":""));
 
 			if (count == array_size)
 			{
@@ -774,10 +815,10 @@ static int kbus_find_listeners(struct kbus_dev	 *dev,
 	}
 	if (count)
 		printk(KERN_DEBUG "kbus: Found %d listeners for %d:'%s'\n",
-		       count,len,name);
+		       count,name_len,name);
 	else
 		printk(KERN_DEBUG "kbus: Could not find a listener for %d:'%s'\n",
-		       len,name);
+		       name_len,name);
 
 	return count;
 }
