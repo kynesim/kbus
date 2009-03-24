@@ -1178,9 +1178,18 @@ class TestKernelModule:
             assert not m1.should_reply()
 
             # So, we should reply to message 2 - let's do so
-            (id,in_reply_to,to,from_,flags,name,data_array) = msg2.extract()
 
-            reply = Message(name, data=None, in_reply_to=id, to=from_)
+            # We can make a reply "by hand"
+            (id,in_reply_to,to,from_,flags,name,data_array) = msg2.extract()
+            reply_by_hand = Message(name, data=None, in_reply_to=id, to=from_)
+
+            # But it is easier to use the pre-packaged mechanism
+            reply = Reply(msg2)
+
+            # These should, however, give the same result
+            assert reply == reply_by_hand
+
+            # And the obvious thing to do with a reply is
             f.write(reply)
 
             # And we should be able to read it...
