@@ -1272,18 +1272,43 @@ class TestKernelModule:
         assert f != None
         try:
 
-            def _check(error,name):
-                check_IOError(error, f.bind, name)
+            def _error(error,name):
+                check_IOError(error, f.bind, name, True)
+
+            def _ok(name):
+                f.bind(name,True)
 
             # I don't necessarily know what name will be "too long",
             # but we can make a good guess as to a silly sort of length
-            _check(errno.ENAMETOOLONG,'1234567890'*1000)
+            _error(errno.ENAMETOOLONG,'1234567890'*1000)
 
             # We need a leading '$.'
-            _check(errno.EBADMSG,'')
-            _check(errno.EBADMSG,'$')
-            _check(errno.EBADMSG,'$x')
-            _check(errno.EBADMSG,'Fred')
+            _error(errno.EBADMSG,'')
+            _error(errno.EBADMSG,'$')
+            _error(errno.EBADMSG,'$x')
+            _error(errno.EBADMSG,'Fred')
+
+            _error(errno.EBADMSG,"$.Non-alphanumerics aren't allowed")
+            _error(errno.EBADMSG,'$.#')
+
+            # We cannot end with a dot
+            _error(errno.EBADMSG,'$.Fred.')
+            _error(errno.EBADMSG,'$.Fred..')
+            # Or have two dots in a row
+            _error(errno.EBADMSG,'$.Fred..Jim')
+            _error(errno.EBADMSG,'$.Fred...Jim')
+            _error(errno.EBADMSG,'$.Fred....Jim')
+
+            # The following *are* legal
+            _ok('$.Fred.Jim')
+            _ok('$.Fred.Jim.Fred.Jim.MoreNames.And.More')
+            _ok('$.QuiteLongWordsAreAllowedInNames')
+            # Case matters
+            _ok('$.This.is.a.different.name')
+            _ok('$.THIS.is.a.different.name')
+            # Top level wildcards are OK
+            _ok('$.*')
+            _ok('$.%')
         
         finally:
             assert self.detach(f) is None
