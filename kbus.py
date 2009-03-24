@@ -763,7 +763,7 @@ def check_IOError(expected_errno,fn,*stuff):
     try:
         apply(fn,stuff)
         # We're not expecting to get here...
-        assert False, 'Applying %s did not fail with IOError'%stuff
+        assert False, 'Applying %s%s did not fail with IOError'%(repr(fn),repr(stuff))
     except IOError, e:
         actual_errno = e.args[0]
         errno_name = errno.errorcode[actual_errno]
@@ -772,7 +772,8 @@ def check_IOError(expected_errno,fn,*stuff):
                 'expected %s, got %s'%(expected_errno_name,errno_name)
     except Exception, e:
         print e
-        assert False, 'Applying %s failed with %s, not IOError'%(stuff,sys.exc_type)
+        assert False, 'Applying %s%s failed with %s, not IOError'%(repr(fn),
+                repr(stuff),sys.exc_type)
 
 class TestInterface:
     """Some basic testing of Interface.
@@ -964,13 +965,13 @@ class TestKernelModule:
             # Low level check: The "Bind" ioctl requires a proper argument
             check_IOError(errno.EINVAL, fcntl.ioctl, f.fd, KBUS_IOC_BIND, 0)
             # Said string must not be zero length
-            check_IOError(errno.EINVAL, self.bind, f, '', True)
+            check_IOError(errno.EBADMSG, self.bind, f, '', True)
             # At some point, it will have restrictions on what it *should* look
             # like
             self.bind(f,'$.Fred')
             # - UNBIND
             check_IOError(errno.EINVAL, fcntl.ioctl, f.fd, KBUS_IOC_UNBIND, 0)
-            check_IOError(errno.EINVAL, self.unbind, f, '', True)
+            check_IOError(errno.EBADMSG, self.unbind, f, '', True)
             self.unbind(f,'$.Fred')
         finally:
             assert self.detach(f) is None
@@ -1261,6 +1262,43 @@ class TestKernelModule:
 
             # And there shouldn't be anything else to read
             assert f.next_len() == 0
+        finally:
+            assert self.detach(f) is None
+
+    def test_message_names(self):
+        """Test for message name legality.
+        """
+        f = self.attach('rw')
+        assert f != None
+        try:
+
+            def _check(error,name):
+                check_IOError(error, f.bind, name)
+
+            # I don't necessarily know what name will be "too long",
+            # but we can make a good guess as to a silly sort of length
+            _check(errno.ENAMETOOLONG,'1234567890'*1000)
+
+            # We need a leading '$.'
+            _check(errno.EBADMSG,'')
+            _check(errno.EBADMSG,'$')
+            _check(errno.EBADMSG,'$x')
+            _check(errno.EBADMSG,'Fred')
+        
+        finally:
+            assert self.detach(f) is None
+
+    def test_data_too_long(self):
+        """Test for message name legality.
+        """
+        f = self.attach('rw')
+        assert f != None
+        try:
+            # I don't necessarily know how much data will be "too long",
+            # but we can make a good guess as to a silly sort of length
+            m = Message('$.Fred',data='12345678'*1000)
+            f.bind('$.Fred')
+            check_IOError(errno.EMSGSIZE, f.write, m)
         finally:
             assert self.detach(f) is None
 

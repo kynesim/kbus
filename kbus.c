@@ -49,7 +49,8 @@
 #include <linux/device.h>       /* device classes (for hotplugging), &c */
 #include <linux/cdev.h>         /* registering character devices */
 #include <linux/list.h>
-#include <linux/bitops.h>
+#include <linux/bitops.h>	/* for BIT */
+#include <linux/ctype.h>	/* for isalnum */
 #include <asm/uaccess.h>	/* copy_*_user() functions */
 
 /*
@@ -352,6 +353,46 @@ struct kbus_message_queue_item {
 };
 
 /*
+ * Given a message name, is it valid?
+ *
+ * We have nothing to say on *length*.
+ *
+ * Returns 0 if it's OK, 1 if it's naughty
+ */
+static int kbus_bad_message_name(char *name, size_t len)
+{
+	size_t	 ii;
+	int	 dot_at = 1;
+
+	if (len < 3)
+		return 1;
+
+	if (name == NULL || name[0] != '$' || name[1] != '.')
+		return 1;
+
+	if (name[len-2] == '.' && name[len-1] == '*')
+		len -= 2;
+	else if (name[len-2] == '.' && name[len-1] == '%')
+		len -= 2;
+	
+	if (name[len-1] == '.')
+		return 1;
+
+	for (ii=2; ii<len; ii++) {
+		if (name[ii] == '.')
+		{
+			if (dot_at == ii-1)
+				return 1;
+			dot_at = ii;
+		}
+		else if (!isalnum(name[ii]))
+			return 1;
+	}
+
+	return 0;
+}
+
+/*
  * Extract useful information from a message.
  *
  * Return 0 if the message is well strutured, -EINVAL if it is not.
@@ -372,17 +413,18 @@ static int kbus_dissect_message(struct kbus_message_struct	 *msg,
 		       KBUS_MSG_START_GUARD);
 		return -EINVAL;
 	}
+
 	if (msg->name_len > KBUS_MAX_NAME_LEN) {
 		printk(KERN_DEBUG "kbus: message name length is %u,"
 		       " more than %u\n", msg->name_len,
 		       KBUS_MAX_NAME_LEN);
-		return -EINVAL;
+		return -ENAMETOOLONG;
 	}
 	if (msg->data_len > KBUS_MAX_DATA_LEN) {
 		printk(KERN_DEBUG "kbus: message data length is %u,"
 		       " more than %u\n", msg->data_len,
 		       KBUS_MAX_DATA_LEN);
-		return -EINVAL;
+		return -EMSGSIZE;
 	}
 
 	*msg_len = KBUS_MSG_LEN(msg->name_len,msg->data_len);
@@ -398,6 +440,12 @@ static int kbus_dissect_message(struct kbus_message_struct	 *msg,
 	}
 	*name_p = (char *)&msg->rest[0];
 	*data_p = &msg->rest[data_idx];
+
+	if (kbus_bad_message_name(*name_p,msg->name_len)) {
+		printk(KERN_DEBUG "kbus: message name '%*s' is not allowed\n",
+		       msg->name_len,*name_p);
+		return -EBADMSG;
+	}
 	return 0;
 }
 
@@ -1381,11 +1429,18 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 				printk(KERN_DEBUG "kbus: bind name is 0\n");
 				retval = -EINVAL;
 				break;
-			} else if ( bind->len > KBUS_MAX_NAME_LEN ||
-				    bind->len == 0) {
+			} else if (bind->len == 0) {
 				printk(KERN_DEBUG "kbus: bind name is length %d\n",
 				       bind->len);
-				retval = -EINVAL;
+				retval = -EBADMSG;
+				break;
+			} else if (bind->len > KBUS_MAX_NAME_LEN) {
+				printk(KERN_DEBUG "kbus: bind name is length %d\n",
+				       bind->len);
+				retval = -ENAMETOOLONG;
+				break;
+			} else if (kbus_bad_message_name(bind->name,bind->len)) {
+				retval = -EBADMSG;
 				break;
 			}
 			printk(KERN_DEBUG "kbus: Bind request %c %d:'%s' on %u@%p\n",
@@ -1414,11 +1469,18 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 				printk(KERN_DEBUG "kbus: unbind name is 0\n");
 				retval = -EINVAL;
 				break;
-			} else if ( bind->len > KBUS_MAX_NAME_LEN ||
-				    bind->len == 0) {
-				printk(KERN_DEBUG "kbus: unbind name is length %d\n",
+			} else if (bind->len == 0) {
+				printk(KERN_DEBUG "kbus: bind name is length %d\n",
 				       bind->len);
-				retval = -EINVAL;
+				retval = -EBADMSG;
+				break;
+			} else if (bind->len > KBUS_MAX_NAME_LEN) {
+				printk(KERN_DEBUG "kbus: bind name is length %d\n",
+				       bind->len);
+				retval = -ENAMETOOLONG;
+				break;
+			} else if (kbus_bad_message_name(bind->name,bind->len)) {
+				retval = -EBADMSG;
 				break;
 			}
 			printk(KERN_DEBUG "kbus: Unbind request %c %d:'%s' on %u@%p\n",
