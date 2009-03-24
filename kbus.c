@@ -355,7 +355,7 @@ struct kbus_message_queue_item {
 /*
  * Given a message name, is it valid?
  *
- * We have nothing to say on *length*.
+ * We have nothing to say on maximum length.
  *
  * Returns 0 if it's OK, 1 if it's naughty
  */
