@@ -181,6 +181,34 @@ class Message(object):
         >>> msg4 == msg1
         True
 
+    The arguments to Message() are thus:
+
+    - 'arg' -- this is the initial argument, and is a message name (a string
+      that starts '$.'), a Message, some data that may be interpreted as a
+      message (e.g., an array.array of unsigned 32-bit words, or a string of
+      the right form), or a tuple from the .extract() method of another
+      Message.
+
+    If 'arg' is a message name, then the keyword arguments may be used (if
+    'arg' is not a messsage name, they will be ignored):
+
+    - 'data' is data for the Message, something that can be assigned to an
+      array.array of unsigned 32-bit words.
+    - 'to' is the Interface id for the destination, for use in replies or in
+      stateful messaging. Normally it should be left 0.
+    - 'from_' is the Interface id of the sender. Normally this should be left
+      0, as it is assigned by KBUS.
+    - if 'in_reply_to' is non-zero, then it is the Interface id to which the
+      reply shall go (taken from the 'from_' field in the original message).
+      Setting 'in_reply_to' non-zero indicates that the Message *is* a reply.
+      See also the Reply class, which makes constructing replies simpler.
+    - 'flags' can be used to set the flags for the message. If all that is
+      wanted is to set Messages.WANT_A_REPLY flag, it is simpler to use the
+      Request class to construct the message.
+    - 'id' may be used to set the message id, although KBUS will ignore this
+      and set the id internally (this can be useful when constructing a message
+      to compare received messages against).
+
     Our internal values are:
 
     - 'array', which is the actual message data, as an array.array('L',...)
@@ -410,6 +438,39 @@ class Message(object):
 
         return self
 
+class Request(Message):
+    """A message that wants a reply.
+
+    This is intended to be a convenient way of constructing a message that
+    wants a reply.
+
+    For instance:
+
+        >>> msg = Message('$.Fred',data='abcd',flags=Message.WANT_A_REPLY)
+        >>> msg
+        Message('$.Fred', data=array('L', [1684234849L]), to=0L, from_=0L, in_reply_to=0L, flags=0x00000001, id=0L)
+        >>> req = Request('$.Fred',data='abcd')
+        >>> req
+        Message('$.Fred', data=array('L', [1684234849L]), to=0L, from_=0L, in_reply_to=0L, flags=0x00000001, id=0L)
+        >>> req == msg
+        True
+
+    Note that:
+
+    1. A Request instance still represents itself as a Message. This is
+       perhaps not ideal, but is consistent with how Reply instances work.
+    2. A request message is a request just because it has the
+       Message.WANT_A_REPLY flag set. There is nothing else special about it.
+    """
+
+    def __init__(self, arg, **kwargs):
+        """Arguments are exactly the same as for Message itself.
+        """
+        # First, just do what the caller asked for directly
+        super(Request,self).__init__(arg, **kwargs)
+        # But then make sure that the "wants a reply" flags is set
+        self.set_want_reply()
+
 class Reply(Message):
     """A reply message.
 
@@ -426,8 +487,10 @@ class Reply(Message):
 
     Note that:
 
-    1. A Reply instance still represents itself as a Message. This seems less
-       confusing than other possibilities.
+    1. A Reply instance still represents itself as a Message. This is mostly
+       because the representation can be used to construct an identical
+       Message -- doing this with a Reply() would mean including the
+       representation of the original Message as well.
     2. A reply message is a reply because it has the 'in_reply_to' field set.
        This indicates the message id of the original message, the one we're
        replying to.
@@ -1157,8 +1220,8 @@ class TestKernelModule:
 
 
             msg1 = Message(name1,data='dat1')
-            msg2 = Message(name2,data='dat2',flags=Message.WANT_A_REPLY)
-            msg3 = Message(name3,data='dat3',flags=Message.WANT_A_REPLY)
+            msg2 = Request(name2,data='dat2')
+            msg3 = Request(name3,data='dat3')
 
             f.write(msg1)
             f.write(msg2)

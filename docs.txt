@@ -6,8 +6,8 @@ This is emergent documentation for the KBUS kernel module.
 It is intended that (if kbus is installed) this document should work as a
 doctest, testing that all Python examples actually work.
 
-The basics
-==========
+Intention
+=========
 KBUS provides lightweight kernel-mediated messaging for Linux.
 
 * "lightweight" means that there is no intent to provide complex or
