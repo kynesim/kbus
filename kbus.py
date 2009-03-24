@@ -410,6 +410,46 @@ class Message(object):
 
         return self
 
+class Reply(Message):
+    """A reply message.
+
+    This is intended to be the normal way of constructing a reply message.
+
+    For instance:
+
+        >>> msg = Message('$.Fred',data='abcd',from_=27,to=99,id=132,flags=Message.WANT_A_REPLY)
+        >>> msg
+        Message('$.Fred', data=array('L', [1684234849L]), to=99L, from_=27L, in_reply_to=0L, flags=0x00000001, id=132L)
+        >>> reply = Reply(msg)
+        >>> reply
+        Message('$.Fred', data=array('L'), to=27L, from_=0L, in_reply_to=132L, flags=0x00000000, id=0L)
+
+    Note that:
+
+    1. A Reply instance still represents itself as a Message. This seems less
+       confusing than other possibilities.
+    2. A reply message is a reply because it has the 'in_reply_to' field set.
+       This indicates the message id of the original message, the one we're
+       replying to.
+    3. As normal, the Reply's own message id is unset - KBUS will set this, as
+       for any message.
+    4. We give a specific 'to' value, the id of the interface that sent the
+       original message, and thus the 'from' value in the original message.
+    5. We keep the same message name, but don't copy the original message's
+       data. If we want to send data in a reply message, it will be our own
+       data.
+    """
+
+    def __init__(self, original, data=None):
+        (id,in_reply_to,to,from_,flags,name,data_array) = original.extract()
+        # We reply to the original sender (to), indicating which message we're
+        # responding to (in_reply_to).
+        # The fact that in_reply_to is set means that we *are* a reply.
+        # We don't need to set any flags.
+        super(Reply,self).__init__(name, data=data,
+                                   in_reply_to=id,
+                                   to=from_)
+
 class KbufBindStruct(ctypes.Structure):
     """The datastucture we need to describe a KBUS_IOC_BIND argument
     """
