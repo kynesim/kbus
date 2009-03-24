@@ -642,6 +642,83 @@ class Interface(object):
         else:
             return None
 
+class BindingsMemory(object):
+    """A class for remembering message name bindings.
+
+    We remember bindings in a dictionary, relating Interface instances to
+    bindings made on those interfaces. So, for instance:
+    
+       bindings[if] = [(True,False,'$.Fred.Jim.Bob'),
+                       (False,True,'$.Fred')]
+    
+    (the order in the tuple matches that in the /proc/kbus/bindings file).
+    
+    Automatically managed by the local bind and unbind *methods*
+    """
+
+    def __init__(self):
+        self.bindings = {}
+
+    def remember_interface(self,interface):
+        self.bindings[interface] = []
+
+    def forget_interface(self,interface):
+        del self.bindings[interface]
+
+    def remember_binding(self,interface,name,replier=False,guaranteed=False):
+        self.bindings[interface].append( (replier,guaranteed,name) )
+
+    def forget_binding(self,interface,name,replier=False,guaranteed=False):
+        if_list = self.bindings[interface]
+        # If there are multiple matches, we'll delete the first,
+        # which is what we want (well, to delete a single instance)
+        for index,thing in enumerate(if_list):
+            if thing[-1] == name:       # the name is always the last element
+                del if_list[index]
+                break
+        # No matches shouldn't occur, but let's ignore it anyway
+
+    def check_bindings(self):
+        """Check the bindings we think we have match those of kbus
+        """
+        expected = []
+        for interface,if_list in self.bindings.items():
+            for r,a,n in if_list:
+                expected.append( (interface,r,a,n) )
+        assert bindings_match(expected)
+
+class RecordingInterface(Interface):
+    """A variant of Interface which remembers and checks its bindings.
+
+    Intended originally for use in writing test code.
+
+    The constructor takes an extra argument, which should be a BindingsMemory
+    instance, and which is used to remember our bindings. Otherwise, use it
+    just like an ordinary Interface.
+    """
+
+    def __init__(self, which=0, mode='r', bindings=None):
+        super(RecordingInterface,self).__init__(which,mode)
+        self.bindings = bindings
+        self.bindings.remember_interface(self)
+
+    def close(self):
+        super(RecordingInterface,self).close()
+        self.bindings.forget_interface(self)
+        self.bindings = None
+
+    def bind(self,name,replier=False,guaranteed=False):
+        """A wrapper around the 'bind' function. to keep track of bindings.
+        """
+        super(RecordingInterface,self).bind(name,replier,guaranteed)
+        self.bindings.remember_binding(self,name,replier,guaranteed)
+
+    def unbind(self,name,replier=False,guaranteed=False):
+        """A wrapper around the 'unbind' function, to keep track of bindings.
+        """
+        super(RecordingInterface,self).unbind(name,replier,guaranteed)
+        self.bindings.forget_binding(self,name,replier,guaranteed)
+
 def read_bindings(names):
     """Read the bindings from /proc/kbus/bindings, and return a list
 
@@ -806,58 +883,11 @@ class TestInterface:
 
 class TestKernelModule:
 
-    # A dictionary linking open /dev/kbus0 instances to replier True/False
-    # and guaranteed-delivery True/False flags, and message names - so, for
-    # instance:
-    #
-    #    bindings[f] = [(True,False,'$.Fred.Jim.Bob'), (False,True,'$.Fred')]
-    #
-    # (the order in the tuple matches that in the /proc/kbus/bindings file).
-    #
-    # Automatically managed by the local bind and unbind *methods*
-    bindings = {}
-
-    def bind(self,f,name,replier=False,guaranteed=False):
-        """A wrapper around the 'bind' function. to keep track of bindings.
-        """
-        f.bind(name,replier,guaranteed)
-        TestKernelModule.bindings[f].append( (replier,guaranteed,name) )
-
-    def unbind(self,f,name,replier=False,guaranteed=False):
-        """A wrapper around the 'unbind' function, to keep track of bindings.
-        """
-        f.unbind(name,replier,guaranteed)
-        l = TestKernelModule.bindings[f]
-        # If there are multiple matches, we'll delete the first,
-        # which is what we want (well, to delete a single instance)
-        for index,thing in enumerate(l):
-            if thing[-1] == name:       # the name is always the last element
-                del l[index]
-                break
-        # No matches shouldn't occur, but let's ignore it anyway
-
-    def attach(self,mode):
-        """A wrapper around opening /dev/kbus0, to keep track of bindings.
-        """
-        f = Interface(0,mode)
-        if f:
-            TestKernelModule.bindings[f] = []
-        return f
-
-    def detach(self,f):
-        """A wrapper around closing a /dev/kbus0 instance.
-        """
-        del TestKernelModule.bindings[f]
-        return f.close()
+    def __init__(self):
+        self.bindings = BindingsMemory()
 
     def _check_bindings(self):
-        """Check the bindings we think we have match those of kbus
-        """
-        expected = []
-        for fd,l in TestKernelModule.bindings.items():
-            for r,a,n in l:
-                expected.append( (fd,r,a,n) )
-        assert bindings_match(expected)
+        self.bindings.check_bindings()
 
     def _check_read(self,f,expected):
         """Check that we can read back an equivalent message to 'expected'
@@ -877,7 +907,7 @@ class TestKernelModule:
     def test_readonly(self):
         """If we open the device readonly, we can't do much(!)
         """
-        f = self.attach('r')
+        f = RecordingInterface(0,'r',self.bindings)
         assert f != None
         try:
             # Nothing to read
@@ -887,17 +917,17 @@ class TestKernelModule:
             msg2 = Message('$.Fred','data')
             check_IOError(errno.EBADF,f.write,msg2)
         finally:
-            assert self.detach(f) is None
+            assert f.close() is None
 
     def test_readwrite_kbus0(self):
         """If we open the device read/write, we can read and write.
         """
-        f = self.attach('rw')
+        f = RecordingInterface(0,'rw',self.bindings)
         assert f != None
 
         try:
-            self.bind(f,'$.B')
-            self.bind(f,'$.C')
+            f.bind('$.B')
+            f.bind('$.C')
 
             # We start off with no message
             self._check_read(f,None)
@@ -918,22 +948,22 @@ class TestKernelModule:
             check_IOError(errno.EADDRNOTAVAIL,f.write,msg3)
 
         finally:
-            assert self.detach(f) is None
+            assert f.close() is None
 
     def test_two_opens_kbus0(self):
         """If we open the device multiple times, they communicate
         """
-        f1 = self.attach('rw')
+        f1 = RecordingInterface(0,'rw',self.bindings)
         assert f1 != None
         try:
-            f2 = self.attach('rw')
+            f2 = RecordingInterface(0,'rw',self.bindings)
             assert f2 != None
             try:
                 # Both files listen to both messages
-                self.bind(f1,'$.B',False)
-                self.bind(f1,'$.C',False)
-                self.bind(f2,'$.B',False)
-                self.bind(f2,'$.C',False)
+                f1.bind('$.B',False)
+                f1.bind('$.C',False)
+                f2.bind('$.B',False)
+                f2.bind('$.C',False)
 
                 # Nothing to read at the start
                 self._check_read(f1,None)
@@ -950,14 +980,14 @@ class TestKernelModule:
                 self._check_read(f1,msg2)
                 self._check_read(f2,msg2)
             finally:
-                assert self.detach(f2) is None
+                assert f2.close() is None
         finally:
-            assert self.detach(f1) is None
+            assert f1.close() is None
 
     def test_bind(self):
         """Initial ioctl/bind test.
         """
-        f = self.attach('rw')
+        f = RecordingInterface(0,'rw',self.bindings)
         assert f != None
 
         try:
@@ -965,138 +995,138 @@ class TestKernelModule:
             # Low level check: The "Bind" ioctl requires a proper argument
             check_IOError(errno.EINVAL, fcntl.ioctl, f.fd, KBUS_IOC_BIND, 0)
             # Said string must not be zero length
-            check_IOError(errno.EBADMSG, self.bind, f, '', True)
+            check_IOError(errno.EBADMSG, f.bind, '', True)
             # At some point, it will have restrictions on what it *should* look
             # like
-            self.bind(f,'$.Fred')
+            f.bind('$.Fred')
             # - UNBIND
             check_IOError(errno.EINVAL, fcntl.ioctl, f.fd, KBUS_IOC_UNBIND, 0)
-            check_IOError(errno.EBADMSG, self.unbind, f, '', True)
-            self.unbind(f,'$.Fred')
+            check_IOError(errno.EBADMSG, f.unbind, '', True)
+            f.unbind('$.Fred')
         finally:
-            assert self.detach(f) is None
+            assert f.close() is None
 
     def test_many_bind_1(self):
         """Initial ioctl/bind test -- make lots of bindings
         """
-        f = self.attach('rw')
+        f = RecordingInterface(0,'rw',self.bindings)
         assert f != None
 
         try:
-            self.bind(f,'$.Fred')
-            self.bind(f,'$.Fred.Jim')
-            self.bind(f,'$.Fred.Bob')
-            self.bind(f,'$.Fred.Jim.Bob')
+            f.bind('$.Fred')
+            f.bind('$.Fred.Jim')
+            f.bind('$.Fred.Bob')
+            f.bind('$.Fred.Jim.Bob')
         finally:
-            assert self.detach(f) is None
+            assert f.close() is None
 
     def test_many_bind_2(self):
         """Initial ioctl/bind test -- make lots of the same binding
         """
-        f = self.attach('rw')
+        f = RecordingInterface(0,'rw',self.bindings)
         assert f != None
 
         try:
-            self.bind(f,'$.Fred')
-            self.bind(f,'$.Fred',False)
-            self.bind(f,'$.Fred',False)
-            self.bind(f,'$.Fred',False)
+            f.bind('$.Fred')
+            f.bind('$.Fred',False)
+            f.bind('$.Fred',False)
+            f.bind('$.Fred',False)
         finally:
-            assert self.detach(f) is None
+            assert f.close() is None
 
     def test_many_bind_3(self):
         """Initial ioctl/bind test -- multiple matching bindings/unbindings
         """
-        f = self.attach('rw')
+        f = RecordingInterface(0,'rw',self.bindings)
         assert f != None
 
         try:
-            self.bind(f,'$.Fred',True)  # But remember, only one replier
-            self.bind(f,'$.Fred',False)
-            self.bind(f,'$.Fred',False)
-            self.unbind(f,'$.Fred',True)
-            self.unbind(f,'$.Fred',False)
-            self.unbind(f,'$.Fred',False)
+            f.bind('$.Fred',True)  # But remember, only one replier
+            f.bind('$.Fred',False)
+            f.bind('$.Fred',False)
+            f.unbind('$.Fred',True)
+            f.unbind('$.Fred',False)
+            f.unbind('$.Fred',False)
             # But not too many
-            check_IOError(errno.EINVAL, self.unbind,f, '$.Fred')
-            check_IOError(errno.EINVAL, self.unbind,f, '$.Fred',False)
+            check_IOError(errno.EINVAL, f.unbind, '$.Fred')
+            check_IOError(errno.EINVAL, f.unbind, '$.Fred',False)
             # We can't unbind something we've not bound
-            check_IOError(errno.EINVAL, self.unbind,f, '$.JimBob',False)
+            check_IOError(errno.EINVAL, f.unbind, '$.JimBob',False)
         finally:
-            assert self.detach(f) is None
+            assert f.close() is None
 
     def test_bind_more(self):
         """Initial ioctl/bind test - with more bindings.
         """
-        f1 = self.attach('rw')
+        f1 = RecordingInterface(0,'rw',self.bindings)
         assert f1 != None
         try:
-            f2 = self.attach('rw')
+            f2 = RecordingInterface(0,'rw',self.bindings)
             assert f2 != None
             try:
                 # We can bind and unbind
-                self.bind(f1,'$.Fred',replier=True)
-                self.unbind(f1, '$.Fred',replier=True)
-                self.bind(f1,'$.Fred',replier=False)
-                self.unbind(f1, '$.Fred',replier=False)
+                f1.bind('$.Fred',replier=True)
+                f1.unbind( '$.Fred',replier=True)
+                f1.bind('$.Fred',replier=False)
+                f1.unbind( '$.Fred',replier=False)
                 # We can bind many times
-                self.bind(f1,'$.Fred',replier=False)
-                self.bind(f1,'$.Fred',replier=False)
-                self.bind(f1,'$.Fred',replier=False)
+                f1.bind('$.Fred',replier=False)
+                f1.bind('$.Fred',replier=False)
+                f1.bind('$.Fred',replier=False)
                 # But we can only have one replier
-                self.bind(f1,'$.Fred',replier=True)
-                check_IOError(errno.EADDRINUSE, self.bind,f1, '$.Fred',True)
+                f1.bind('$.Fred',replier=True)
+                check_IOError(errno.EADDRINUSE, f1.bind, '$.Fred',True)
 
                 # Two files can bind to the same thing
-                self.bind(f1,'$.Jim.Bob',replier=False)
-                self.bind(f2,'$.Jim.Bob',replier=False)
+                f1.bind('$.Jim.Bob',replier=False)
+                f2.bind('$.Jim.Bob',replier=False)
                 # But we can still only have one replier
-                self.bind(f1,'$.Jim.Bob',replier=True)
-                check_IOError(errno.EADDRINUSE, self.bind,f2, '$.Jim.Bob', True)
+                f1.bind('$.Jim.Bob',replier=True)
+                check_IOError(errno.EADDRINUSE, f2.bind, '$.Jim.Bob', True)
 
                 # Oh, and not all messages need to be received
                 # - in our interfaces, we default to allowing kbus to drop
                 # messages if necessary
-                self.bind(f1,'$.Jim.Bob',replier=False,guaranteed=True)
-                self.bind(f1,'$.Fred',replier=False,guaranteed=True)
+                f1.bind('$.Jim.Bob',replier=False,guaranteed=True)
+                f1.bind('$.Fred',replier=False,guaranteed=True)
             finally:
-                assert self.detach(f2) is None
+                assert f2.close() is None
         finally:
-            assert self.detach(f1) is None
+            assert f1.close() is None
 
     def test_bindings_match1(self):
         """Check that bindings match inside and out.
         """
-        f1 = self.attach('rw')
+        f1 = RecordingInterface(0,'rw',self.bindings)
         assert f1 != None
         try:
-            f2 = self.attach('rw')
+            f2 = RecordingInterface(0,'rw',self.bindings)
             assert f2 != None
             try:
-                self.bind(f1,'$.Fred',True)
-                self.bind(f1,'$.Fred.Jim',True)
-                self.bind(f1,'$.Fred.Bob',True)
-                self.bind(f1,'$.Fred.Jim.Bob',True)
-                self.bind(f1,'$.Fred.Jim.Derek')
+                f1.bind('$.Fred',True)
+                f1.bind('$.Fred.Jim',True)
+                f1.bind('$.Fred.Bob',True)
+                f1.bind('$.Fred.Jim.Bob',True)
+                f1.bind('$.Fred.Jim.Derek')
                 # /proc/kbus/bindings should reflect all of the above, and none other
                 self._check_bindings()
-                self.bind(f2,'$.Fred.Jim.Derek')
-                self.bind(f2,'$.William')
-                self.bind(f2,'$.William')
-                self.bind(f2,'$.William')
-                self.bind(f1,'$.Fred.Jim.Bob.Eric',True)
+                f2.bind('$.Fred.Jim.Derek')
+                f2.bind('$.William')
+                f2.bind('$.William')
+                f2.bind('$.William')
+                f1.bind('$.Fred.Jim.Bob.Eric',True)
                 self._check_bindings()
             finally:
-                assert self.detach(f2) is None
+                assert f2.close() is None
         finally:
-            assert self.detach(f1) is None
+            assert f1.close() is None
         # And now all of the bindings *should* have gone away
         self._check_bindings()
 
     def test_rw_single_file(self):
         """Test reading and writing two messages on a single file
         """
-        f = self.attach('rw')
+        f = RecordingInterface(0,'rw',self.bindings)
         assert f != None
         try:
 
@@ -1107,8 +1137,8 @@ class TestKernelModule:
             data2 = array.array('L','This is surely some data')
 
             # Bind so that we can write/read the first, but not the second
-            self.bind(f,name1,True)
-            self.bind(f,'$.William',True)
+            f.bind(name1,True)
+            f.bind('$.William',True)
 
             msg1 = Message(name1,data=data1)
             f.write(msg1)
@@ -1131,22 +1161,22 @@ class TestKernelModule:
             assert f.read() == None
 
         finally:
-            assert self.detach(f) is None
+            assert f.close() is None
 
     def test_read_write_2files(self):
         """Test reading and writing between two files.
         """
-        f1 = self.attach('rw')
+        f1 = RecordingInterface(0,'rw',self.bindings)
         assert f1 != None
         try:
-            f2 = self.attach('rw')
+            f2 = RecordingInterface(0,'rw',self.bindings)
             assert f2 != None
             try:
-                self.bind(f1,'$.Fred',True)
-                self.bind(f1,'$.Fred',False)
-                self.bind(f1,'$.Fred',False)
+                f1.bind('$.Fred',True)
+                f1.bind('$.Fred',False)
+                f1.bind('$.Fred',False)
 
-                self.bind(f2,'$.Jim',True)
+                f2.bind('$.Jim',True)
 
                 # Writing to $.Fred on f1 - writes message id N
                 msgF = Message('$.Fred','data')
@@ -1200,14 +1230,14 @@ class TestKernelModule:
                 assert f2.next_len() == 0
                 assert f2.read() == None
             finally:
-                assert self.detach(f2) is None
+                assert f2.close() is None
         finally:
-            assert self.detach(f1) is None
+            assert f1.close() is None
 
     def test_reply_single_file(self):
         """Test replying with a single file
         """
-        f = self.attach('rw')
+        f = RecordingInterface(0,'rw',self.bindings)
         assert f != None
         try:
 
@@ -1215,9 +1245,9 @@ class TestKernelModule:
             name2 = '$.Fred.Bob.William'
             name3 = '$.Fred.Bob.Jonathan'
 
-            self.bind(f,name1,True)     # replier
-            self.bind(f,name2,True)     # replier
-            self.bind(f,name3,False)    # just listener
+            f.bind(name1,True)     # replier
+            f.bind(name2,True)     # replier
+            f.bind(name3,False)    # just listener
 
 
             msg1 = Message(name1,data='dat1')
@@ -1263,12 +1293,12 @@ class TestKernelModule:
             # And there shouldn't be anything else to read
             assert f.next_len() == 0
         finally:
-            assert self.detach(f) is None
+            assert f.close() is None
 
     def test_message_names(self):
         """Test for message name legality.
         """
-        f = self.attach('rw')
+        f = RecordingInterface(0,'rw',self.bindings)
         assert f != None
         try:
 
@@ -1311,12 +1341,12 @@ class TestKernelModule:
             _ok('$.%')
         
         finally:
-            assert self.detach(f) is None
+            assert f.close() is None
 
     def test_data_too_long(self):
         """Test for message name legality.
         """
-        f = self.attach('rw')
+        f = RecordingInterface(0,'rw',self.bindings)
         assert f != None
         try:
             # I don't necessarily know how much data will be "too long",
@@ -1325,12 +1355,12 @@ class TestKernelModule:
             f.bind('$.Fred')
             check_IOError(errno.EMSGSIZE, f.write, m)
         finally:
-            assert self.detach(f) is None
+            assert f.close() is None
 
     def test_wildcards_a_bit(self):
         """Some initial testing of wildcards.
         """
-        f = self.attach('rw')
+        f = RecordingInterface(0,'rw',self.bindings)
         assert f != None
         try:
             f.bind('$.Fred.*',True)
@@ -1357,6 +1387,6 @@ class TestKernelModule:
             r = f.read()
             assert r.equivalent(m)
         finally:
-            assert self.detach(f) is None
+            assert f.close() is None
 
 # vim: set tabstop=8 shiftwidth=4 expandtab:
