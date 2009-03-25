@@ -1177,6 +1177,13 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 	if (retval)
 		goto done;
 
+	/* We don't allow sending to wildcards */
+	if (name_p[msg->name_len-1] == '*' ||
+	    name_p[msg->name_len-1] == '%') {
+		retval = -EBADMSG;
+		goto done;
+	}
+
 	/*
 	 * XXX We are insisting a whole message is written in one go.
 	 *

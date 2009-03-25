@@ -1357,6 +1357,25 @@ class TestKernelModule:
         finally:
             assert f.close() is None
 
+    def test_cant_write_to_wildcard(self):
+        """It's not possible to write a message with a wildcard name.
+        """
+        f = RecordingInterface(0,'rw',self.bindings)
+        assert f != None
+        try:
+            # Listen with a wildcard - this is OK
+            f.bind('$.Fred.*')
+            # Create a message with a silly name - Message doesn't care
+            m = Message('$.Fred.*')
+            # Try to write it -- this shall not work
+            check_IOError(errno.EBADMSG, f.write, m)
+            # Try a different wildcard
+            f.bind('$.Jim.%')
+            m = Message('$.Jim.%')
+            check_IOError(errno.EBADMSG, f.write, m)
+        finally:
+            assert f.close() is None
+
     def test_wildcards_a_bit(self):
         """Some initial testing of wildcards.
         """

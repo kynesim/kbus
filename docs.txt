@@ -157,6 +157,14 @@ If there are no listeners bound to that message name, then the write will fail
 If the message is flagged as needing a reply, and there are no repliers bound
 to that message name, then the write will fail (with error XXX).
 
+It is not possible to send a message with a wildcard message name.
+
+    As a restriction this makes the life of the implementor easier.
+    The original design didn't ask for it, either.
+    Is there a use-case that requires us to allow sending to wildcards?
+    I'd prefer there not to be. Not least because it gives messages with
+    names that don't really *mean* anything.
+
 Stateful transactions
 ---------------------
 It is possible to make stateful message transactions, by:
@@ -243,6 +251,27 @@ Urgent messages
 Messages may be flagged urgent. In this case they will be dealt with
 separately -- this is still to be described.
 
+    Consider: Urgent messages are meant to "jump the queue" in some sense
+    (possibly just by being put to the front of the listener's queue).
+    However, what if:
+
+        a) the listener already asked for the next message length
+           (and got a non-zero answer)
+        b) that is not the message length of the newly inserted
+           urgent message.
+
+    This breaks the predictability of reading the next message. Any solution
+    that requires the listener to cope with unexpected message lengths (when
+    they think they've just dealt with that) is unacceptable - it makes the
+    code to be written a pain.
+
+    So perhaps the only solution is that, if the next message length has been
+    read and is non-zero, and the corresponding message has not been read yet,
+    then the urgent message must be "inserted" in such a way that it will be
+    read after the message-whose-length-has-been-found has been read.
+
+    Of course, if the message lengths match, then this need not be done...
+
 Useful ioctls
 -------------
 
@@ -273,6 +302,28 @@ manipulation easier.
 -------------------
 ``/proc/kbus/bindings`` is a debugging aid for reporting the listener id,
 exclusive flag and message name for each binding, for each kbus device.
+
+Error numbers
+-------------
+The following error numbers get special use. In Python, they are all returned
+as values inside the IOError exception.
+
+:EADDRINUSE:    On attempting to bind a message name as replier: There is
+                already a replier bound for this message
+:EADDRNOTAVAIL: On attempting to write a message: There is no listener bound
+                for this message's name.
+:EBADMSG:       On attempting to bind, unbind or write a message: The message
+                name is not valid. On writing, this can also be because the
+                message name is a wildcard.
+:EINVAL:        Something went wrong (generic error).
+:EMSGSIZE:      On attempting to write a message: The message data is too
+                long.
+:ENAMETOOLONG:  On attempting to bind, unbind or write a message: The message
+                name is too long.
+:ENOENT:        On attempting to open an Interface/open a '/dev/kbus<n>'
+                device: There is no such interface/device (normally because
+                one has tried to open, for instance, '/dev/kbus9' when there
+                are only 3 KBUS devices).
 
 
 // Local Variables:
