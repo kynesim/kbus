@@ -395,6 +395,52 @@ class Message(object):
         """
         return self.array[self.IDX_FLAGS] & Message.WANT_YOU_TO_REPLY
 
+    def _get_id(self):
+        return self.array[self.IDX_ID]
+
+    def _get_in_reply_to(self):
+        return self.array[self.IDX_IN_REPLY_TO]
+
+    def _get_to(self):
+        return self.array[self.IDX_TO]
+
+    def _get_from(self):
+        return self.array[self.IDX_FROM]
+
+    def _get_flags(self):
+        return self.array[self.IDX_FLAGS]
+
+    def _get_name(self):
+        name_len = self.array[self.IDX_NAME_LEN]
+        name_array_len = (name_len+3)/4         # i.e., 32-bit words
+
+        base = self.IDX_DATA_LEN + 1
+
+        name_array = self.array[base:base+name_array_len]
+        name = name_array.tostring()
+        # Make sure we remove the padding bytes (although they *should* be
+        # '\0', and so "reasonably safe")
+        return name[:name_len]
+
+    def _get_data(self):
+        name_len = self.array[self.IDX_NAME_LEN]
+        data_len = self.array[self.IDX_DATA_LEN]
+
+        name_array_len = (name_len+3)/4         # i.e., 32-bit words
+
+        base = self.IDX_DATA_LEN + 1
+
+        data_offset = base+name_array_len
+        return self.array[data_offset:data_offset+data_len]
+
+    id          = property(_get_id)
+    in_reply_to = property(_get_in_reply_to)
+    to          = property(_get_to)
+    from_       = property(_get_from)
+    flags       = property(_get_flags)
+    name        = property(_get_name)
+    data        = property(_get_data)
+
     def extract(self):
         """Return our parts as a tuple.
 
@@ -410,31 +456,8 @@ class Message(object):
         assert self.array[self.IDX_START_GUARD] == self.START_GUARD
         assert self.array[self.IDX_END_GUARD] == self.END_GUARD
 
-        msg = self.array
-        id = msg[self.IDX_ID]
-        in_reply_to = msg[self.IDX_IN_REPLY_TO]
-        to = msg[self.IDX_TO]
-        from_ = msg[self.IDX_FROM]
-        flags = msg[self.IDX_FLAGS]
-        name_len = msg[self.IDX_NAME_LEN]
-        data_len = msg[self.IDX_DATA_LEN]
-        name_array_len = (name_len+3)/4
-
-        base = self.IDX_DATA_LEN + 1
-
-        name_array = msg[base:base+name_array_len]
-        name = name_array.tostring()
-        # Note that if the message was well constructed, any padding bytes
-        # at the end of the name will be '\0', and thus not show when printed
-        #print '%d<%s>'%(len(name),name),
-        # Make sure we remove the padding bytes
-        name = name[:name_len]
-
-        data_offset = base+name_array_len
-        data_array = msg[data_offset:data_offset+data_len]
-        #print '<%s>'%(data_array.tostring())
-
-        return (id,in_reply_to,to,from_,flags,name,data_array)
+        return (self.id, self.in_reply_to, self.to, self.from_,
+                self.flags, self.name, self.data)
 
 class Request(Message):
     """A message that wants a reply.
