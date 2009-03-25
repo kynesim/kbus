@@ -568,9 +568,9 @@ class Interface(object):
 
     def __repr__(self):
         if self.fd:
-            return '<KBUS Interface %s open for %s>'%(self.name,self.mode)
+            return '<Interface %s open for %s>'%(self.name,self.mode)
         else:
-            return '<KBUS Interface %s closed>'%(self.name)
+            return '<Interface %s closed>'%(self.name)
 
     def close(self):
         ret = self.fd.close()
@@ -672,7 +672,7 @@ class Interface(object):
 
     # And what is a file-like object without iterator support?
     # Note that our iteration will stop when there is no next message
-    # to read -- so trying to itererate again later on may work again...
+    # to read -- so trying to iterate again later on may work again...
 
     def __iter__(self):
         return self
@@ -1486,5 +1486,99 @@ class TestKernelModule:
             for r in f:
                 count += 1
             assert count == 5
+
+    def test_wildcard_listening_1(self):
+        """Test using wildcards to listen - 1, asterisk.
+        """
+        with RecordingInterface(0,'rw',self.bindings) as f0:
+
+            with RecordingInterface(0,'r',self.bindings) as f1:
+                f1.bind('$.This.Fred')
+                f1.bind('$.That.Fred')
+
+                with RecordingInterface(0,'r',self.bindings) as f2:
+                    f2.bind('$.This.Jim.One')
+                    f2.bind('$.This.Jim.Two')
+                    f2.bind('$.That.Jim')
+
+                    with RecordingInterface(0,'r',self.bindings) as f3:
+                        f3.bind('$.This.*')
+
+                        # For each tuple, we have:
+                        #
+                        # 1. The Interface we're meant to be sending the
+                        #    message to
+                        # 2. Whether it should be "seen" by f0 (via f0's
+                        #    wildcard binding)
+                        # 3. The actual message
+                        msgs = [ (f1, True,  Message('$.This.Fred','dat1')),
+                                 (f1, True,  Message('$.This.Fred','dat2')),
+                                 (f1, False, Message('$.That.Fred','dat3')),
+                                 (f1, False, Message('$.That.Fred','dat4')),
+                                 (f2, True,  Message('$.This.Jim.One','dat1')),
+                                 (f2, True,  Message('$.This.Jim.Two','dat2')),
+                                 (f2, False, Message('$.That.Jim','dat3')),
+                                 (f2, False, Message('$.That.Jim','dat4')),
+                                ]
+
+                        for fd,wild,m in msgs:
+                            f0.write(m)
+
+                        for fd,wild,m in msgs:
+                            if wild:
+                                # This is a message that f3 should see
+                                a = f3.read()
+                                assert a.equivalent(m)
+
+                            # Who else should see this message?
+                            b = fd.read()
+                            assert b.equivalent(m)
+
+    def test_wildcard_listening_2(self):
+        """Test using wildcards to listen - 2, percent.
+        """
+        with RecordingInterface(0,'rw',self.bindings) as f0:
+
+            with RecordingInterface(0,'r',self.bindings) as f1:
+                f1.bind('$.This.Fred')
+                f1.bind('$.That.Fred')
+
+                with RecordingInterface(0,'r',self.bindings) as f2:
+                    f2.bind('$.This.Jim.One')
+                    f2.bind('$.This.Jim.Two')
+                    f2.bind('$.That.Jim')
+
+                    with RecordingInterface(0,'r',self.bindings) as f3:
+                        f3.bind('$.This.%')
+
+                        # For each tuple, we have:
+                        #
+                        # 1. The Interface we're meant to be sending the
+                        #    message to
+                        # 2. Whether it should be "seen" by f0 (via f0's
+                        #    wildcard binding)
+                        # 3. The actual message
+                        msgs = [ (f1, True,  Message('$.This.Fred','dat1')),
+                                 (f1, True,  Message('$.This.Fred','dat2')),
+                                 (f1, False, Message('$.That.Fred','dat3')),
+                                 (f1, False, Message('$.That.Fred','dat4')),
+                                 (f2, False, Message('$.This.Jim.One','dat1')),
+                                 (f2, False, Message('$.This.Jim.Two','dat2')),
+                                 (f2, False, Message('$.That.Jim','dat3')),
+                                 (f2, False, Message('$.That.Jim','dat4')),
+                                ]
+
+                        for fd,wild,m in msgs:
+                            f0.write(m)
+
+                        for fd,wild,m in msgs:
+                            if wild:
+                                # This is a message that f3 should see
+                                a = f3.read()
+                                assert a.equivalent(m)
+
+                            # Who else should see this message?
+                            b = fd.read()
+                            assert b.equivalent(m)
 
 # vim: set tabstop=8 shiftwidth=4 expandtab:
