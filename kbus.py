@@ -385,7 +385,14 @@ class Message(object):
             return self.array != other.array
 
     def equivalent(self,other):
-        """Returns true if the two messages only differ in 'id', 'in_reply_to' and 'from'
+        """Returns true if the two messages are mostly the same.
+        
+        For purposes of this comparison, we ignore:
+        
+        * 'id',
+        * 'flags',
+        * 'in_reply_to' and
+        * 'from'
         """
         if self.length != other.length:
             return False
@@ -395,6 +402,7 @@ class Message(object):
         parts1[0] = parts2[0]   # id
 	parts1[1] = parts2[1]   # in_reply_to
 	parts1[3] = parts2[3]   # from_
+	parts1[4] = parts2[4]   # flags
         return parts1 == parts2
 
     def set_want_reply(self,value=True):
@@ -1558,7 +1566,6 @@ class TestKernelModule:
             f.bind(name2,True)     # replier
             f.bind(name3,False)    # just listener
 
-
             msg1 = Message(name1,data='dat1')
             msg2 = Request(name2,data='dat2')
             msg3 = Request(name3,data='dat3')
@@ -1578,7 +1585,7 @@ class TestKernelModule:
             assert m2.should_reply()
 
             # For message 3, a reply is wanted, and we are not the replier
-            assert not m1.should_reply()
+            assert not m3.should_reply()
 
             # So, we should reply to message 2 - let's do so
 
@@ -1601,5 +1608,59 @@ class TestKernelModule:
 
             # And there shouldn't be anything else to read
             assert f.next_len() == 0
+
+    def test_reply_three_files(self):
+        """Test replying with two files in dialogue, and another listening
+        """
+        with RecordingInterface(0,'r',self.bindings) as f0:
+            f0.bind('$.*')
+
+            with RecordingInterface(0,'rw',self.bindings) as f1:
+
+                with RecordingInterface(0,'rw',self.bindings) as f2:
+                    f2.bind('$.Fred',replier=True)
+
+                    msg1 = Message('$.Fred')    # no reply necessary
+                    msg2 = Request('$.Fred')
+
+                    f1.write(msg1)
+                    f1.write(msg2)
+
+                    # Read msg1 - no reply neeeded
+                    rec1 = f2.read()
+                    assert not rec1.should_reply()
+                    assert rec1.equivalent(msg1)
+
+                    # Read msg2 - this should ask *us* for a reply
+                    rec2 = f2.read()
+                    assert rec2.should_reply()
+                    assert rec2.equivalent(msg2)
+
+                    rep = Reply(msg2)
+                    f2.write(rep)
+                    assert not rep.should_reply()       # just to check!
+
+                    msg3 = f2.read()
+                    assert msg3.equivalent(rep)
+                    assert not msg3.should_reply()
+
+                    # f0 should get all of those messages
+                    # (the originals and the reply)
+                    # but should not be the replier for any of them
+                    a = f0.read()
+                    assert a.equivalent(msg1)
+                    assert not a.should_reply()
+                    b = f0.read()
+                    assert b.equivalent(msg2)
+                    assert not b.should_reply()
+                    c = f0.read()
+                    assert c.equivalent(rep)
+                    assert not c.should_reply()
+
+                    # No-one should have any more messages
+                    assert f0.next_len() == 0
+                    assert f1.next_len() == 0
+                    assert f2.next_len() == 0
+
 
 # vim: set tabstop=8 shiftwidth=4 expandtab:
