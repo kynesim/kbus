@@ -750,10 +750,10 @@ static int kbus_find_replier(struct kbus_dev	*dev,
  * Find out who, if anyone, is bound as a listener to the given message name.
  *
  * 'listeners' is an array of listener ids. It may be NULL (if there are no
- * listeners of if there was an error). It is up to the caller to free it.
+ * listeners or if there was an error). It is up to the caller to free it.
  *
  * If one of the listeners was also a replier for this message, then 'replier'
- * will be its id, in other words non-zero.
+ * will be its id, otherwise it will be zero.
  *
  * Note that a particular listener id may be present more than once, if that
  * particular listener has bound to the message more than once.
@@ -782,7 +782,6 @@ static int kbus_find_listeners(struct kbus_dev	 *dev,
 	printk(KERN_DEBUG "kbus: Looking for a listener for %d:'%s'\n",
 	       name_len,name);
 
-	/* Start with some guess at a size, picked from the wind */
 	*listeners = kmalloc(sizeof(uint32_t) * array_size,GFP_KERNEL);
 	if (!(*listeners))
 		return -EFAULT;

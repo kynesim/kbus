@@ -1662,5 +1662,63 @@ class TestKernelModule:
                     assert f1.next_len() == 0
                     assert f2.next_len() == 0
 
+    def test_wildcard_generic_vs_specific_bind(self):
+        """Test generic versus specific wildcard binding.
+        """
+        with RecordingInterface(0,'rw',self.bindings) as f0:
+            # We'll use this interface to do all the writing of messages,
+            # just to keep life simple.
+
+            with RecordingInterface(0,'r',self.bindings) as f1:
+                # f1 asks for generic replier status on everything below '$.Fred'
+                f1.bind('$.Fred.*',replier=True)
+
+                m = Message('$.Fred.Jim')
+                f0.write(m)
+                n = f1.read()
+                assert not n.should_reply()
+                assert n.equivalent(m)
+
+                m = Request('$.Fred.Jim')
+                f0.write(m)
+                r = f1.read()
+                assert r.should_reply()
+                assert r.equivalent(m)
+
+                # Hmm - apart from exisential worries, nothing happens if we
+                # don't *actually* reply..
+
+                with RecordingInterface(0,'r',self.bindings) as f2:
+                    # f2 knows it wants specific replier status on '$.Fred.Jim'
+                    f2.bind('$.Fred.Jim',replier=True)
+
+                    # So, now, any messages to '$.Fred.Jim' should only go to
+                    # f2, who should need to reply to them.
+                    # Any messages to '$.Fred.Bob' should only go to f1, who
+                    # should need to reply to them.
+
+
+
+                    # Fit the second:
+                    # If f1 binds as a *listener* to '$.Fred.*', it should see
+                    # all the messages on '$.Fred.*' twice, once as replier and
+                    # once as listener, *except* for those to '$.Fred.Jim',
+                    # which it should see just as listener.
+
+                    # Fit the third:
+                    # f1 should not be able to bind as a replier to
+                    # '$.Fred.Jim', because that's already f2
+
+                    # Fit the fourth:
+                    # If f1 binds as a listener to '$.Fred.Jim', it should see
+                    # messages with that name an extra time, once for the
+                    # wildcard, once for the non-wildcard (but none for the
+                    # original generic wildcarded replier)
+
+                    # Fit the fifth:
+                    # What happens about binding to '$.Fred.*' and '$.Fred.%'
+                    # as replier -- should the second count as more specific
+                    # than the first? (seems to me that it probably should).
+
 
 # vim: set tabstop=8 shiftwidth=4 expandtab:
