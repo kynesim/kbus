@@ -161,8 +161,7 @@ class Message(object):
         >>> msg3 == msg1
         True
 
-    (note this ignores the zeroth element of that tuple, which is a message
-    id), or from an equivalent list::
+    or from an equivalent list::
 
         >>> msg3 = Message(list(msg1.extract()))
         >>> msg3 == msg1
@@ -183,7 +182,24 @@ class Message(object):
         >>> msg4 == msg1
         True
 
-    The arguments to Message() are thus:
+    For convenience, the parts of a Message may be retrieved as properties:
+
+        >>> msg1.id
+        0L
+        >>> msg1.name
+        '$.Fred'
+        >>> msg1.to
+        0L
+        >>> msg1.from_
+        0L
+        >>> msg1.in_reply_to
+        0L
+        >>> msg1.flags
+        0L
+        >>> msg1.data
+        array('L', [875770417L])
+
+    The arguments to Message() are:
 
     - 'arg' -- this is the initial argument, and is a message name (a string
       that starts '$.'), a Message, some data that may be interpreted as a
@@ -449,7 +465,7 @@ class Message(object):
 
             (id,in_reply_to,to,from_,flags,name,data_array)
 
-        This is not the same order as arguments to Message().
+        This is not the same order as the keyword arguments to Message().
         """
 
         # Sanity check:
@@ -550,7 +566,7 @@ class KbufListenerStruct(ctypes.Structure):
                 ('name', ctypes.c_char_p)]
 
 class Interface(object):
-    """A wrapper around a KBUS device, for pusposes of message sending.
+    """A wrapper around a KBUS device, for purposes of message sending.
 
     'which' is which KBUS device to open -- so if 'which' is 3, we open
     /dev/kbus3.
