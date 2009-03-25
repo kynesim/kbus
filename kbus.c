@@ -1151,6 +1151,156 @@ static int kbus_release(struct inode *inode, struct file *filp)
 		return retval2;
 }
 
+static ssize_t kbus_write_to_listeners(struct kbus_private_data	   *priv,
+				       struct kbus_dev		   *dev,
+				       struct kbus_message_struct  *msg,
+				       uint32_t			    msg_len,
+				       char			   *name_p,
+				       uint32_t			   *data_p)
+{
+	ssize_t		 retval = 0;
+	uint32_t	 replier = 0;
+	uint32_t	*listeners = NULL;
+	int		 num_listeners;
+	int		 ii;
+	int		 num_sent = 0;	/* # successfully "sent" */
+	uint32_t	 old_next_msg_id = dev->next_msg_id;
+
+	num_listeners = kbus_find_listeners(dev,&listeners,&replier,
+					    msg->name_len,name_p);
+	if (num_listeners < 0) {
+		printk(KERN_DEBUG "kbus/write: Error %d finding listeners\n",
+		       num_listeners);
+		retval = -EFAULT;  /* XXX Review this choice */
+	} else if (num_listeners == 0) {
+		printk(KERN_DEBUG "kbus/write: No listeners\n");
+		retval = -EADDRNOTAVAIL;
+	} else {
+		printk(KERN_DEBUG "kbus/write: Listeners %d [%d,..], replier %u\n",
+		       num_listeners,listeners[0],replier);
+	}
+
+	/*
+	 * Since we apparently have some listeners, it seems safe
+	 * to assume we're going to be able to send this message,
+	 * so (slightly tentatively) assign it a message id.
+	 *
+	 * We reserve id 0, for use by kbus for synthetic messages.
+	 */
+	if (dev->next_msg_id == 0)
+		dev->next_msg_id ++;
+	msg->id = dev->next_msg_id ++;
+
+	/*
+	 * Remember that
+	 * (a) a listener may occur more than once in our array, and
+	 * (b) we only have 0 or 1 repliers, but
+	 * (c) the replier is also one of the listeners.
+	 */
+
+	/* And we need to add it to the queue for each such listener */
+
+	/*
+	 * XXX We *should* check if this is allowed before doing it,
+	 * XXX for instance if we've run out of room on one of the
+	 * XXX queues, but ignore that for the moment...
+	 */
+
+	for (ii=0; ii<num_listeners; ii++)
+	{
+		uint32_t  listener = listeners[ii];
+		struct kbus_private_data *l_priv;
+
+		printk(KERN_DEBUG "kbus/write: Dealing with"
+		       " listener %u\n",listener);
+
+		if (listener == priv->id) {
+			/* Heh, it's us, we know who we are! */
+			printk(KERN_DEBUG "kbus/write: -- It's us\n");
+			l_priv = priv;
+		} else {
+			/* OK, look it up */
+			printk(KERN_DEBUG "kbus/write: -- Looking them up\n");
+			l_priv = kbus_find_open_file(dev,listener);
+			if (l_priv == NULL) {
+				printk(KERN_DEBUG "kbus/write: Can't find listener %u\n",
+				       listener);
+				/* Can we do anything other than ignore it? */
+				continue;	   /* XXX Review this choice */
+			}
+		}
+
+		/*
+		 * Remember that kbus_push_message takes a copy of the message
+		 * for us.
+		 *
+		 * This is inefficient, since otherwise we could keep a single
+		 * copy of the message (or at least the message header) and
+		 * just bump a reference count for each "use" of the message,
+		 *
+		 * However, it also allows us to easily set the "needs a reply"
+		 * flag (and associated data) when sending a "needs a reply"
+		 * message to a replier, and *unset* the same when sending said
+		 * message to "just" listeners...
+		 *
+		 * Be careful if altering this...
+		 */
+		if (listener == replier) {
+			/*
+			 * We've now dealt with that replier, so forget about
+			 * it (the same id may also occur just as a listener,
+			 * so we don't want to "be" a replier more than once)
+			 */
+			replier = 0;
+			/*
+			 * If this message is a reply, then we don't want to
+			 * send it to the replier (they're the one sending it)
+			 */
+			if (msg->in_reply_to != 0)
+				continue;
+
+			retval = kbus_push_message(l_priv,msg_len,msg,
+						   true);
+		} else {
+			retval = kbus_push_message(l_priv,msg_len,msg,
+						   false);
+		}
+		if (retval == 0)
+			num_sent ++;
+		else
+			break;	/* Since an error was probably serious */
+	}
+
+	if (retval == 0 && replier != 0) {
+		/* XXX Worry myself - does this do anything useful? */
+		printk(KERN_DEBUG "kbus/write: After dealing with listeners,"
+		       " didn't handle replier\n");
+	}
+
+	/* XXX Mustn't forget */
+	if (listeners)
+		kfree(listeners);
+
+	if (num_sent == 0) {
+		/*
+		 * We didn't actually manage to send this message to anyone, so
+		 * we can reuse the message id...
+		 *
+		 * Luckily (!) we remembered what the "next msg id" used to be,
+		 * so we don't have to worry about decrementing back over the
+		 * unsigned overflow boundary...
+		 */
+		dev->next_msg_id = old_next_msg_id;
+	} else {
+		/*
+		 * We did send the message, so it becomes the last message we
+		 * sent, which can be queried
+		 */
+		priv->last_msg_id = msg->id;
+	}
+	return retval;
+}
+
 static ssize_t kbus_write(struct file *filp, const char __user *buf,
 			  size_t count, loff_t *f_pos)
 {
@@ -1158,10 +1308,10 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 	struct kbus_dev			*dev = priv->dev;
 	struct kbus_message_struct	*msg = NULL;
 
+	ssize_t		 retval;
 	uint32_t	 msg_len = 0;
 	char		*name_p;
 	uint32_t	*data_p;
-	ssize_t		 retval = -EADDRNOTAVAIL; /* Hmm, is this sensible? */
 
 	printk(KERN_DEBUG "kbus/write: WRITE count %d, pos %d\n",count,(int)*f_pos);
 
@@ -1198,152 +1348,9 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 	}
 
 	/*
-	 * Find out who is listening for this message
+	 * Find out who is listening for this message, and write it to them
 	 */
-	/* XXX This *will* get refactored, oh yes it will... XXX */
-	{
-		uint32_t	 replier = 0;
-		uint32_t	*listeners = NULL;
-		int		 num_listeners;
-		int		 ii;
-		int		 num_sent = 0;	/* # successfully "sent" */
-		uint32_t	 old_next_msg_id = dev->next_msg_id;
-
-		num_listeners = kbus_find_listeners(dev,&listeners,&replier,
-						    msg->name_len,name_p);
-		if (num_listeners < 0) {
-			printk(KERN_DEBUG "kbus/write: Error %d finding"
-			       " listeners\n",num_listeners);
-			retval = -EFAULT;  /* XXX Review this choice */
-		} else if (num_listeners == 0) {
-			printk(KERN_DEBUG "kbus/write: No listeners\n");
-			retval = -EADDRNOTAVAIL;
-		} else {
-			printk(KERN_DEBUG "kbus/write: Listeners %d [%d,..], replier %u\n",
-			       num_listeners,listeners[0],replier);
-		}
-
-		/*
-		 * Since we apparently have some listeners, it seems safe
-		 * to assume we're going to be able to send this message,
-		 * so (slightly tentatively) assign it a message id.
-		 *
-		 * We reserve id 0, for use by kbus for synthetic messages.
-		 */
-		if (dev->next_msg_id == 0)
-			dev->next_msg_id ++;
-		msg->id = dev->next_msg_id ++;
-
-		/*
-		 * XXX Remember that (a) a listener may occur more than once
-		 * XXX in our array, and (b) we only have 0 or 1 repliers,
-		 * XXX but (c) the replier is also one of the listeners.
-		 */
-
-		/* And we need to add it to the queue for each such listener */
-
-		/*
-		 * XXX We *should* check if this is allowed before doing it,
-		 * XXX for instance if we've run out of room on one of the
-		 * XXX queues, but ignore that for the moment...
-		 */
-		for (ii=0; ii<num_listeners; ii++)
-		{
-			uint32_t  listener = listeners[ii];
-			struct kbus_private_data *l_priv;
-
-			printk(KERN_DEBUG "kbus/write: Dealing with"
-			       " listener %u\n",listener);
-
-			if (listener == priv->id) {
-				/* Heh, it's us, we know who we are! */
-				printk(KERN_DEBUG "kbus/write: -- It's us\n");
-				l_priv = priv;
-			} else {
-				/* OK, look it up */
-				printk(KERN_DEBUG "kbus/write: -- Looking them up\n");
-				l_priv = kbus_find_open_file(dev,listener);
-				if (l_priv == NULL) {
-					printk(KERN_DEBUG "kbus/write: Can't find listener %u\n",
-					       listener);
-					/* Can we do anything other than ignore it? */
-					continue;	   /* XXX Review this choice */
-				}
-			}
-
-			/*
-			 * Remember that kbus_push_message takes a copy
-			 * of the message for us.
-			 *
-			 * This is inefficient, since otherwise we could keep a
-			 * single copy of the message (or at least the message
-			 * header) and just bump a reference count for each
-			 * "use" of the message,
-			 *
-			 * However, it also allows us to easily set the
-			 * "needs a reply" flag (and associated data) when
-			 * sending a "needs a reply" message to a replier,
-			 * and *unset* the same when sending said message
-			 * to "just" listeners...
-			 *
-			 * Be careful if altering this...
-			 */
-			if (listener == replier) {
-				/*
-				 * We've now dealt with that replier, so forget
-				 * about it (the same id may also occur just as
-				 * a listener, so we don't want to "be" a
-				 * replier more than once)
-				 */
-				replier = 0;
-				/*
-				 * If this message is a reply, then we don't want to
-				 * send it to the replier (they're the one sending it)
-				 */
-				if (msg->in_reply_to != 0)
-					continue;
-
-				retval = kbus_push_message(l_priv,msg_len,msg,
-							   true);
-			} else {
-				retval = kbus_push_message(l_priv,msg_len,msg,
-							   false);
-			}
-			if (retval == 0)
-				num_sent ++;
-			else
-				break;	/* Since an error was probably serious */
-		}
-
-		if (retval == 0 && replier != 0) {
-			/* XXX Worry myself - does this do anything useful? */
-			printk(KERN_DEBUG "kbus/write: After dealing with listeners,"
-			       " didn't handle replier\n");
-		}
-
-		/* XXX Mustn't forget */
-		if (listeners)
-			kfree(listeners);
-
-		if (num_sent == 0) {
-			/*
-			 * We didn't actually manage to send this message to
-			 * anyone, so we can reuse the message id...
-			 *
-			 * Luckily (!) we remembered what the "next msg id"
-			 * used to be, so we don't have to worry about
-			 * decrementing back over the unsigned overflow
-			 * boundary...
-			 */
-			dev->next_msg_id = old_next_msg_id;
-		} else {
-			/*
-			 * We did send the message, so it becomes the last
-			 * message we sent, which can be queried
-			 */
-			priv->last_msg_id = msg->id;
-		}
-	}
+	retval = kbus_write_to_listeners(priv,dev,msg,msg_len,name_p,data_p);
 
 done:
 	up(&dev->sem);
