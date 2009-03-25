@@ -51,6 +51,8 @@ it is likely enough not to do this, as the "user" will be root.
 #
 # ***** END LICENSE BLOCK *****
 
+from __future__ import with_statement
+
 import sys
 import os
 import subprocess
@@ -355,7 +357,16 @@ class Message(object):
         return 'Message(%s)'%(', '.join(args))
 
     def __eq__(self,other):
-        return self.array == other.array
+        if not isinstance(other,Message):
+            return False
+        else:
+            return self.array == other.array
+
+    def __ne__(self,other):
+        if not isinstance(other,Message):
+            return True
+        else:
+            return self.array != other.array
 
     def equivalent(self,other):
         """Returns true if the two messages only differ in 'id', 'in_reply_to' and 'from'
@@ -641,6 +652,37 @@ class Interface(object):
             return Message(data)
         else:
             return None
+
+    # It's modern times, so we really should implement "with"
+    # (it's so convenient)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, etype, value, tb):
+        if tb is None:
+            # No exception, so just finish normally
+            self.close()
+        else:
+            # An exception occurred, so do any tidying up necessary
+            # - well, there isn't anything special to do, really
+            self.close()
+            # And allow the exception to be re-raised
+            return False
+
+    # And what is a file-like object without iterator support?
+    # Note that our iteration will stop when there is no next message
+    # to read -- so trying to itererate again later on may work again...
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        msg = self.read()
+        if msg == None:
+            raise StopIteration
+        else:
+            return msg
 
 class BindingsMemory(object):
     """A class for remembering message name bindings.
@@ -1377,11 +1419,10 @@ class TestKernelModule:
             assert f.close() is None
 
     def test_wildcards_a_bit(self):
-        """Some initial testing of wildcards.
+        """Some initial testing of wildcards. And use of 'with'
         """
-        f = RecordingInterface(0,'rw',self.bindings)
-        assert f != None
-        try:
+        with RecordingInterface(0,'rw',self.bindings) as f:
+            assert f != None
             f.bind('$.Fred.*',True)
 
             m = Message('$.Fred.Jim')
@@ -1405,7 +1446,41 @@ class TestKernelModule:
             assert r.equivalent(m)
             r = f.read()
             assert r.equivalent(m)
-        finally:
-            assert f.close() is None
+
+    def test_message_equality(self):
+        """Messages are not equal to non-messages, and so on.
+        """
+        a = Message('$.Fred')
+        b = Message('$.Fred')
+        c = Message('$.Jim')
+        assert (a == b)
+        assert (a != c)
+
+        assert (a ==    3) == False
+        assert (a == None) == False
+        assert (a !=    3) == True
+        assert (a != None) == True
+
+        assert (3    == a) == False
+        assert (None == a) == False
+        assert (3    != a) == True
+        assert (None != a) == True
+
+    def test_iteration(self):
+        """Test we can iterate over messages.
+        """
+        with RecordingInterface(0,'rw',self.bindings) as f:
+            assert f != None
+            f.bind('$.Fred')
+            m = Message('$.Fred')
+            f.write(m)
+            f.write(m)
+            f.write(m)
+            f.write(m)
+            f.write(m)
+            count = 0
+            for r in f:
+                count += 1
+            assert count == 5
 
 # vim: set tabstop=8 shiftwidth=4 expandtab:
