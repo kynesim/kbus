@@ -1473,11 +1473,15 @@ class TestKernelModule:
             assert f != None
             f.bind('$.Fred')
             m = Message('$.Fred')
-            f.write(m)
-            f.write(m)
-            f.write(m)
-            f.write(m)
-            f.write(m)
+            for ii in range(5):
+                f.write(m)
+            count = 0
+            for r in f:
+                count += 1
+            assert count == 5
+            # And again
+            for ii in range(5):
+                f.write(m)
             count = 0
             for r in f:
                 count += 1
