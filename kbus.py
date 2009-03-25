@@ -436,19 +436,6 @@ class Message(object):
 
         return (id,in_reply_to,to,from_,flags,name,data_array)
 
-    def to_file(self,f):
-        """Write the Message's data to a file.
-
-        'f' is the file object to write to (expected to be an instance of
-        opening '/dev/kbus0').
-
-        NB: flushes the output when it's done.
-        """
-        self.array.tofile(f)
-        f.flush()
-
-        return self
-
 class Request(Message):
     """A message that wants a reply.
 
