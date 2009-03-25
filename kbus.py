@@ -1302,67 +1302,6 @@ class TestKernelModule:
         finally:
             assert f1.close() is None
 
-    def test_reply_single_file(self):
-        """Test replying with a single file
-        """
-        f = RecordingInterface(0,'rw',self.bindings)
-        assert f != None
-        try:
-
-            name1 = '$.Fred.Jim'
-            name2 = '$.Fred.Bob.William'
-            name3 = '$.Fred.Bob.Jonathan'
-
-            f.bind(name1,True)     # replier
-            f.bind(name2,True)     # replier
-            f.bind(name3,False)    # just listener
-
-
-            msg1 = Message(name1,data='dat1')
-            msg2 = Request(name2,data='dat2')
-            msg3 = Request(name3,data='dat3')
-
-            f.write(msg1)
-            f.write(msg2)
-            f.write(msg3)
-
-            m1 = f.read()
-            m2 = f.read()
-            m3 = f.read()
-
-            # For message 1, there is no reply needed
-            assert not m1.should_reply()
-
-            # For message 2, a reply is wanted, and we are the replier
-            assert m2.should_reply()
-
-            # For message 3, a reply is wanted, and we are not the replier
-            assert not m1.should_reply()
-
-            # So, we should reply to message 2 - let's do so
-
-            # We can make a reply "by hand"
-            (id,in_reply_to,to,from_,flags,name,data_array) = msg2.extract()
-            reply_by_hand = Message(name, data=None, in_reply_to=id, to=from_)
-
-            # But it is easier to use the pre-packaged mechanism
-            reply = Reply(msg2)
-
-            # These should, however, give the same result
-            assert reply == reply_by_hand
-
-            # And the obvious thing to do with a reply is
-            f.write(reply)
-
-            # And we should be able to read it...
-            m4 = f.read()
-            assert m4.equivalent(reply)
-
-            # And there shouldn't be anything else to read
-            assert f.next_len() == 0
-        finally:
-            assert f.close() is None
-
     def test_message_names(self):
         """Test for message name legality.
         """
@@ -1606,5 +1545,61 @@ class TestKernelModule:
                             # Who else should see this message?
                             b = fd.read()
                             assert b.equivalent(m)
+
+    def test_reply_single_file(self):
+        """Test replying with a single file
+        """
+        with RecordingInterface(0,'rw',self.bindings) as f:
+            name1 = '$.Fred.Jim'
+            name2 = '$.Fred.Bob.William'
+            name3 = '$.Fred.Bob.Jonathan'
+
+            f.bind(name1,True)     # replier
+            f.bind(name2,True)     # replier
+            f.bind(name3,False)    # just listener
+
+
+            msg1 = Message(name1,data='dat1')
+            msg2 = Request(name2,data='dat2')
+            msg3 = Request(name3,data='dat3')
+
+            f.write(msg1)
+            f.write(msg2)
+            f.write(msg3)
+
+            m1 = f.read()
+            m2 = f.read()
+            m3 = f.read()
+
+            # For message 1, there is no reply needed
+            assert not m1.should_reply()
+
+            # For message 2, a reply is wanted, and we are the replier
+            assert m2.should_reply()
+
+            # For message 3, a reply is wanted, and we are not the replier
+            assert not m1.should_reply()
+
+            # So, we should reply to message 2 - let's do so
+
+            # We can make a reply "by hand"
+            (id,in_reply_to,to,from_,flags,name,data_array) = msg2.extract()
+            reply_by_hand = Message(name, data=None, in_reply_to=id, to=from_)
+
+            # But it is easier to use the pre-packaged mechanism
+            reply = Reply(msg2)
+
+            # These should, however, give the same result
+            assert reply == reply_by_hand
+
+            # And the obvious thing to do with a reply is
+            f.write(reply)
+
+            # And we should be able to read it...
+            m4 = f.read()
+            assert m4.equivalent(reply)
+
+            # And there shouldn't be anything else to read
+            assert f.next_len() == 0
 
 # vim: set tabstop=8 shiftwidth=4 expandtab:
