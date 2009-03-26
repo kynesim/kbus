@@ -389,12 +389,12 @@ class TestKernelModule:
         try:
             # - BIND
             # Low level check: The "Bind" ioctl requires a proper argument
-            check_IOError(errno.EINVAL, fcntl.ioctl, f.fd, Interface.KBUS_IOC_BIND, 0)
+            check_IOError(errno.EFAULT, fcntl.ioctl, f.fd, Interface.KBUS_IOC_BIND, 0)
             # Said string must not be zero length
             check_IOError(errno.EBADMSG, f.bind, '', True)
             f.bind('$.Fred')
             # - UNBIND
-            check_IOError(errno.EINVAL, fcntl.ioctl, f.fd, Interface.KBUS_IOC_UNBIND, 0)
+            check_IOError(errno.EFAULT, fcntl.ioctl, f.fd, Interface.KBUS_IOC_UNBIND, 0)
             check_IOError(errno.EBADMSG, f.unbind, '', True)
             f.unbind('$.Fred')
         finally:

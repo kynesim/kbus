@@ -294,6 +294,11 @@ struct kbus_private_data {
 	uint32_t		 last_msg_id;	/* Last message written to us */
 	uint32_t		 message_count;	/* How many messages for us */
 	struct list_head	 message_queue;	/* Messages for us */
+
+	/* The message currently being read by the user */
+	char		*read_msg;
+	size_t		 read_msg_len;		/* Its length */
+	size_t		 read_msg_pos;		/* How far they've read */
 };
 
 /* Information belonging to each /dev/kbus<N> device */
@@ -364,8 +369,7 @@ static int kbus_bad_message_name(char *name, size_t len)
 	size_t	 ii;
 	int	 dot_at = 1;
 
-	if (len < 3)
-		return 1;
+	if (len < 3) return 1;
 
 	if (name == NULL || name[0] != '$' || name[1] != '.')
 		return 1;
@@ -375,8 +379,7 @@ static int kbus_bad_message_name(char *name, size_t len)
 	else if (name[len-2] == '.' && name[len-1] == '%')
 		len -= 2;
 	
-	if (name[len-1] == '.')
-		return 1;
+	if (name[len-1] == '.') return 1;
 
 	for (ii=2; ii<len; ii++) {
 		if (name[ii] == '.')
@@ -388,7 +391,6 @@ static int kbus_bad_message_name(char *name, size_t len)
 		else if (!isalnum(name[ii]))
 			return 1;
 	}
-
 	return 0;
 }
 
@@ -546,8 +548,7 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 	       for_replier?"replier":"listener");
 
 	/* Check it makes some degreee of sense */
-	if (kbus_check_message(msg))
-		return -EINVAL;
+	if (kbus_check_message(msg)) return -EINVAL;
 
 	new_msg = kmalloc(msg_len, GFP_KERNEL);
 	if (!new_msg) {
@@ -733,8 +734,7 @@ static int kbus_find_replier(struct kbus_dev	*dev,
 		 */
 		if ( ptr->replier &&
 		     ptr->len == len &&
-		     !strncmp(name,ptr->name,len) )
-		{
+		     !strncmp(name,ptr->name,len) ) {
 			printk(KERN_DEBUG "kbus: %d:'%s' has replier %u\n",
 			       ptr->len,ptr->name,
 			       ptr->bound_to);
@@ -804,15 +804,13 @@ static int kbus_find_listeners(struct kbus_dev	 *dev,
 	       name_len,name);
 
 	*listeners = kmalloc(sizeof(uint32_t) * array_size,GFP_KERNEL);
-	if (!(*listeners))
-		return -EFAULT;
+	if (!(*listeners)) return -EFAULT;
 
 	*replier = 0;
 
 	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
 
-		if (kbus_message_name_matches(name,name_len,ptr->name))
-		{
+		if (kbus_message_name_matches(name,name_len,ptr->name)) {
 			printk(KERN_DEBUG "kbus: '%*s' matches '%s' for listener %u%s\n",
 			       name_len, name, ptr->name,
 			       ptr->bound_to, (ptr->replier?" (replier)":""));
@@ -836,8 +834,7 @@ static int kbus_find_listeners(struct kbus_dev	 *dev,
 				 * our previous replier, remember it instead.
 				 */
 				if (*replier == 0 ||
-				    new_replier_type > replier_type)
-				{
+				    new_replier_type > replier_type) {
 					printk(KERN_DEBUG "kbus:  going with replier %u\n",
 					       ptr->bound_to);
 					*replier = ptr->bound_to;
@@ -845,8 +842,7 @@ static int kbus_find_listeners(struct kbus_dev	 *dev,
 				}
 			} else {
 				/* It is a listener */
-				if (count == array_size)
-				{
+				if (count == array_size) {
 					printk(KERN_DEBUG "kbus: XXX listener array size %d -> %d\n",
 					       array_size, array_size + INCR_SIZE);
 					array_size += INCR_SIZE;
@@ -873,6 +869,9 @@ static int kbus_find_listeners(struct kbus_dev	 *dev,
  *
  * Doesn't allow more than one replier to be bound for a message name.
  *
+ * NB: If it succeeds, then it wants to keep hold of 'name', so don't
+ *     free it...
+ *
  * Returns 0 if all went well, a negative value if it did not. Specifically,
  * -EADDRINUSE if an attempt was made to bind as a replier to a message name
  * that already has a replier bound.
@@ -882,7 +881,7 @@ static int kbus_remember_binding(struct kbus_dev	*dev,
 				 uint32_t		 replier,
 				 uint32_t		 guaranteed,
 				 uint32_t		 len,
-				 char			*user_name)
+				 char			*name)
 {
 	int retval = 0;
 	struct kbus_message_binding *new;
@@ -890,7 +889,7 @@ static int kbus_remember_binding(struct kbus_dev	*dev,
 	/* If we want a replier, and there already is one, we lose */
 	if (replier) {
 		uint32_t  reply_to;
-		retval = kbus_find_replier(dev, &reply_to, len, user_name);
+		retval = kbus_find_replier(dev, &reply_to, len, name);
 		/*
 		 * "Address in use" isn't quite right, but let's the caller
 		 * have some hope of telling what went wrong, and this is a
@@ -912,17 +911,7 @@ static int kbus_remember_binding(struct kbus_dev	*dev,
 	new->replier = replier;
 	new->guaranteed = guaranteed;
 	new->len = len;
-	new->name = kmalloc(len+1, GFP_KERNEL);
-	if (!new->name) {
-		kfree(new);
-		return -EFAULT;
-	}
-	if (copy_from_user(new->name,user_name,len)) {
-		kfree(new->name);
-		kfree(new);
-		return -EFAULT;
-	}
-	new->name[len] = 0;
+	new->name = name;
 
 	list_add(&new->list, &dev->bound_message_list);
 
@@ -944,7 +933,7 @@ static int kbus_forget_binding(struct kbus_dev	*dev,
 			       uint32_t		 replier,
 			       uint32_t		 guaranteed,
 			       uint32_t		 len,
-			       char		*user_name)
+			       char		*name)
 {
 	struct kbus_message_binding *ptr;
 	struct kbus_message_binding *next;
@@ -959,8 +948,7 @@ static int kbus_forget_binding(struct kbus_dev	*dev,
 			continue;
 		if (len != ptr->len)
 			continue;
-		if ( !strncmp(user_name,ptr->name,len) )
-		{
+		if ( !strncmp(name,ptr->name,len) ) {
 			printk(KERN_DEBUG "kbus: Unbound %u %c %c '%s'\n",
 			       ptr->bound_to,
 			       (ptr->replier?'R':'L'),
@@ -978,7 +966,7 @@ static int kbus_forget_binding(struct kbus_dev	*dev,
 	       bound_to,
 	       (replier?'R':'L'),
 	       (guaranteed?'T':'F'),
-	       user_name);
+	       name);
 	return -EINVAL;
 }
 
@@ -992,8 +980,7 @@ static void kbus_forget_my_bindings(struct kbus_dev	*dev,
 	struct kbus_message_binding *next;
 
 	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
-		if (bound_to == ptr->bound_to)
-		{
+		if (bound_to == ptr->bound_to) {
 			printk(KERN_DEBUG "kbus: Unbound %u %c %c '%s'\n",
 			       ptr->bound_to,
 			       (ptr->replier?'R':'L'),
@@ -1060,8 +1047,7 @@ static struct kbus_private_data *kbus_find_open_file(struct kbus_dev	*dev,
 
 	list_for_each_entry_safe(ptr, next, &dev->open_files_list, list) {
 		if (id == ptr->id) {
-			printk(KERN_DEBUG "kbus: Found 'open file' id %u",
-			       id);
+			printk(KERN_DEBUG "kbus: Found 'open file' id %u",id);
 			return ptr;
 		}
 	}
@@ -1341,8 +1327,7 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 			goto done_sending;
 	}
 
-	for (ii=0; ii<num_listeners; ii++)
-	{
+	for (ii=0; ii<num_listeners; ii++) {
 		uint32_t  listener = listeners[ii];
 		struct kbus_private_data *l_priv;
 
@@ -1412,8 +1397,7 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 	msg = (struct kbus_message_struct *) buf;
 
 	retval = kbus_dissect_message(msg,&msg_len,&name_p,&data_p);
-	if (retval)
-		goto done;
+	if (retval) goto done;
 
 	/* We don't allow sending to wildcards */
 	if (name_p[msg->name_len-1] == '*' ||
@@ -1503,12 +1487,234 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 	retval = msg_len;
 
 done:
-	if (msg) {
-		kfree(msg);
-	}
+	if (msg) kfree(msg);
 	up(&dev->sem);
 	return retval;
 }
+
+static int kbus_bind(struct kbus_private_data	*priv,
+		     struct kbus_dev		*dev,
+		     unsigned long		 arg)
+{
+	int		retval = 0;
+	uint32_t	id  = priv->id;
+	struct kbus_m_bind_struct *bind;
+	char		*name = NULL;
+
+	bind = kmalloc(sizeof(*bind), GFP_KERNEL);
+	if (!bind) return -EFAULT;
+	if (copy_from_user(bind, (void *)arg, sizeof(*bind))) {
+		retval = -EFAULT;
+		goto done;
+	}
+
+	if (bind->len == 0) {
+		printk(KERN_DEBUG "kbus: bind name is length 0\n");
+		retval = -EBADMSG;
+		goto done;
+	} else if (bind->len > KBUS_MAX_NAME_LEN) {
+		printk(KERN_DEBUG "kbus: bind name is length %d\n",
+		       bind->len);
+		retval = -ENAMETOOLONG;
+		goto done;
+	}
+
+	name = kmalloc(bind->len+1, GFP_KERNEL);
+	if (!name) {
+		retval = -EFAULT;
+		goto done;
+	}
+	if (copy_from_user(name, bind->name, bind->len)) {
+		retval = -EFAULT;
+		goto done;
+	}
+	name[bind->len] = 0;
+
+
+	if (kbus_bad_message_name(name,bind->len)) {
+		retval = -EBADMSG;
+		goto done;
+	}
+	printk(KERN_DEBUG "kbus: Bind request %c %d:'%s' on %u\n",
+	       (bind->replier?'R':'L'), bind->len, name, id);
+	retval = kbus_remember_binding(dev, id,
+				       bind->replier,
+				       bind->guaranteed,
+				       bind->len,
+				       name);
+	if (retval == 0) {
+		/* The binding will use our copy of the message name */
+		name = NULL;
+	}
+done:
+	if (name) kfree(name);
+	kfree(bind);
+	return retval;
+}
+
+static int kbus_unbind(struct kbus_private_data	*priv,
+		       struct kbus_dev		*dev,
+		       unsigned long		 arg)
+{
+	int		retval = 0;
+	uint32_t	id  = priv->id;
+	struct kbus_m_bind_struct *bind;
+	char		*name = NULL;
+
+	bind = kmalloc(sizeof(*bind), GFP_KERNEL);
+	if (!bind) return -EFAULT;
+	if (copy_from_user(bind, (void *)arg, sizeof(*bind))) {
+		retval = -EFAULT;
+		goto done;
+	}
+
+	if (bind->len == 0) {
+		printk(KERN_DEBUG "kbus: unbind name is length 0\n");
+		retval = -EBADMSG;
+		goto done;
+	} else if (bind->len > KBUS_MAX_NAME_LEN) {
+		printk(KERN_DEBUG "kbus: unbind name is length %d\n",
+		       bind->len);
+		retval = -ENAMETOOLONG;
+		goto done;
+	}
+
+	name = kmalloc(bind->len+1, GFP_KERNEL);
+	if (!name) {
+		retval = -EFAULT;
+		goto done;
+	}
+	if (copy_from_user(name, bind->name, bind->len)) {
+		retval = -EFAULT;
+		goto done;
+	}
+	name[bind->len] = 0;
+
+	if (kbus_bad_message_name(name,bind->len)) {
+		retval = -EBADMSG;
+		goto done;
+	}
+	printk(KERN_DEBUG "kbus: Unbind request %c %d:'%s' on %u\n",
+	       (bind->replier?'R':'L'), bind->len, name, id);
+	retval = kbus_forget_binding(dev, id,
+				     bind->replier,
+				     bind->guaranteed,
+				     bind->len,
+				     name);
+done:
+	if (name) kfree(name);
+	kfree(bind);
+	return retval;
+}
+
+static int kbus_replier(struct kbus_private_data	*priv,
+			struct kbus_dev			*dev,
+			unsigned long			 arg)
+{
+	int		retval = 0;
+	uint32_t	id  = priv->id;
+	struct kbus_m_bind_query_struct *query;
+	char 		*name = NULL;
+
+	query = kmalloc(sizeof(*query), GFP_KERNEL);
+	if (!query) return -EFAULT;
+	if (copy_from_user(query, (void *)arg, sizeof(*query))) {
+		retval = -EFAULT;
+		goto done;
+	}
+
+	if (query->len == 0 || query->len > KBUS_MAX_NAME_LEN) {
+		printk(KERN_DEBUG "kbus: Replier name is length %d\n",query->len);
+		retval = -ENAMETOOLONG;
+		goto done;
+	}
+
+	name = kmalloc(query->len+1, GFP_KERNEL);
+	if (!name) {
+		retval = -EFAULT;
+		goto done;
+	}
+	if (copy_from_user(name, query->name, query->len)) {
+		retval = -EFAULT;
+		goto done;
+	}
+	name[query->len] = 0;
+
+	printk(KERN_DEBUG "kbus: Bindas request %d:'%s' on %u\n",
+	       query->len, name, id);
+	retval = kbus_find_replier(dev,
+				   &query->return_id,
+				   query->len,
+				   name);
+	if (retval) goto done;
+	/*
+	 * Copy the whole structure back, rather than try to work out (in a
+	 * guaranteed-safe manner) where the 'id' actually lives
+	 */
+	if (copy_to_user((void *)arg, query, sizeof(*query))) {
+	    retval = -EFAULT;
+	    goto done;
+	}
+done:
+	if (name) kfree(name);
+	kfree(query);
+	return retval;
+}
+
+#if 0
+static int kbus_nextmsg(struct kbus_private_data	*priv,
+			struct kbus_dev			*dev,
+			unsigned long			 arg)
+{
+	int	retval = 0;
+	struct kbus_message_struct *msg;
+
+	/* If we were partway through a message, lose it */
+	if (priv->read_msg) {
+		kfree(priv->read_msg);
+		priv->read_msg = NULL;
+		priv->read_msg_len = 0;
+		priv->read_msg_pos = 0;
+	}
+
+	/* Have we got a next message? */
+	msg = kbus_pop_message(priv);
+	if (msg == NULL) {
+		/*
+		 * A return value of 0 means no message, and that's
+		 * what __put_user returns for success.
+		 */
+		return __put_user(priv->read_msg_len, (uint32_t __user *)arg);
+	}
+	priv->read_msg = (char *)msg;
+	priv->read_msg_len = KBUS_MSG_LEN(msg->name_len,msg->data_len);
+	priv->read_msg_pos = 0;
+
+	retval = __put_user(priv->read_msg_len, (uint32_t __user *)arg);
+	if (retval)
+		return retval;
+	else
+		return 1;	/* We had a message */
+}
+#else
+// The original meaning of the NEXTMSG ioctl, for the moment
+static int kbus_nextmsg(struct kbus_private_data	*priv,
+			struct kbus_dev			*dev,
+			unsigned long			 arg)
+{
+	int	retval = 0;
+	int	len;
+
+	len = kbus_next_message_len(priv);
+	if (len < 0)
+	{
+		retval = len;
+	} else {
+		retval = __put_user(len, (uint32_t __user *)arg);
+	}
+	return retval;
+}
+#endif
 
 #include <linux/ioctl.h>
 #define KBUS_IOC_MAGIC	'k'	/* 0x6b - which seems fair enough for now */
@@ -1518,7 +1724,7 @@ done:
 #define KBUS_IOC_BOUNDAS  _IOR( KBUS_IOC_MAGIC,  4, char *)
 #define KBUS_IOC_REPLIER  _IOWR(KBUS_IOC_MAGIC,  5, char *)
 #define KBUS_IOC_NEXTMSG  _IOR( KBUS_IOC_MAGIC,  6, char *)
-#define KBUS_IOC_LENLEFT  _IO(  KBUS_IOC_MAGIC,  7)
+#define KBUS_IOC_LENLEFT  _IOR( KBUS_IOC_MAGIC,  7, char *)
 #define KBUS_IOC_SEND	  _IO(  KBUS_IOC_MAGIC,  8)
 #define KBUS_IOC_DISCARD  _IO(  KBUS_IOC_MAGIC,  9)
 #define KBUS_IOC_LASTSENT _IOR( KBUS_IOC_MAGIC, 10, char *)
@@ -1565,39 +1771,7 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 		 * BIND: indicate that a file wants to receive messages of a
 		 * given name
 		 */
-		if (arg == 0) {
-			printk(KERN_ERR "kbus: bind ioctl argument is 0\n");
-			retval = -EINVAL;
-		} else {
-			struct kbus_m_bind_struct *bind = 
-				(struct kbus_m_bind_struct *)arg;
-			if (bind->name == 0) {
-				printk(KERN_DEBUG "kbus: bind name is 0\n");
-				retval = -EINVAL;
-				break;
-			} else if (bind->len == 0) {
-				printk(KERN_DEBUG "kbus: bind name is length %d\n",
-				       bind->len);
-				retval = -EBADMSG;
-				break;
-			} else if (bind->len > KBUS_MAX_NAME_LEN) {
-				printk(KERN_DEBUG "kbus: bind name is length %d\n",
-				       bind->len);
-				retval = -ENAMETOOLONG;
-				break;
-			} else if (kbus_bad_message_name(bind->name,bind->len)) {
-				retval = -EBADMSG;
-				break;
-			}
-			printk(KERN_DEBUG "kbus: Bind request %c %d:'%s' on %u@%p\n",
-			       (bind->replier?'R':'L'), bind->len, bind->name,
-			       id, filp);
-			retval = kbus_remember_binding(dev, id,
-						       bind->replier,
-						       bind->guaranteed,
-						       bind->len,
-						       bind->name);
-		}
+		retval = kbus_bind(priv,dev,arg);
 		break;
 
 	case KBUS_IOC_UNBIND:
@@ -1605,39 +1779,7 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 		 * UNBIND: indicate that a file no longer wants to receive
 		 * messages of a given name
 		 */
-		if (arg == 0) {
-			printk(KERN_ERR "kbus: unbind ioctl argument is 0\n");
-			retval = -EINVAL;
-		} else {
-			struct kbus_m_bind_struct *bind = 
-				(struct kbus_m_bind_struct *)arg;
-			if (bind->name == 0) {
-				printk(KERN_DEBUG "kbus: unbind name is 0\n");
-				retval = -EINVAL;
-				break;
-			} else if (bind->len == 0) {
-				printk(KERN_DEBUG "kbus: bind name is length %d\n",
-				       bind->len);
-				retval = -EBADMSG;
-				break;
-			} else if (bind->len > KBUS_MAX_NAME_LEN) {
-				printk(KERN_DEBUG "kbus: bind name is length %d\n",
-				       bind->len);
-				retval = -ENAMETOOLONG;
-				break;
-			} else if (kbus_bad_message_name(bind->name,bind->len)) {
-				retval = -EBADMSG;
-				break;
-			}
-			printk(KERN_DEBUG "kbus: Unbind request %c %d:'%s' on %u@%p\n",
-			       (bind->replier?'R':'L'), bind->len, bind->name,
-			       id, filp);
-			retval = kbus_forget_binding(dev, id,
-						     bind->replier,
-						     bind->guaranteed,
-						     bind->len,
-						     bind->name);
-		}
+		retval = kbus_unbind(priv,dev,arg);
 		break;
 
 	case KBUS_IOC_BOUNDAS:
@@ -1646,13 +1788,7 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 		 * (this "listener")?
 		 */
 		printk(KERN_DEBUG "kbus: %p bound as %u\n",filp,id);
-		if (arg == 0) {
-			printk(KERN_ERR "kbus: boundas ioctl argument is 0\n");
-			retval = -EINVAL;
-		} else {
-			uint32_t *bound_as = (uint32_t *)arg;
-			*bound_as = id;
-		}
+		retval = __put_user(id, (uint32_t __user *)arg);
 		break;
 
 	case KBUS_IOC_REPLIER:
@@ -1665,30 +1801,7 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 		 * because it's an unsigned int, and the ioctl return must be
 		 * signed...
 		 */
-		if (arg == 0) {
-			printk(KERN_ERR "kbus: bindas argument is 0\n");
-			retval = -EINVAL;
-		} else {
-			struct kbus_m_bind_query_struct *query = 
-				(struct kbus_m_bind_query_struct *)arg;
-			if (query->name == 0) {
-				printk(KERN_DEBUG "kbus: bindas query name is 0\n");
-				retval = -EINVAL;
-				break;
-			} else if ( query->len > KBUS_MAX_NAME_LEN ||
-				    query->len == 0) {
-				printk(KERN_DEBUG "kbus: bindas query name is length %d\n",
-				       query->len);
-				retval = -EINVAL;
-				break;
-			}
-			printk(KERN_DEBUG "kbus: Bindas request %d:'%s' on %u@%p\n",
-			       query->len,query->name, id, filp);
-			retval = kbus_find_replier(dev,
-						   &query->return_id,
-						   query->len,
-						   query->name);
-		}
+		retval = kbus_replier(priv, dev, arg);
 		break;
 
 	case KBUS_IOC_NEXTMSG:
@@ -1705,26 +1818,16 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 		 * retval:  0 if no next message, 1 if there is a next message,
 		 *          negative value if there's an error.
 		 */
-		if (arg == 0) {
-			printk(KERN_ERR "kbus: nextmsg ioctl argument is 0\n");
-			retval = -EINVAL;
-		} else {
-			uint32_t *msg_len = (uint32_t *)arg;
-			retval = kbus_next_message_len(priv);
-			if (retval > 0) {
-				*msg_len = retval;
-				retval = 1;
-			} else {
-				*msg_len = 0;
-			}
-		}
+		retval = kbus_nextmsg(priv, dev, arg);
 		break;
 
 	case KBUS_IOC_LENLEFT:
 		/* How many bytes are left to read in the current message? */
-		printk(KERN_DEBUG "kbus: LENLEFT\n");
-		// XXX The following is, of course, wrong.
-		retval = kbus_next_message_len(priv);
+		{
+			uint32_t left = priv->read_msg_len - priv->read_msg_pos;
+			printk(KERN_DEBUG "kbus: LENLEFT %d\n",retval);
+			retval = __put_user(left, (uint32_t __user *)arg);
+		}
 		break;
 
 	case KBUS_IOC_SEND:
@@ -1744,13 +1847,7 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 		 * file descriptor, this ioctl will return 0.
 		 */
 		printk(KERN_DEBUG "kbus: %p last message id %u\n",filp,priv->last_msg_id);
-		if (arg == 0) {
-			printk(KERN_ERR "kbus: lastmsg ioctl argument is 0\n");
-			retval = -EINVAL;
-		} else {
-			uint32_t *last_msg_id = (uint32_t *)arg;
-			*last_msg_id = priv->last_msg_id;
-		}
+		retval = __put_user(priv->last_msg_id, (uint32_t __user *)arg);
 		break;
 
 	default:  /* *Should* be redundant, if we got our range checks right */

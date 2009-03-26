@@ -532,7 +532,7 @@ class Interface(object):
     KBUS_IOC_BOUNDAS  = _IOR(KBUS_IOC_MAGIC,  4, ctypes.sizeof(ctypes.c_char_p))
     KBUS_IOC_REPLIER  = _IOWR(KBUS_IOC_MAGIC, 5, ctypes.sizeof(ctypes.c_char_p))
     KBUS_IOC_NEXTMSG  = _IOR(KBUS_IOC_MAGIC,  6, ctypes.sizeof(ctypes.c_char_p))
-    KBUS_IOC_LENLEFT  = _IO(KBUS_IOC_MAGIC,   7)
+    KBUS_IOC_LENLEFT  = _IOR(KBUS_IOC_MAGIC,  7, ctypes.sizeof(ctypes.c_char_p))
     KBUS_IOC_SEND     = _IO(KBUS_IOC_MAGIC,   8)
     KBUS_IOC_DISCARD  = _IO(KBUS_IOC_MAGIC,   9)
     KBUS_IOC_LASTSENT = _IOR(KBUS_IOC_MAGIC, 10, ctypes.sizeof(ctypes.c_char_p))
@@ -607,7 +607,9 @@ class Interface(object):
         Returns 0 if there is no current message (i.e., 'next_msg()' has not
         been called), or if there are no bytes left.
         """
-        return fcntl.ioctl(self.fd, Interface.KBUS_IOC_LENLEFT, 0);
+        id = array.array('L',[0])
+        fcntl.ioctl(self.fd, Interface.KBUS_IOC_LENLEFT, id, True)
+        return id[0]
 
     def send(self):
         """Send the last written message.
