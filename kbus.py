@@ -1742,11 +1742,11 @@ class TestKernelModule:
                     assert writer.next_len()   == 0
                     assert replier.next_len()  == 0
 
-    def test_wildcard_generic_vs_specific_bind(self):
-        """Test generic versus specific wildcard binding.
+    def test_wildcard_generic_vs_specific_bind_1(self):
+        """Test generic versus specific wildcard binding - fit the first
         """
         with RecordingInterface(0,'rw',self.bindings) as f0:
-            # We'll use this interface to do all the writing of messages,
+            # We'll use this interface to do all the writing of requests,
             # just to keep life simple.
 
             with RecordingInterface(0,'r',self.bindings) as f1:
@@ -1768,9 +1768,9 @@ class TestKernelModule:
                     # f2 knows it wants specific replier status on '$.Fred.Jim'
                     f2.bind('$.Fred.Jim',replier=True)
 
-                    # So, now, any messages to '$.Fred.Jim' should only go to
+                    # So, now, any requests to '$.Fred.Jim' should only go to
                     # f2, who should need to reply to them.
-                    # Any messages to '$.Fred.Bob' should only go to f1, who
+                    # Any requests to '$.Fred.Bob' should only go to f1, who
                     # should need to reply to them.
                     mBob = Request('$.Fred.Bob')
 
@@ -1787,30 +1787,79 @@ class TestKernelModule:
                     assert rBob.equivalent(mBob)
                     assert f1.next_len() == 0
 
+    def test_wildcard_generic_vs_specific_bind_2(self):
+        """Test generic versus specific wildcard binding - fit the second
+        """
+        with RecordingInterface(0,'rw',self.bindings) as f0:
+            # We'll use this interface to do all the writing of requests,
+            # just to keep life simple.
 
+            with RecordingInterface(0,'r',self.bindings) as f1:
+                # f1 asks for generic replier status on everything below '$.Fred'
+                f1.bind('$.Fred.*',replier=True)
 
+                mJim = Request('$.Fred.Jim')
+                f0.write(mJim)
+                r = f1.read()
+                assert r.should_reply()
+                assert r.equivalent(mJim)
 
+                assert f1.next_len() == 0
 
-                    # Fit the second:
-                    # If f1 binds as a *listener* to '$.Fred.*', it should see
-                    # all the messages on '$.Fred.*' twice, once as replier and
-                    # once as listener, *except* for those to '$.Fred.Jim',
-                    # which it should see just as listener.
+                # Hmm - apart from existential worries, nothing happens if we
+                # don't *actually* reply..
 
-                    # Fit the third:
-                    # f1 should not be able to bind as a replier to
-                    # '$.Fred.Jim', because that's already f2
+                with RecordingInterface(0,'r',self.bindings) as f2:
+                    # f2 gets more specific
+                    f2.bind('$.Fred.%',replier=True)
 
-                    # Fit the fourth:
-                    # If f1 binds as a listener to '$.Fred.Jim', it should see
-                    # messages with that name an extra time, once for the
-                    # wildcard, once for the non-wildcard (but none for the
-                    # original generic wildcarded replier)
+                    # So, now, any requests to '$.Fred.Jim' should only go to
+                    # f2, who should need to reply to them.
+                    # Any requests to '$.Fred.Jim.Bob' should only go to f1,
+                    # who should need to reply to them.
+                    mJimBob = Request('$.Fred.Jim.Bob')
 
-                    # Fit the fifth:
-                    # What happens about binding to '$.Fred.*' and '$.Fred.%'
-                    # as replier -- should the second count as more specific
-                    # than the first? (seems to me that it probably should).
+                    f0.write(mJim)      # should only go to f2
+                    f0.write(mJimBob)   # should only go to f1
+
+                    rJim = f2.read()
+                    assert rJim.should_reply()
+                    assert rJim.equivalent(mJim)
+                    assert f2.next_len() == 0
+
+                    rJimBob = f1.read()
+                    assert rJimBob.should_reply()
+                    assert rJimBob.equivalent(mJimBob)
+                    assert f1.next_len() == 0
+
+                    with RecordingInterface(0,'r',self.bindings) as f3:
+                        # f3 knows it wants specific replier status on '$.Fred.Jim'
+                        f3.bind('$.Fred.Jim',replier=True)
+
+                        # So, now, any requests to '$.Fred.Jim' should only go to
+                        # f3, who should need to reply to them.
+                        # Any requests to '$.Fred.James' should still go to f2
+                        # Any requests to '$.Fred.Jim.Bob' should still only go to f1
+                        mJames = Request('$.Fred.James')
+
+                        f0.write(mJim)      # should only go to f3
+                        f0.write(mJames)    # should only go to f2
+                        f0.write(mJimBob)   # should only go to f1
+
+                        rJim = f3.read()
+                        assert rJim.should_reply()
+                        assert rJim.equivalent(mJim)
+                        assert f3.next_len() == 0
+
+                        rJames = f2.read()
+                        assert rJames.should_reply()
+                        assert rJames.equivalent(mJames)
+                        assert f2.next_len() == 0
+
+                        rJimBob = f1.read()
+                        assert rJimBob.should_reply()
+                        assert rJimBob.equivalent(mJimBob)
+                        assert f1.next_len() == 0
 
 
 # vim: set tabstop=8 shiftwidth=4 expandtab:
