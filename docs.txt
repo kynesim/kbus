@@ -106,31 +106,10 @@ by:
 An ordinary listener will receive all messages with that name (on the relevant
 kbus device). More bindings may be made by repeated use of the BIND ioctl.
 
-For each message name, there may be a single "replier". A replier uses the
-same binding mechanism, but sets the "REPLIER" flag in the BIND ioctl. If
-someone else has already bound as a replier, the request will fail.
-
 Messages are received by reading the file descriptor.
 
-A replier may (should? must?) reply to the message - this is done by writing
-to the file descriptor.
-
-    Thus, the kbus device can be opened read-only for a normal listener,
-    but must be opened read-write for a replier, or if the same file
-    descriptor is also to be used for sending messages.
-
-It is perfectly legitimate to bind to a message as both replier and listener,
-in which case the listener will get a copy of the message as replier (flagged
-as needing a reply), and also a copy of the message as a normal listener.
-
-If a replier binds to a wildcarded message name, then they are the *default*
-replier for any message names satisfying that wildcard. If another listener
-binds as a replier to a specific message name (included in that wildcard),
-then the specific message name binding "wins" - the wildcard replier will no
-longer receive that message name.
-
-This means that if a wildcard replier wants to guarantee to see all the
-messages, they also need to bind as a listner for the same wildcarded name.
+A listener may bind to a wildcarded message name, in which case they will
+receive all messages with names that match the wildcard.
 
 If a listener no longer wants to receive a particular message name, then they
 can unbind from it, using the UNBIND ioctl. The message name and flags used in
@@ -141,6 +120,40 @@ an UNBIND must match those in the corresponding BIND.
 
 Closing the file descriptor also unbinds all the message bindings made on it.
 It does not affect message bindings made on other file descriptors.
+
+Repliers
+--------
+For each message name, there may be a single "replier". A replier uses the
+same binding mechanism, but sets the "REPLIER" flag in the BIND ioctl. If
+someone else has already bound as a replier for that message name, the request
+will fail.
+
+Repliers only get messages that are marked as wanting a reply (requests).
+
+A replier may (should? must?) reply to the request - this is done by writing
+to the file descriptor.
+
+    Thus, the kbus device can be opened read-only for a normal listener,
+    but must be opened read-write for a replier, or if the same file
+    descriptor is also to be used for sending messages.
+
+It is perfectly legitimate to bind to a message as both replier and listener,
+in which case two copies of the message will be read, once as replier, and
+once as (just) listener. Only the message received as replier will be flagged
+as needing a reply.
+
+If a replier binds to a wildcarded message name, then they are the *default*
+replier for any message names satisfying that wildcard. If another replier
+binds to a more specific message name (matching that wildcard),
+then the specific message name binding "wins" - the wildcard replier will no
+longer receive that message name.
+
+    In particular '$.Fred.Jim' is more specific than '$.Fred.%' which in turn
+    is more specific than '$.Fred.*'
+
+This means that if a wildcard replier wants to guarantee to see all the
+messages matching their wildcard, they also need to bind as a listener for the
+same wildcarded name.
 
 Senders
 -------
@@ -164,6 +177,20 @@ It is not possible to send a message with a wildcard message name.
     Is there a use-case that requires us to allow sending to wildcards?
     I'd prefer there not to be. Not least because it gives messages with
     names that don't really *mean* anything.
+
+If the message being sent is a request, then the replier bound to that
+message name will (presumably) write a reply to the request. Thus the normal
+sequence for a request is likely to be:
+
+1. write the request message
+2. read the reply
+
+The sender does *not* need to bind to anything in order to receive a reply to
+a request it has sent.
+
+    Of course, if a sender binds to listen to the name it uses for its
+    request, then it will get a copy of the request as sent, and it will
+    also get (an extra) copy of the reply.
 
 Stateful transactions
 ---------------------

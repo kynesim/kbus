@@ -1072,8 +1072,6 @@ class TestKernelModule:
             check_IOError(errno.EINVAL, fcntl.ioctl, f.fd, KBUS_IOC_BIND, 0)
             # Said string must not be zero length
             check_IOError(errno.EBADMSG, f.bind, '', True)
-            # At some point, it will have restrictions on what it *should* look
-            # like
             f.bind('$.Fred')
             # - UNBIND
             check_IOError(errno.EINVAL, fcntl.ioctl, f.fd, KBUS_IOC_UNBIND, 0)
@@ -1213,8 +1211,8 @@ class TestKernelModule:
             data2 = array.array('L','This is surely some data')
 
             # Bind so that we can write/read the first, but not the second
-            f.bind(name1,True)
-            f.bind('$.William',True)
+            f.bind(name1,False)
+            f.bind('$.William',False)
 
             msg1 = Message(name1,data=data1)
             f.write(msg1)
@@ -1248,11 +1246,11 @@ class TestKernelModule:
             f2 = RecordingInterface(0,'rw',self.bindings)
             assert f2 != None
             try:
-                f1.bind('$.Fred',True)
+                f1.bind('$.Fred',False)
                 f1.bind('$.Fred',False)
                 f1.bind('$.Fred',False)
 
-                f2.bind('$.Jim',True)
+                f2.bind('$.Jim',False)
 
                 # Writing to $.Fred on f1 - writes message id N
                 msgF = Message('$.Fred','data')
@@ -1391,34 +1389,115 @@ class TestKernelModule:
         finally:
             assert f.close() is None
 
+    def test_request_vs_message(self):
+        """Test repliers and Requests versus Messages
+        """
+        with RecordingInterface(0,'rw',self.bindings) as f0:
+            with RecordingInterface(0,'r',self.bindings) as listener:
+                listener.bind('$.Fred.Message',False)
+                
+                # A listener receives Messages
+                m = Message('$.Fred.Message')
+                f0.write(m)
+                r = listener.read()
+                assert r.equivalent(m)
+                assert not r.should_reply()
+
+                # And it receives Requests (although it need not reply)
+                m = Request('$.Fred.Message')
+                f0.write(m)
+                r = listener.read()
+                assert r.equivalent(m)
+                assert not r.should_reply()
+
+                with RecordingInterface(0,'r',self.bindings) as replier:
+                    replier.bind('$.Fred.Message',True)
+                    
+                    # A replier does not receive Messages
+                    # (presumably the listener still does, but we're not going
+                    # to check)
+                    m = Message('$.Fred.Message')
+                    f0.write(m)
+                    assert replier.next_len() == 0
+
+                    # But it does receive Requests (and it should reply)
+                    m = Request('$.Fred.Message')
+                    f0.write(m)
+                    r = replier.read()
+                    assert r.equivalent(m)
+                    assert r.should_reply()
+
     def test_wildcards_a_bit(self):
         """Some initial testing of wildcards. And use of 'with'
         """
         with RecordingInterface(0,'rw',self.bindings) as f:
             assert f != None
-            f.bind('$.Fred.*',True)
+            # Note, binding just as a listener
+            f.bind('$.Fred.*',False)
 
+            # We should receive the message, it matches the wildcard
             m = Message('$.Fred.Jim')
             f.write(m)
             r = f.read()
             assert r.equivalent(m)
 
+            # And again
             m = Message('$.Fred.JimBob.William')
             f.write(m)
             r = f.read()
             assert r.equivalent(m)
 
+            # But this does not match the wildcard
             m = Message('$.Fred')
             check_IOError(errno.EADDRNOTAVAIL, f.write, m)
 
             # A more specific binding, overlapping the wildcard
-            f.bind('$.Fred.Jim',True)
+            # Since we're bound as (just) a listener both times,
+            # we should get the message twice, once for each binding
+            f.bind('$.Fred.Jim',False)
             m = Message('$.Fred.Jim')
             f.write(m)
             r = f.read()
             assert r.equivalent(m)
             r = f.read()
             assert r.equivalent(m)
+
+    def test_wildcards_a_bit_more(self):
+        """Some more initial testing of wildcards. And use of 'with'
+        """
+        with RecordingInterface(0,'rw',self.bindings) as f:
+            assert f != None
+            # Note, binding as a default replier
+            f.bind('$.Fred.*',True)
+
+            # We should receive the message, it matches the wildcard
+            m = Request('$.Fred.Jim')
+            f.write(m)
+            r = f.read()
+            assert r.equivalent(m)
+            assert r.should_reply()
+
+            # And again
+            m = Request('$.Fred.JimBob.William')
+            f.write(m)
+            r = f.read()
+            assert r.equivalent(m)
+            assert r.should_reply()
+
+            # But this does not match the wildcard
+            m = Request('$.Fred')
+            check_IOError(errno.EADDRNOTAVAIL, f.write, m)
+
+            # A more specific binding, overlapping the wildcard
+            f.bind('$.Fred.Jim',True)
+            m = Request('$.Fred.Jim')
+            f.write(m)
+            r = f.read()
+            assert r.equivalent(m)
+            assert r.should_reply()
+
+            # But we should only receive it once, on the more specific binding
+            assert f.next_len() == 0
 
     def test_message_equality(self):
         """Messages are not equal to non-messages, and so on.
@@ -1563,8 +1642,9 @@ class TestKernelModule:
             name3 = '$.Fred.Bob.Jonathan'
 
             f.bind(name1,True)     # replier
+            f.bind(name1,False)    # and listener
             f.bind(name2,True)     # replier
-            f.bind(name3,False)    # just listener
+            f.bind(name3,False)    # listener
 
             msg1 = Message(name1,data='dat1')
             msg2 = Request(name2,data='dat2')
@@ -1578,23 +1658,26 @@ class TestKernelModule:
             m2 = f.read()
             m3 = f.read()
 
-            # For message 1, there is no reply needed
+            # For message 1, we only see it as a listener
+            # (because it is not a Request) so there is no reply needed
             assert not m1.should_reply()
 
             # For message 2, a reply is wanted, and we are the replier
             assert m2.should_reply()
 
-            # For message 3, a reply is wanted, and we are not the replier
+            # For message 3, a reply is wanted, but we are just a listener
             assert not m3.should_reply()
 
             # So, we should reply to message 2 - let's do so
 
-            # We can make a reply "by hand"
-            (id,in_reply_to,to,from_,flags,name,data_array) = msg2.extract()
+            # We can make a reply "by hand" - remember that we want to
+            # reply to the message we *received*, which has the id set
+            # (by KBUS)
+            (id,in_reply_to,to,from_,flags,name,data_array) = m2.extract()
             reply_by_hand = Message(name, data=None, in_reply_to=id, to=from_)
 
             # But it is easier to use the pre-packaged mechanism
-            reply = Reply(msg2)
+            reply = Reply(m2)
 
             # These should, however, give the same result
             assert reply == reply_by_hand
@@ -1602,7 +1685,8 @@ class TestKernelModule:
             # And the obvious thing to do with a reply is
             f.write(reply)
 
-            # And we should be able to read it...
+            # We should receive that reply, even though we're not
+            # a listener for the message (that's the *point* of replies)
             m4 = f.read()
             assert m4.equivalent(reply)
 
@@ -1612,55 +1696,51 @@ class TestKernelModule:
     def test_reply_three_files(self):
         """Test replying with two files in dialogue, and another listening
         """
-        with RecordingInterface(0,'r',self.bindings) as f0:
-            f0.bind('$.*')
+        with RecordingInterface(0,'r',self.bindings) as listener:
+            listener.bind('$.*')
 
-            with RecordingInterface(0,'rw',self.bindings) as f1:
+            with RecordingInterface(0,'rw',self.bindings) as writer:
 
-                with RecordingInterface(0,'rw',self.bindings) as f2:
-                    f2.bind('$.Fred',replier=True)
+                with RecordingInterface(0,'rw',self.bindings) as replier:
+                    replier.bind('$.Fred',replier=True)
 
                     msg1 = Message('$.Fred')    # no reply necessary
                     msg2 = Request('$.Fred')
 
-                    f1.write(msg1)
-                    f1.write(msg2)
+                    writer.write(msg1)
+                    writer.write(msg2)
 
-                    # Read msg1 - no reply neeeded
-                    rec1 = f2.read()
-                    assert not rec1.should_reply()
-                    assert rec1.equivalent(msg1)
-
-                    # Read msg2 - this should ask *us* for a reply
-                    rec2 = f2.read()
+                    # The replier should not see msg1
+                    # But it should see msg2, which should ask *us* for a reply
+                    rec2 = replier.read()
                     assert rec2.should_reply()
                     assert rec2.equivalent(msg2)
 
+                    # Which we can reply to
                     rep = Reply(msg2)
-                    f2.write(rep)
+                    replier.write(rep)
                     assert not rep.should_reply()       # just to check!
 
-                    msg3 = f2.read()
-                    assert msg3.equivalent(rep)
-                    assert not msg3.should_reply()
+                    # But should not receive
+                    assert replier.next_len() == 0
 
-                    # f0 should get all of those messages
+                    # The listener should get all of those messages
                     # (the originals and the reply)
                     # but should not be the replier for any of them
-                    a = f0.read()
+                    a = listener.read()
                     assert a.equivalent(msg1)
                     assert not a.should_reply()
-                    b = f0.read()
+                    b = listener.read()
                     assert b.equivalent(msg2)
                     assert not b.should_reply()
-                    c = f0.read()
+                    c = listener.read()
                     assert c.equivalent(rep)
                     assert not c.should_reply()
 
                     # No-one should have any more messages
-                    assert f0.next_len() == 0
-                    assert f1.next_len() == 0
-                    assert f2.next_len() == 0
+                    assert listener.next_len() == 0
+                    assert writer.next_len()   == 0
+                    assert replier.next_len()  == 0
 
     def test_wildcard_generic_vs_specific_bind(self):
         """Test generic versus specific wildcard binding.
@@ -1673,19 +1753,15 @@ class TestKernelModule:
                 # f1 asks for generic replier status on everything below '$.Fred'
                 f1.bind('$.Fred.*',replier=True)
 
-                m = Message('$.Fred.Jim')
-                f0.write(m)
-                n = f1.read()
-                assert not n.should_reply()
-                assert n.equivalent(m)
-
-                m = Request('$.Fred.Jim')
-                f0.write(m)
+                mJim = Request('$.Fred.Jim')
+                f0.write(mJim)
                 r = f1.read()
                 assert r.should_reply()
-                assert r.equivalent(m)
+                assert r.equivalent(mJim)
 
-                # Hmm - apart from exisential worries, nothing happens if we
+                assert f1.next_len() == 0
+
+                # Hmm - apart from existential worries, nothing happens if we
                 # don't *actually* reply..
 
                 with RecordingInterface(0,'r',self.bindings) as f2:
@@ -1696,6 +1772,22 @@ class TestKernelModule:
                     # f2, who should need to reply to them.
                     # Any messages to '$.Fred.Bob' should only go to f1, who
                     # should need to reply to them.
+                    mBob = Request('$.Fred.Bob')
+
+                    f0.write(mJim)      # should only go to f2
+                    f0.write(mBob)      # should only go to f1
+
+                    rJim = f2.read()
+                    assert rJim.should_reply()
+                    assert rJim.equivalent(mJim)
+                    assert f2.next_len() == 0
+
+                    rBob = f1.read()
+                    assert rBob.should_reply()
+                    assert rBob.equivalent(mBob)
+                    assert f1.next_len() == 0
+
+
 
 
 

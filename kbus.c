@@ -742,24 +742,26 @@ static int kbus_find_replier(struct kbus_dev	*dev,
 			return 1;
 		}
 	}
-	printk(KERN_DEBUG "kbus: There is no replier for %d:'%s'\n",len,name);
 	return 0;
 }
 
 /*
  * Find out who, if anyone, is bound as a listener to the given message name.
  *
- * 'listeners' is an array of listener ids. It may be NULL (if there are no
- * listeners or if there was an error). It is up to the caller to free it.
+ * 'listeners' is an array of (just) listener ids. It may be NULL (if there are
+ * no listeners or if there was an error). It is up to the caller to free it.
  *
  * If one of the listeners was also a replier for this message, then 'replier'
- * will be its id, otherwise it will be zero.
+ * will be its id, otherwise it will be zero. The replier will not be in the
+ * 'listeners' array, so the caller must check both.
  *
  * Note that a particular listener id may be present more than once, if that
  * particular listener has bound to the message more than once.
  *
- * Returns the number of listeners found, and a negative value if something
- * went wrong.
+ * Returns the number of listeners found (i.e., the length of the array), and a
+ * negative value if something went wrong. This is a bit clumsy, because the
+ * caller needs to check the return value *and* the 'replier' value, but there
+ * is only one caller, so...
  */
 static int kbus_find_listeners(struct kbus_dev	 *dev,
 			       uint32_t		**listeners,
@@ -779,45 +781,89 @@ static int kbus_find_listeners(struct kbus_dev	 *dev,
 	struct kbus_message_binding *ptr;
 	struct kbus_message_binding *next;
 
-	printk(KERN_DEBUG "kbus: Looking for a listener for %d:'%s'\n",
+	/*
+	 * The higher the replier type, the more specific it is.
+	 * We trust the binding mechanisms not to have created two replier
+	 * bindings of the same type for the same name (so we shan't get
+	 * '$.Fred.*' bound as replier twice).
+	 */
+	enum replier_type {
+		UNSET,
+		WILD_STAR,
+		WILD_PERCENT,
+		SPECIFIC
+	};
+#define REPLIER_TYPE(r)		((r)==UNSET?"UNSET": \
+				 (r)==WILD_STAR?"WILD_STAR": \
+				 (r)==WILD_PERCENT?"WILD_PERCENT": \
+				 (r)==SPECIFIC?"SPECIFIC":"???")
+       	enum replier_type	replier_type = UNSET;
+       	enum replier_type	new_replier_type = UNSET;
+
+	printk(KERN_DEBUG "kbus: Looking for listeners/repliers for %d:'%s'\n",
 	       name_len,name);
 
 	*listeners = kmalloc(sizeof(uint32_t) * array_size,GFP_KERNEL);
 	if (!(*listeners))
 		return -EFAULT;
 
+	*replier = 0;
+
 	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
 
 		if (kbus_message_name_matches(name,name_len,ptr->name))
 		{
 			printk(KERN_DEBUG "kbus: '%*s' matches '%s' for listener %u%s\n",
-			       name_len,name, ptr->name,
+			       name_len, name, ptr->name,
 			       ptr->bound_to, (ptr->replier?" (replier)":""));
 
-			if (count == array_size)
-			{
-				printk(KERN_DEBUG "kbus: XXX listener array size %d -> %d\n",
-				       array_size, array_size + INCR_SIZE);
-				array_size += INCR_SIZE;
-				*listeners = krealloc(*listeners,
-						      sizeof(uint32_t) * array_size,
-						      GFP_KERNEL);
-				if (!(*listeners))
-					return -EFAULT;
+			if (ptr->replier) {
+				/* It *may* be the replier for this message */
+				size_t	last_char = strlen(ptr->name) - 1;
+				if (ptr->name[last_char] == '*')
+					new_replier_type = WILD_STAR;
+				else if (ptr->name[last_char] == '%')
+					new_replier_type = WILD_PERCENT;
+				else
+					new_replier_type = SPECIFIC;
+
+				printk(KERN_DEBUG "kbus: Replier was %u (%s), looking at %u (%s)\n",
+				       *replier, REPLIER_TYPE(replier_type),
+				       ptr->bound_to, REPLIER_TYPE(new_replier_type));
+				/*
+				 * If this is the first replier, just remember
+				 * it. Otherwise, if it's more specific than
+				 * our previous replier, remember it instead.
+				 */
+				if (*replier == 0 ||
+				    new_replier_type > replier_type)
+				{
+					printk(KERN_DEBUG "kbus:  going with replier %u\n",
+					       ptr->bound_to);
+					*replier = ptr->bound_to;
+					replier_type = new_replier_type;
+				}
+			} else {
+				/* It is a listener */
+				if (count == array_size)
+				{
+					printk(KERN_DEBUG "kbus: XXX listener array size %d -> %d\n",
+					       array_size, array_size + INCR_SIZE);
+					array_size += INCR_SIZE;
+					*listeners = krealloc(*listeners,
+							      sizeof(uint32_t) * array_size,
+							      GFP_KERNEL);
+					if (!(*listeners))
+						return -EFAULT;
+				}
+				(*listeners)[count++] = ptr->bound_to;
 			}
-
-			(*listeners)[count++] = ptr->bound_to;
-
-			if (ptr->replier)
-				*replier = ptr->bound_to;
 		}
 	}
-	if (count)
-		printk(KERN_DEBUG "kbus: Found %d listeners for %d:'%s'\n",
-		       count,name_len,name);
-	else
-		printk(KERN_DEBUG "kbus: Could not find a listener for %d:'%s'\n",
-		       name_len,name);
+	printk(KERN_DEBUG "kbus: Found %d listener%s%s for '%s'\n",
+	       count, (count==1?"":"s"),
+	       (*replier==0?"":" and a replier"),
+	       name);
 
 	return count;
 }
@@ -1150,12 +1196,40 @@ static int kbus_release(struct inode *inode, struct file *filp)
 		return retval2;
 }
 
-static ssize_t kbus_write_to_listeners(struct kbus_private_data	   *priv,
-				       struct kbus_dev		   *dev,
-				       struct kbus_message_struct  *msg,
-				       uint32_t			    msg_len,
-				       char			   *name_p,
-				       uint32_t			   *data_p)
+/*
+ * Determine the private data for the given listener/replier id.
+ *
+ * Return NULL if we can't find it.
+ */
+static struct kbus_private_data
+	*kbus_find_private_data(struct kbus_private_data *our_priv,
+				struct kbus_dev 	 *dev,
+				uint32_t		  id)
+{
+	struct kbus_private_data *l_priv;
+	if (id == our_priv->id) {
+		/* Heh, it's us, we know who we are! */
+		printk(KERN_DEBUG "kbus: -- Id %u is us\n",id);
+		l_priv = our_priv;
+	} else {
+		/* OK, look it up */
+		printk(KERN_DEBUG "kbus: -- Looking up id %u\n",id);
+		l_priv = kbus_find_open_file(dev,id);
+	}
+	return l_priv;
+}
+
+/*
+ * Actually write to anyone interested in this message.
+ *
+ * Returns 0 if all goes well, or a negative number on error.
+ */
+static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
+					struct kbus_dev		   *dev,
+					struct kbus_message_struct *msg,
+					uint32_t		    msg_len,
+					char			   *name_p,
+					uint32_t		   *data_p)
 {
 	ssize_t		 retval = 0;
 	uint32_t	 replier = 0;
@@ -1165,24 +1239,33 @@ static ssize_t kbus_write_to_listeners(struct kbus_private_data	   *priv,
 	int		 num_sent = 0;	/* # successfully "sent" */
 	uint32_t	 old_next_msg_id = dev->next_msg_id;
 
+	/*
+	 * Remember that
+	 * (a) a listener may occur more than once in our array, and
+	 * (b) we have 0 or 1 repliers, but
+	 * (c) the replier is *not* one of the listeners.
+	 */
 	num_listeners = kbus_find_listeners(dev,&listeners,&replier,
 					    msg->name_len,name_p);
 	if (num_listeners < 0) {
 		printk(KERN_DEBUG "kbus/write: Error %d finding listeners\n",
 		       num_listeners);
-		retval = -EFAULT;  /* XXX Review this choice */
-	} else if (num_listeners == 0) {
-		printk(KERN_DEBUG "kbus/write: No listeners\n");
+		retval = num_listeners;
+		goto done_sending;
+	}
+
+	/* Do we have anyone to send our message to? */
+
+	if (num_listeners == 0 && replier == 0 && !msg->in_reply_to) {
+		printk(KERN_DEBUG "kbus/write: Not a reply, no listeners, no replier\n");
 		retval = -EADDRNOTAVAIL;
-	} else {
-		printk(KERN_DEBUG "kbus/write: Listeners %d [%d,..], replier %u\n",
-		       num_listeners,listeners[0],replier);
+		goto done_sending;
 	}
 
 	/*
-	 * Since we apparently have some listeners, it seems safe
-	 * to assume we're going to be able to send this message,
-	 * so (slightly tentatively) assign it a message id.
+	 * Since we apparently have some listeners, or a replier, or at least
+	 * we *are* a reply, it seems safe to assume we're going to be able to
+	 * send this message, so (slightly tentatively) assign it a message id.
 	 *
 	 * We reserve id 0, for use by kbus for synthetic messages.
 	 */
@@ -1190,14 +1273,7 @@ static ssize_t kbus_write_to_listeners(struct kbus_private_data	   *priv,
 		dev->next_msg_id ++;
 	msg->id = dev->next_msg_id ++;
 
-	/*
-	 * Remember that
-	 * (a) a listener may occur more than once in our array, and
-	 * (b) we only have 0 or 1 repliers, but
-	 * (c) the replier is also one of the listeners.
-	 */
-
-	/* And we need to add it to the queue for each such listener */
+	/* And we need to add it to the queue for each interested party */
 
 	/*
 	 * XXX We *should* check if this is allowed before doing it,
@@ -1205,78 +1281,91 @@ static ssize_t kbus_write_to_listeners(struct kbus_private_data	   *priv,
 	 * XXX queues, but ignore that for the moment...
 	 */
 
+	/*
+	 * Remember that kbus_push_message takes a copy of the message for us.
+	 *
+	 * This is inefficient, since otherwise we could keep a single copy of
+	 * the message (or at least the message header) and just bump a
+	 * reference count for each "use" of the message,
+	 *
+	 * However, it also allows us to easily set the "needs a reply" flag
+	 * (and associated data) when sending a "needs a reply" message to a
+	 * replier, and *unset* the same when sending said message to "just"
+	 * listeners...
+	 *
+	 * Be careful if altering this...
+	 */
+
+	/*
+	 * If this is a reply message, then we need to send it to the
+	 * original sender, irrespective of whether they are a listener or not.
+	 */
+	if (msg->in_reply_to) {
+		struct kbus_private_data *l_priv;
+		printk(KERN_DEBUG "kbus/write: Replying to original sender %u\n",
+		       msg->to);
+
+		l_priv = kbus_find_private_data(priv,dev,msg->to);
+		if (l_priv == NULL) {
+			printk(KERN_DEBUG "kbus/write: Can't find sender %u\n",
+			       msg->to);
+			/* Which sounds fairly nasty */
+			goto done_sending;
+		}
+
+		retval = kbus_push_message(l_priv,msg_len,msg,true);
+		if (retval == 0)
+			num_sent ++;
+		else
+			goto done_sending;
+	}
+
+	/* Repliers only get the message if it is marked as wanting a reply. */
+	if (replier && KBUS_BIT_WANT_A_REPLY & msg->flags) {
+		struct kbus_private_data *l_priv;
+		printk(KERN_DEBUG "kbus/write: Considering replier %u\n",
+		       replier);
+
+		l_priv = kbus_find_private_data(priv,dev,replier);
+		if (l_priv == NULL) {
+			printk(KERN_DEBUG "kbus/write: Can't find replier %u\n",
+			       replier);
+			/* Which sounds fairly nasty */
+			goto done_sending;
+		}
+
+		retval = kbus_push_message(l_priv,msg_len,msg,true);
+		if (retval == 0)
+			num_sent ++;
+		else
+			goto done_sending;
+	}
+
 	for (ii=0; ii<num_listeners; ii++)
 	{
 		uint32_t  listener = listeners[ii];
 		struct kbus_private_data *l_priv;
 
-		printk(KERN_DEBUG "kbus/write: Dealing with"
-		       " listener %u\n",listener);
+		printk(KERN_DEBUG "kbus/write: Considering listener %u\n",
+		       listener);
 
-		if (listener == priv->id) {
-			/* Heh, it's us, we know who we are! */
-			printk(KERN_DEBUG "kbus/write: -- It's us\n");
-			l_priv = priv;
-		} else {
-			/* OK, look it up */
-			printk(KERN_DEBUG "kbus/write: -- Looking them up\n");
-			l_priv = kbus_find_open_file(dev,listener);
-			if (l_priv == NULL) {
-				printk(KERN_DEBUG "kbus/write: Can't find listener %u\n",
-				       listener);
-				/* Can we do anything other than ignore it? */
-				continue;	   /* XXX Review this choice */
-			}
+		l_priv = kbus_find_private_data(priv,dev,listener);
+		if (l_priv == NULL) {
+			printk(KERN_DEBUG "kbus/write: Can't find listener %u\n",
+			       listener);
+			/* Fairly nasty, but maybe it's worth going on... */
+			continue;	   /* XXX Review this choice */
 		}
 
-		/*
-		 * Remember that kbus_push_message takes a copy of the message
-		 * for us.
-		 *
-		 * This is inefficient, since otherwise we could keep a single
-		 * copy of the message (or at least the message header) and
-		 * just bump a reference count for each "use" of the message,
-		 *
-		 * However, it also allows us to easily set the "needs a reply"
-		 * flag (and associated data) when sending a "needs a reply"
-		 * message to a replier, and *unset* the same when sending said
-		 * message to "just" listeners...
-		 *
-		 * Be careful if altering this...
-		 */
-		if (listener == replier) {
-			/*
-			 * We've now dealt with that replier, so forget about
-			 * it (the same id may also occur just as a listener,
-			 * so we don't want to "be" a replier more than once)
-			 */
-			replier = 0;
-			/*
-			 * If this message is a reply, then we don't want to
-			 * send it to the replier (they're the one sending it)
-			 */
-			if (msg->in_reply_to != 0)
-				continue;
-
-			retval = kbus_push_message(l_priv,msg_len,msg,
-						   true);
-		} else {
-			retval = kbus_push_message(l_priv,msg_len,msg,
-						   false);
-		}
+		retval = kbus_push_message(l_priv,msg_len,msg,false);
 		if (retval == 0)
 			num_sent ++;
 		else
-			break;	/* Since an error was probably serious */
+			goto done_sending;
 	}
 
-	if (retval == 0 && replier != 0) {
-		/* XXX Worry myself - does this do anything useful? */
-		printk(KERN_DEBUG "kbus/write: After dealing with listeners,"
-		       " didn't handle replier\n");
-	}
+done_sending:
 
-	/* XXX Mustn't forget */
 	if (listeners)
 		kfree(listeners);
 
@@ -1347,9 +1436,9 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 	}
 
 	/*
-	 * Find out who is listening for this message, and write it to them
+	 * Figure out who should receive this message, and write it to them
 	 */
-	retval = kbus_write_to_listeners(priv,dev,msg,msg_len,name_p,data_p);
+	retval = kbus_write_to_recipients(priv,dev,msg,msg_len,name_p,data_p);
 
 done:
 	up(&dev->sem);
