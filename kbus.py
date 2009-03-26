@@ -497,7 +497,7 @@ class Reply(Message):
                                    in_reply_to=id,
                                    to=from_)
 
-class KbufBindStruct(ctypes.Structure):
+class KbusBindStruct(ctypes.Structure):
     """The datastucture we need to describe a KBUS_IOC_BIND argument
     """
     _fields_ = [('replier',    ctypes.c_uint),
@@ -505,7 +505,7 @@ class KbufBindStruct(ctypes.Structure):
                 ('len',        ctypes.c_uint),
                 ('name',       ctypes.c_char_p)]
 
-class KbufListenerStruct(ctypes.Structure):
+class KbusListenerStruct(ctypes.Structure):
     """The datastucture we need to describe a KBUS_IOC_REPLIER argument
     """
     _fields_ = [('return_id', ctypes.c_uint),
@@ -531,7 +531,7 @@ class Interface(object):
     KBUS_IOC_UNBIND   = _IOW(KBUS_IOC_MAGIC,  3, ctypes.sizeof(ctypes.c_char_p))
     KBUS_IOC_BOUNDAS  = _IOR(KBUS_IOC_MAGIC,  4, ctypes.sizeof(ctypes.c_char_p))
     KBUS_IOC_REPLIER  = _IOWR(KBUS_IOC_MAGIC, 5, ctypes.sizeof(ctypes.c_char_p))
-    KBUS_IOC_NEXTLEN  = _IO(KBUS_IOC_MAGIC,   6)
+    KBUS_IOC_NEXTMSG  = _IOR(KBUS_IOC_MAGIC,  6, ctypes.sizeof(ctypes.c_char_p))
     KBUS_IOC_LASTSENT = _IOR(KBUS_IOC_MAGIC,  7, ctypes.sizeof(ctypes.c_char_p))
 
     def __init__(self,which=0,mode='r'):
@@ -569,7 +569,7 @@ class Interface(object):
         If 'guaranteed', then we require that *all* messages to us be delivered,
         otherwise kbus may drop messages if necessary.
         """
-        arg = KbufBindStruct(replier,guaranteed,len(name),name)
+        arg = KbusBindStruct(replier,guaranteed,len(name),name)
         return fcntl.ioctl(self.fd, Interface.KBUS_IOC_BIND, arg);
 
     def unbind(self,name,replier=False,guaranteed=False):
@@ -577,7 +577,7 @@ class Interface(object):
 
         The arguments need to match the binding that we want to unbind.
         """
-        arg = KbufBindStruct(replier,guaranteed,len(name),name)
+        arg = KbusBindStruct(replier,guaranteed,len(name),name)
         return fcntl.ioctl(self.fd, Interface.KBUS_IOC_UNBIND, arg);
 
     def bound_as(self):
@@ -592,7 +592,9 @@ class Interface(object):
     def next_len(self):
         """Return the length of the next message (if any) on this file descriptor
         """
-        return fcntl.ioctl(self.fd, Interface.KBUS_IOC_NEXTLEN, 0)
+        id = array.array('L',[0])
+        fcntl.ioctl(self.fd, Interface.KBUS_IOC_NEXTMSG, id, True)
+        return id[0]
 
     def last_msg_id(self):
         """Return the id of the last message written on this file descriptor.
@@ -608,7 +610,7 @@ class Interface(object):
 
         Returns None if there was no replier, otherwise the replier's id.
         """
-        arg = KbufListenerStruct(0,len(name),name)
+        arg = KbusListenerStruct(0,len(name),name)
         retval = fcntl.ioctl(self.fd, Interface.KBUS_IOC_REPLIER, arg);
         if retval:
             return arg.return_id

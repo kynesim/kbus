@@ -1517,7 +1517,7 @@ done:
 #define KBUS_IOC_UNBIND	  _IOW(KBUS_IOC_MAGIC, 3, char *)
 #define KBUS_IOC_BOUNDAS  _IOR(KBUS_IOC_MAGIC, 4, char *)
 #define KBUS_IOC_REPLIER  _IOWR(KBUS_IOC_MAGIC,5, char *)
-#define KBUS_IOC_NEXTLEN  _IO(KBUS_IOC_MAGIC,  6)
+#define KBUS_IOC_NEXTMSG  _IOR(KBUS_IOC_MAGIC, 6, char *)
 #define KBUS_IOC_LASTSENT _IOR(KBUS_IOC_MAGIC, 7, char *)
 /* XXX If adding another IOCTL, remember to increment the next number! XXX */
 #define KBUS_IOC_MAXNR	7
@@ -1688,12 +1688,22 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 		}
 		break;
 
-	case KBUS_IOC_NEXTLEN:
+	case KBUS_IOC_NEXTMSG:
 		/*
 		 * What is the length of the next message queued for this
 		 * file descriptor (0 if no next message)
 		 */
-		retval = kbus_next_message_len(priv);
+		if (arg == 0) {
+			printk(KERN_ERR "kbus: boundas ioctl argument is 0\n");
+			retval = -EINVAL;
+		} else {
+			uint32_t *msg_len = (uint32_t *)arg;
+			retval = kbus_next_message_len(priv);
+			if (retval > 0)
+				*msg_len = retval;
+			else
+				*msg_len = 0;
+		}
 		break;
 
 	case KBUS_IOC_LASTSENT:
