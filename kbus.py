@@ -93,16 +93,7 @@ def _IOR(t,nr,size):
 def _IOWR(t,nr,size):
     return _IOC(_IOC_READ | _IOC_WRITE, t, nr, size)
 
-KBUS_IOC_MAGIC = 'k'
-KBUS_IOC_RESET	  = _IO(KBUS_IOC_MAGIC,   1)
-KBUS_IOC_BIND	  = _IOW(KBUS_IOC_MAGIC,  2, ctypes.sizeof(ctypes.c_char_p))
-KBUS_IOC_UNBIND	  = _IOW(KBUS_IOC_MAGIC,  3, ctypes.sizeof(ctypes.c_char_p))
-KBUS_IOC_BOUNDAS  = _IOR(KBUS_IOC_MAGIC,  4, ctypes.sizeof(ctypes.c_char_p))
-KBUS_IOC_REPLIER  = _IOWR(KBUS_IOC_MAGIC, 5, ctypes.sizeof(ctypes.c_char_p))
-KBUS_IOC_NEXTLEN  = _IO(KBUS_IOC_MAGIC,   6)
-KBUS_IOC_LASTSENT = _IOR(KBUS_IOC_MAGIC,  7, ctypes.sizeof(ctypes.c_char_p))
-
-def BIT(nr):
+def _BIT(nr):
     return 1L << nr
 
 NUM_DEVICES = 3
@@ -237,8 +228,8 @@ class Message(object):
     START_GUARD = 0x7375626B
     END_GUARD   = 0x6B627573
 
-    WANT_A_REPLY        = BIT(0)
-    WANT_YOU_TO_REPLY   = BIT(1)
+    WANT_A_REPLY        = _BIT(0)
+    WANT_YOU_TO_REPLY   = _BIT(1)
 
     # Header offsets (in case I change them again)
     IDX_START_GUARD     = 0
@@ -586,6 +577,15 @@ class Interface(object):
     original "File", which I think was actively misleading.
     """
 
+    KBUS_IOC_MAGIC = 'k'
+    KBUS_IOC_RESET    = _IO(KBUS_IOC_MAGIC,   1)
+    KBUS_IOC_BIND     = _IOW(KBUS_IOC_MAGIC,  2, ctypes.sizeof(ctypes.c_char_p))
+    KBUS_IOC_UNBIND   = _IOW(KBUS_IOC_MAGIC,  3, ctypes.sizeof(ctypes.c_char_p))
+    KBUS_IOC_BOUNDAS  = _IOR(KBUS_IOC_MAGIC,  4, ctypes.sizeof(ctypes.c_char_p))
+    KBUS_IOC_REPLIER  = _IOWR(KBUS_IOC_MAGIC, 5, ctypes.sizeof(ctypes.c_char_p))
+    KBUS_IOC_NEXTLEN  = _IO(KBUS_IOC_MAGIC,   6)
+    KBUS_IOC_LASTSENT = _IOR(KBUS_IOC_MAGIC,  7, ctypes.sizeof(ctypes.c_char_p))
+
     def __init__(self,which=0,mode='r'):
         if mode not in ('r','rw'):
             raise ValueError("Interface mode should be 'r' or 'rw', not '%s'"%mode)
@@ -622,7 +622,7 @@ class Interface(object):
         otherwise kbus may drop messages if necessary.
         """
         arg = KbufBindStruct(replier,guaranteed,len(name),name)
-        return fcntl.ioctl(self.fd, KBUS_IOC_BIND, arg);
+        return fcntl.ioctl(self.fd, Interface.KBUS_IOC_BIND, arg);
 
     def unbind(self,name,replier=False,guaranteed=False):
         """Unbind the given name from the file descriptor.
@@ -630,7 +630,7 @@ class Interface(object):
         The arguments need to match the binding that we want to unbind.
         """
         arg = KbufBindStruct(replier,guaranteed,len(name),name)
-        return fcntl.ioctl(self.fd, KBUS_IOC_UNBIND, arg);
+        return fcntl.ioctl(self.fd, Interface.KBUS_IOC_UNBIND, arg);
 
     def bound_as(self):
         """Return the 'bind number' for this file descriptor.
@@ -638,13 +638,13 @@ class Interface(object):
         # Instead of using a ctypes.Structure, we can retrieve homogenious
         # arrays of data using, well, arrays. This one is a bit minimalist.
         id = array.array('L',[0])
-        fcntl.ioctl(self.fd, KBUS_IOC_BOUNDAS, id, True)
+        fcntl.ioctl(self.fd, Interface.KBUS_IOC_BOUNDAS, id, True)
         return id[0]
 
     def next_len(self):
         """Return the length of the next message (if any) on this file descriptor
         """
-        return fcntl.ioctl(self.fd, KBUS_IOC_NEXTLEN, 0)
+        return fcntl.ioctl(self.fd, Interface.KBUS_IOC_NEXTLEN, 0)
 
     def last_msg_id(self):
         """Return the id of the last message written on this file descriptor.
@@ -652,7 +652,7 @@ class Interface(object):
         Returns 0 before any messages have been sent.
         """
         id = array.array('L',[0])
-        fcntl.ioctl(self.fd, KBUS_IOC_LASTSENT, id, True)
+        fcntl.ioctl(self.fd, Interface.KBUS_IOC_LASTSENT, id, True)
         return id[0]
 
     def find_listener(self,name):
@@ -661,7 +661,7 @@ class Interface(object):
         Returns None if there was no replier, otherwise the replier's id.
         """
         arg = KbufListenerStruct(0,len(name),name)
-        retval = fcntl.ioctl(self.fd, KBUS_IOC_REPLIER, arg);
+        retval = fcntl.ioctl(self.fd, Interface.KBUS_IOC_REPLIER, arg);
         if retval:
             return arg.return_id
         else:
@@ -1069,12 +1069,12 @@ class TestKernelModule:
         try:
             # - BIND
             # Low level check: The "Bind" ioctl requires a proper argument
-            check_IOError(errno.EINVAL, fcntl.ioctl, f.fd, KBUS_IOC_BIND, 0)
+            check_IOError(errno.EINVAL, fcntl.ioctl, f.fd, Interface.KBUS_IOC_BIND, 0)
             # Said string must not be zero length
             check_IOError(errno.EBADMSG, f.bind, '', True)
             f.bind('$.Fred')
             # - UNBIND
-            check_IOError(errno.EINVAL, fcntl.ioctl, f.fd, KBUS_IOC_UNBIND, 0)
+            check_IOError(errno.EINVAL, fcntl.ioctl, f.fd, Interface.KBUS_IOC_UNBIND, 0)
             check_IOError(errno.EBADMSG, f.unbind, '', True)
             f.unbind('$.Fred')
         finally:
