@@ -532,7 +532,10 @@ class Interface(object):
     KBUS_IOC_BOUNDAS  = _IOR(KBUS_IOC_MAGIC,  4, ctypes.sizeof(ctypes.c_char_p))
     KBUS_IOC_REPLIER  = _IOWR(KBUS_IOC_MAGIC, 5, ctypes.sizeof(ctypes.c_char_p))
     KBUS_IOC_NEXTMSG  = _IOR(KBUS_IOC_MAGIC,  6, ctypes.sizeof(ctypes.c_char_p))
-    KBUS_IOC_LASTSENT = _IOR(KBUS_IOC_MAGIC,  7, ctypes.sizeof(ctypes.c_char_p))
+    KBUS_IOC_LENLEFT  = _IO(KBUS_IOC_MAGIC,   7)
+    KBUS_IOC_SEND     = _IO(KBUS_IOC_MAGIC,   8)
+    KBUS_IOC_DISCARD  = _IO(KBUS_IOC_MAGIC,   9)
+    KBUS_IOC_LASTSENT = _IOR(KBUS_IOC_MAGIC, 10, ctypes.sizeof(ctypes.c_char_p))
 
     def __init__(self,which=0,mode='r'):
         if mode not in ('r','rw'):
@@ -589,12 +592,40 @@ class Interface(object):
         fcntl.ioctl(self.fd, Interface.KBUS_IOC_BOUNDAS, id, True)
         return id[0]
 
-    def next_len(self):
-        """Return the length of the next message (if any) on this file descriptor
+    def next_msg(self):
+        """Say we want to start reading the next message.
+
+        Returns the length of said message, or 0 if there is no next message.
         """
         id = array.array('L',[0])
         fcntl.ioctl(self.fd, Interface.KBUS_IOC_NEXTMSG, id, True)
         return id[0]
+
+    def len_left(self):
+        """Return how many bytes of the current message are still to be read.
+
+        Returns 0 if there is no current message (i.e., 'next_msg()' has not
+        been called), or if there are no bytes left.
+        """
+        return fcntl.ioctl(self.fd, Interface.KBUS_IOC_LENLEFT, 0);
+
+    def send(self):
+        """Send the last written message.
+
+        Indicates that we have finished writing a message, and it should
+        be sent.
+        """
+        return fcntl.ioctl(self.fd, Interface.KBUS_IOC_SEND, 0);
+
+    def discard(self):
+        """Discard the message being written.
+
+        Indicates that we have should throw away the message we've been
+        writing. Has no effect if there is no current message being
+        written (for instance, because 'send' has already been called).
+        be sent.
+        """
+        return fcntl.ioctl(self.fd, Interface.KBUS_IOC_DISCARD, 0);
 
     def last_msg_id(self):
         """Return the id of the last message written on this file descriptor.
@@ -631,7 +662,7 @@ class Interface(object):
 
         Returns None if there was nothing to be read.
         """
-        data = self.fd.read(self.next_len())
+        data = self.fd.read(self.next_msg())
         if data:
             return Message(data)
         else:

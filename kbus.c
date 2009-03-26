@@ -1512,15 +1512,18 @@ done:
 
 #include <linux/ioctl.h>
 #define KBUS_IOC_MAGIC	'k'	/* 0x6b - which seems fair enough for now */
-#define KBUS_IOC_RESET	  _IO(KBUS_IOC_MAGIC,  1)
-#define KBUS_IOC_BIND	  _IOW(KBUS_IOC_MAGIC, 2, char *)
-#define KBUS_IOC_UNBIND	  _IOW(KBUS_IOC_MAGIC, 3, char *)
-#define KBUS_IOC_BOUNDAS  _IOR(KBUS_IOC_MAGIC, 4, char *)
-#define KBUS_IOC_REPLIER  _IOWR(KBUS_IOC_MAGIC,5, char *)
-#define KBUS_IOC_NEXTMSG  _IOR(KBUS_IOC_MAGIC, 6, char *)
-#define KBUS_IOC_LASTSENT _IOR(KBUS_IOC_MAGIC, 7, char *)
+#define KBUS_IOC_RESET	  _IO(  KBUS_IOC_MAGIC,  1)
+#define KBUS_IOC_BIND	  _IOW( KBUS_IOC_MAGIC,  2, char *)
+#define KBUS_IOC_UNBIND	  _IOW( KBUS_IOC_MAGIC,  3, char *)
+#define KBUS_IOC_BOUNDAS  _IOR( KBUS_IOC_MAGIC,  4, char *)
+#define KBUS_IOC_REPLIER  _IOWR(KBUS_IOC_MAGIC,  5, char *)
+#define KBUS_IOC_NEXTMSG  _IOR( KBUS_IOC_MAGIC,  6, char *)
+#define KBUS_IOC_LENLEFT  _IO(  KBUS_IOC_MAGIC,  7)
+#define KBUS_IOC_SEND	  _IO(  KBUS_IOC_MAGIC,  8)
+#define KBUS_IOC_DISCARD  _IO(  KBUS_IOC_MAGIC,  9)
+#define KBUS_IOC_LASTSENT _IOR( KBUS_IOC_MAGIC, 10, char *)
 /* XXX If adding another IOCTL, remember to increment the next number! XXX */
-#define KBUS_IOC_MAXNR	7
+#define KBUS_IOC_MAXNR	10
 
 static int kbus_ioctl(struct inode *inode, struct file *filp,
 		      unsigned int cmd, unsigned long arg)
@@ -1692,18 +1695,46 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 		/*
 		 * What is the length of the next message queued for this
 		 * file descriptor (0 if no next message)
+		 *
+		 * XXX TO BECOME:
+		 * Get the next message ready to be read, and return its
+		 * length.
+		 *
+		 * arg in:  none
+		 * arg out: number of bytes in next message
+		 * retval:  0 if no next message, 1 if there is a next message,
+		 *          negative value if there's an error.
 		 */
 		if (arg == 0) {
-			printk(KERN_ERR "kbus: boundas ioctl argument is 0\n");
+			printk(KERN_ERR "kbus: nextmsg ioctl argument is 0\n");
 			retval = -EINVAL;
 		} else {
 			uint32_t *msg_len = (uint32_t *)arg;
 			retval = kbus_next_message_len(priv);
-			if (retval > 0)
+			if (retval > 0) {
 				*msg_len = retval;
-			else
+				retval = 1;
+			} else {
 				*msg_len = 0;
+			}
 		}
+		break;
+
+	case KBUS_IOC_LENLEFT:
+		/* How many bytes are left to read in the current message? */
+		printk(KERN_DEBUG "kbus: LENLEFT\n");
+		// XXX The following is, of course, wrong.
+		retval = kbus_next_message_len(priv);
+		break;
+
+	case KBUS_IOC_SEND:
+		/* Send the curent message, we've finished writing it. */
+		printk(KERN_DEBUG "kbus: SEND\n");
+		break;
+
+	case KBUS_IOC_DISCARD:
+		/* Throw away the message we're currently writing. */
+		printk(KERN_DEBUG "kbus: DISCARD\n");
 		break;
 
 	case KBUS_IOC_LASTSENT:

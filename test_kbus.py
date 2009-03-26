@@ -590,38 +590,38 @@ class TestKernelModule:
                 assert f1.last_msg_id() == n+1
 
                 # Reading f1 - message N
-                assert f1.next_len() == msgF.length*4
+                assert f1.next_msg() == msgF.length*4
                 # By the way - it's still the next length until we read
-                assert f1.next_len() == msgF.length*4
+                assert f1.next_msg() == msgF.length*4
                 data = f1.read()
                 # Extract the message id -- this is N
                 n0 = data.extract()[0]
                 assert n == n0
 
                 # Reading f2 - should be message N+1
-                assert f2.next_len() == msgJ.length*4
+                assert f2.next_msg() == msgJ.length*4
                 data = f2.read()
                 n3 = data.extract()[0]
                 assert n3 == n0+1
 
                 # Reading f1 - should be message N again
-                assert f1.next_len() == msgF.length*4
+                assert f1.next_msg() == msgF.length*4
                 data = f1.read()
                 n1 = data.extract()[0]
                 assert n1 == n0
 
                 # Reading f1 - should be message N again
-                assert f1.next_len() == msgF.length*4
+                assert f1.next_msg() == msgF.length*4
                 data = f1.read()
                 n2 = data.extract()[0]
                 assert n2 == n0
 
                 # No more messages on f1
-                assert f1.next_len() == 0
+                assert f1.next_msg() == 0
                 assert f1.read() == None
 
                 # No more messages on f2
-                assert f2.next_len() == 0
+                assert f2.next_msg() == 0
                 assert f2.read() == None
             finally:
                 assert f2.close() is None
@@ -738,7 +738,7 @@ class TestKernelModule:
                     # to check)
                     m = Message('$.Fred.Message')
                     f0.write(m)
-                    assert replier.next_len() == 0
+                    assert replier.next_msg() == 0
 
                     # But it does receive Requests (and it should reply)
                     m = Request('$.Fred.Message')
@@ -817,7 +817,7 @@ class TestKernelModule:
             assert r.should_reply()
 
             # But we should only receive it once, on the more specific binding
-            assert f.next_len() == 0
+            assert f.next_msg() == 0
 
     def test_message_equality(self):
         """Messages are not equal to non-messages, and so on.
@@ -1011,7 +1011,7 @@ class TestKernelModule:
             assert m4.equivalent(reply)
 
             # And there shouldn't be anything else to read
-            assert f.next_len() == 0
+            assert f.next_msg() == 0
 
     def test_reply_three_files(self):
         """Test replying with two files in dialogue, and another listening
@@ -1042,7 +1042,7 @@ class TestKernelModule:
                     assert not rep.should_reply()       # just to check!
 
                     # But should not receive
-                    assert replier.next_len() == 0
+                    assert replier.next_msg() == 0
 
                     # The listener should get all of those messages
                     # (the originals and the reply)
@@ -1058,9 +1058,9 @@ class TestKernelModule:
                     assert not c.should_reply()
 
                     # No-one should have any more messages
-                    assert listener.next_len() == 0
-                    assert writer.next_len()   == 0
-                    assert replier.next_len()  == 0
+                    assert listener.next_msg() == 0
+                    assert writer.next_msg()   == 0
+                    assert replier.next_msg()  == 0
 
     def test_wildcard_generic_vs_specific_bind_1(self):
         """Test generic versus specific wildcard binding - fit the first
@@ -1079,7 +1079,7 @@ class TestKernelModule:
                 assert r.should_reply()
                 assert r.equivalent(mJim)
 
-                assert f1.next_len() == 0
+                assert f1.next_msg() == 0
 
                 # Hmm - apart from existential worries, nothing happens if we
                 # don't *actually* reply..
@@ -1100,12 +1100,12 @@ class TestKernelModule:
                     rJim = f2.read()
                     assert rJim.should_reply()
                     assert rJim.equivalent(mJim)
-                    assert f2.next_len() == 0
+                    assert f2.next_msg() == 0
 
                     rBob = f1.read()
                     assert rBob.should_reply()
                     assert rBob.equivalent(mBob)
-                    assert f1.next_len() == 0
+                    assert f1.next_msg() == 0
 
     def test_wildcard_generic_vs_specific_bind_2(self):
         """Test generic versus specific wildcard binding - fit the second
@@ -1124,7 +1124,7 @@ class TestKernelModule:
                 assert r.should_reply()
                 assert r.equivalent(mJim)
 
-                assert f1.next_len() == 0
+                assert f1.next_msg() == 0
 
                 # Hmm - apart from existential worries, nothing happens if we
                 # don't *actually* reply..
@@ -1145,12 +1145,12 @@ class TestKernelModule:
                     rJim = f2.read()
                     assert rJim.should_reply()
                     assert rJim.equivalent(mJim)
-                    assert f2.next_len() == 0
+                    assert f2.next_msg() == 0
 
                     rJimBob = f1.read()
                     assert rJimBob.should_reply()
                     assert rJimBob.equivalent(mJimBob)
-                    assert f1.next_len() == 0
+                    assert f1.next_msg() == 0
 
                     with RecordingInterface(0,'r',self.bindings) as f3:
                         # f3 knows it wants specific replier status on '$.Fred.Jim'
@@ -1169,17 +1169,17 @@ class TestKernelModule:
                         rJim = f3.read()
                         assert rJim.should_reply()
                         assert rJim.equivalent(mJim)
-                        assert f3.next_len() == 0
+                        assert f3.next_msg() == 0
 
                         rJames = f2.read()
                         assert rJames.should_reply()
                         assert rJames.equivalent(mJames)
-                        assert f2.next_len() == 0
+                        assert f2.next_msg() == 0
 
                         rJimBob = f1.read()
                         assert rJimBob.should_reply()
                         assert rJimBob.equivalent(mJimBob)
-                        assert f1.next_len() == 0
+                        assert f1.next_msg() == 0
 
 #    def test_partial_read(self):
 #        """Test partial read support.
