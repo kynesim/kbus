@@ -54,7 +54,7 @@ import errno
 import nose
 
 from kbus import Interface, Message, Request, Reply
-from kbus import read_bindings
+from kbus import read_bindings, KbusBindStruct
 
 NUM_DEVICES = 3
 
@@ -1184,38 +1184,75 @@ class TestKernelModule:
                         assert rJimBob.equivalent(mJimBob)
                         assert f1.next_msg() == 0
 
-#    def test_partial_read(self):
-#        """Test partial read support.
-#        """
-#        fd = open('/dev/kbus0','r+b',1)
-#        assert fd != None
-#
-#        try:
-#
-#            from kbus import KbusBindStruct
-#
-#            name = '$.Fred'
-#            arg = KbusBindStruct(0,0,len(name),name)
-#            fcntl.ioctl(fd, Interface.KBUS_IOC_BIND, arg)
-#
-#            m = Message(name,'data')
-#            m.array.tofile(fd)
-#
-#            # We wish to be able to read it back in pieces
-#            l = fcntl.ioctl(fd, Interface.KBUS_IOC_NEXTMSG, 0)
-#            # Let's go for the worst possible case - byte by byte
-#            data = ''
-#            for ii in range(l):
-#                c = fd.read(1)
-#                assert c != ''
-#                assert len(c) == 1
-#                data += c
-#
-#            r = Message(data)
-#            assert r.equivalent(m)
-#
-#        finally:
-#            fd.close()
+    def test_reads(self):
+        """Test partial reads, next_msg, etc.
+        """
+        with RecordingInterface(0,'rw',self.bindings) as f0:
+            # We'll use this interface to do all the writing of requests,
+            # just to keep life simple.
 
+            with RecordingInterface(0,'r',self.bindings) as f1:
+                f1.bind('$.Fred')
+
+                # At this point, nothing to read
+                assert f1.next_msg() == 0
+
+                # Stack up some useful writes
+                m1 = Message('$.Fred','dat1')
+                m2 = Message('$.Fred','dat2')
+                m3 = Message('$.Fred','dat3')
+                m4 = Message('$.Fred','dat4')
+                m5 = Message('$.Fred','dat5')
+                m6 = Message('$.Fred','dat6')
+
+                f0.write(m1)
+                f0.write(m2)
+                f0.write(m3)
+                f0.write(m4)
+                f0.write(m5)
+                f0.write(m6)
+
+                # Low level reading, using explicit next_msg() and byte reading
+                length = f1.next_msg()
+                assert length == len(m1.array) * 4
+                data = f1.read(length)
+                assert len(data) == length
+                msg = Message(data)
+                assert msg.equivalent(m1)
+
+                # Low level reading, using explicit next_msg() and byte reading
+                # one byte at a time...
+                # (Of course, this doesn't necessarily test anything at the low
+                # level, as the file system will be doing larger reads under us
+                # and buffering stuff)
+                length = f1.next_msg()
+                assert length == len(m2.array) * 4
+                data = ''
+                for ii in range(length):
+                    data += f1.read(1)
+                assert len(data) == length
+                msg = Message(data)
+                assert msg.equivalent(m2)
+
+                # Reading in parts
+                length = f1.next_msg()
+                left = f1.len_left()
+                assert left == length
+                m = f1.read_msg(length)
+                assert m.equivalent(m3)
+                left = f1.len_left()
+                assert left == 0
+
+                # Reading in one go
+                m = f1.read_next_msg()
+                assert m.equivalent(m4)
+
+                # Skipping a message
+                length = f1.next_msg()
+                m = f1.read_next_msg()
+                assert m.equivalent(m6) # *not* m5
+
+                # Nothing more to read
+                assert f1.next_msg() == 0
 
 # vim: set tabstop=8 shiftwidth=4 expandtab:

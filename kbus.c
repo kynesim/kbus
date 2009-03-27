@@ -1412,6 +1412,7 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 		goto done;
 	}
 
+#if 0
 	/*
 	 * XXX We are insisting a whole message is written in one go.
 	 *
@@ -1424,6 +1425,7 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 		retval = -EINVAL;
 		goto done;
 	}
+#endif
 
 	/*
 	 * Figure out who should receive this message, and write it to them
@@ -1438,8 +1440,6 @@ done:
 		return retval;
 }
 
-#if 1
-// Our new revised ask-for-next-message-first read
 static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 			 loff_t *f_pos)
 {
@@ -1491,68 +1491,6 @@ done:
 	up(&dev->sem);
 	return retval;
 }
-#else
-// Our original read
-static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
-			 loff_t *f_pos)
-{
-	struct kbus_private_data	*priv = filp->private_data;
-	struct kbus_dev			*dev = priv->dev;
-	struct kbus_message_struct	*msg = NULL;
-	ssize_t				 retval = 0;
-	uint32_t			 msg_len;
-
-	printk(KERN_DEBUG "kbus/read: READ count %d, pos %d\n",count,(int)*f_pos);
-
-	if (!buf) {
-		printk(KERN_ERR "kbus: kbus_read with NULL buf\n");
-		return -EINVAL;
-	}
-
-	if (!dev) {
-		printk(KERN_ERR "kbus: kbus_read with NULL dev\n");
-		return -EINVAL;
-	}
-
-	if (down_interruptible(&dev->sem))
-		return -ERESTARTSYS;
-
-	msg = kbus_pop_message(priv);
-	if (msg == NULL) {
-		printk(KERN_DEBUG "kbus/read: returning 0\n");
-		retval = 0;
-		goto done;
-	}
-
-	msg_len = KBUS_MSG_LEN(msg->name_len,msg->data_len);
-
-	/*
-	 * XXX BIG CAVEAT XXX
-	 * The following is WRONG - we are not supporting partial reads...
-	 * And we will have lost the message (which is REALLY naughty)
-	 */
-
-	if (count <  msg_len) {
-		printk(KERN_DEBUG "kbus/read: read count is %u,"
-		       " message is %u from n:%u, d:%u\n",
-		       count,msg_len,msg->name_len,msg->data_len);
-		retval = -EINVAL;
-		goto done;
-	}
-
-	if (copy_to_user(buf, msg, msg_len)) {
-		printk(KERN_ERR "kbus/read: error reading from dev %p\n",dev);
-		retval = -EFAULT;
-		goto done;
-	}
-	retval = msg_len;
-
-done:
-	if (msg) kfree(msg);
-	up(&dev->sem);
-	return retval;
-}
-#endif
 
 static int kbus_bind(struct kbus_private_data	*priv,
 		     struct kbus_dev		*dev,
@@ -1723,8 +1661,6 @@ done:
 	return retval;
 }
 
-#if 1
-// Our new revised "get me the next message" ioctl
 static int kbus_nextmsg(struct kbus_private_data	*priv,
 			struct kbus_dev			*dev,
 			unsigned long			 arg)
@@ -1764,25 +1700,6 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 	else
 		return 1;	/* We had a message */
 }
-#else
-// The original meaning of the NEXTMSG ioctl, for the moment
-static int kbus_nextmsg(struct kbus_private_data	*priv,
-			struct kbus_dev			*dev,
-			unsigned long			 arg)
-{
-	int	retval = 0;
-	int	len;
-
-	len = kbus_next_message_len(priv);
-	if (len < 0)
-	{
-		retval = len;
-	} else {
-		retval = __put_user(len, (uint32_t __user *)arg);
-	}
-	return retval;
-}
-#endif
 
 #include <linux/ioctl.h>
 #define KBUS_IOC_MAGIC	'k'	/* 0x6b - which seems fair enough for now */
