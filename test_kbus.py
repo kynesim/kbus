@@ -289,7 +289,7 @@ class TestKernelModule:
         """Check that we can read back an equivalent message to 'expected'
         """
         if expected:
-            new_message = f.read()
+            new_message = f.read_next_msg()
             assert new_message != None
             assert expected.equivalent(new_message)
         else:
@@ -298,7 +298,7 @@ class TestKernelModule:
             data = f.fd.read(1)
             assert data == ''
             # - secondly, in terms of Interface and Message
-            assert f.read() == None
+            assert f.read_msg(1) == None
 
     def test_readonly(self):
         """If we open the device readonly, we can't do much(!)
@@ -307,7 +307,8 @@ class TestKernelModule:
         assert f != None
         try:
             # Nothing to read
-            assert f.read() == None
+            assert f.next_msg() == 0
+            assert f.read(1) == ''
 
             # We can't write to it
             msg2 = Message('$.Fred','data')
@@ -542,17 +543,17 @@ class TestKernelModule:
             msg2 = Message(name2,data=data2)
             check_IOError(errno.EADDRNOTAVAIL, f.write, msg2)
 
-            msg1r = f.read()
+            msg1r = f.read_next_msg()
             print 'Read: ',msg1r
 
             # The message read should essentially match
             assert msg1.equivalent(msg1r)
 
-            msg2r = f.read()
+            msg2r = f.read_next_msg()
             assert msg2r == None
 
             # There shouldn't be anything else to read
-            assert f.read() == None
+            assert f.read_next_msg() == None
 
         finally:
             assert f.close() is None
@@ -572,11 +573,6 @@ class TestKernelModule:
 
                 f2.bind('$.Jim',False)
 
-                # Writing to $.Fred on f1 - writes message id N
-                msgF = Message('$.Fred','data')
-                f1.write(msgF)
-                n = f1.last_msg_id()
-
                 # No one is listening for $.William
                 msgW = Message('$.William')
                 check_IOError(errno.EADDRNOTAVAIL, f1.write, msgW)
@@ -584,45 +580,52 @@ class TestKernelModule:
                 # (and attempting to write it doesn't increment KBUS's
                 # counting of the message id)
 
+                # Writing to $.Fred on f1 - writes message id N
+                msgF = Message('$.Fred','data')
+                f1.write(msgF)
+                n = f1.last_msg_id()
+
                 # Writing to $.Jim on f1 - writes message N+1
                 msgJ = Message('$.Jim','moredata')
                 f1.write(msgJ)
                 assert f1.last_msg_id() == n+1
 
                 # Reading f1 - message N
-                assert f1.next_msg() == msgF.length*4
-                # By the way - it's still the next length until we read
-                assert f1.next_msg() == msgF.length*4
-                data = f1.read()
+                length = f1.next_msg()
+                assert length == msgF.length*4
+                data = f1.read_msg(length)
                 # Extract the message id -- this is N
                 n0 = data.extract()[0]
                 assert n == n0
 
                 # Reading f2 - should be message N+1
-                assert f2.next_msg() == msgJ.length*4
-                data = f2.read()
+                length = f2.next_msg()
+                assert length == msgJ.length*4
+                data = f2.read_msg(length)
                 n3 = data.extract()[0]
                 assert n3 == n0+1
 
                 # Reading f1 - should be message N again
-                assert f1.next_msg() == msgF.length*4
-                data = f1.read()
+                length = f1.next_msg()
+                assert length == msgF.length*4
+                data = f1.read_msg(length)
                 n1 = data.extract()[0]
                 assert n1 == n0
 
                 # Reading f1 - should be message N again
-                assert f1.next_msg() == msgF.length*4
-                data = f1.read()
+                length = f1.next_msg()
+                assert length == msgF.length*4
+                data = f1.read_msg(length)
                 n2 = data.extract()[0]
                 assert n2 == n0
 
                 # No more messages on f1
                 assert f1.next_msg() == 0
-                assert f1.read() == None
+                assert f1.read(1) == ''
 
                 # No more messages on f2
                 assert f2.next_msg() == 0
-                assert f2.read() == None
+                assert f2.read(1) == ''
             finally:
                 assert f2.close() is None
         finally:
@@ -719,14 +722,14 @@ class TestKernelModule:
                 # A listener receives Messages
                 m = Message('$.Fred.Message')
                 f0.write(m)
-                r = listener.read()
+                r = listener.read_next_msg()
                 assert r.equivalent(m)
                 assert not r.should_reply()
 
                 # And it receives Requests (although it need not reply)
                 m = Request('$.Fred.Message')
                 f0.write(m)
-                r = listener.read()
+                r = listener.read_next_msg()
                 assert r.equivalent(m)
                 assert not r.should_reply()
 
@@ -743,7 +746,7 @@ class TestKernelModule:
                     # But it does receive Requests (and it should reply)
                     m = Request('$.Fred.Message')
                     f0.write(m)
-                    r = replier.read()
+                    r = replier.read_next_msg()
                     assert r.equivalent(m)
                     assert r.should_reply()
 
@@ -758,13 +761,13 @@ class TestKernelModule:
             # We should receive the message, it matches the wildcard
             m = Message('$.Fred.Jim')
             f.write(m)
-            r = f.read()
+            r = f.read_next_msg()
             assert r.equivalent(m)
 
             # And again
             m = Message('$.Fred.JimBob.William')
             f.write(m)
-            r = f.read()
+            r = f.read_next_msg()
             assert r.equivalent(m)
 
             # But this does not match the wildcard
@@ -777,9 +780,9 @@ class TestKernelModule:
             f.bind('$.Fred.Jim',False)
             m = Message('$.Fred.Jim')
             f.write(m)
-            r = f.read()
+            r = f.read_next_msg()
             assert r.equivalent(m)
-            r = f.read()
+            r = f.read_next_msg()
             assert r.equivalent(m)
 
     def test_wildcards_a_bit_more(self):
@@ -793,14 +796,14 @@ class TestKernelModule:
             # We should receive the message, it matches the wildcard
             m = Request('$.Fred.Jim')
             f.write(m)
-            r = f.read()
+            r = f.read_next_msg()
             assert r.equivalent(m)
             assert r.should_reply()
 
             # And again
             m = Request('$.Fred.JimBob.William')
             f.write(m)
-            r = f.read()
+            r = f.read_next_msg()
             assert r.equivalent(m)
             assert r.should_reply()
 
@@ -812,7 +815,7 @@ class TestKernelModule:
             f.bind('$.Fred.Jim',True)
             m = Request('$.Fred.Jim')
             f.write(m)
-            r = f.read()
+            r = f.read_next_msg()
             assert r.equivalent(m)
             assert r.should_reply()
 
@@ -899,11 +902,11 @@ class TestKernelModule:
                         for fd,wild,m in msgs:
                             if wild:
                                 # This is a message that f3 should see
-                                a = f3.read()
+                                a = f3.read_next_msg()
                                 assert a.equivalent(m)
 
                             # Who else should see this message?
-                            b = fd.read()
+                            b = fd.read_next_msg()
                             assert b.equivalent(m)
 
     def test_wildcard_listening_2(self):
@@ -946,11 +949,11 @@ class TestKernelModule:
                         for fd,wild,m in msgs:
                             if wild:
                                 # This is a message that f3 should see
-                                a = f3.read()
+                                a = f3.read_next_msg()
                                 assert a.equivalent(m)
 
                             # Who else should see this message?
-                            b = fd.read()
+                            b = fd.read_next_msg()
                             assert b.equivalent(m)
 
     def test_reply_single_file(self):
@@ -974,9 +977,9 @@ class TestKernelModule:
             f.write(msg2)
             f.write(msg3)
 
-            m1 = f.read()
-            m2 = f.read()
-            m3 = f.read()
+            m1 = f.read_next_msg()
+            m2 = f.read_next_msg()
+            m3 = f.read_next_msg()
 
             # For message 1, we only see it as a listener
             # (because it is not a Request) so there is no reply needed
@@ -1007,7 +1010,7 @@ class TestKernelModule:
 
             # We should receive that reply, even though we're not
             # a listener for the message (that's the *point* of replies)
-            m4 = f.read()
+            m4 = f.read_next_msg()
             assert m4.equivalent(reply)
 
             # And there shouldn't be anything else to read
@@ -1032,7 +1035,7 @@ class TestKernelModule:
 
                     # The replier should not see msg1
                     # But it should see msg2, which should ask *us* for a reply
-                    rec2 = replier.read()
+                    rec2 = replier.read_next_msg()
                     assert rec2.should_reply()
                     assert rec2.equivalent(msg2)
 
@@ -1047,13 +1050,13 @@ class TestKernelModule:
                     # The listener should get all of those messages
                     # (the originals and the reply)
                     # but should not be the replier for any of them
-                    a = listener.read()
+                    a = listener.read_next_msg()
                     assert a.equivalent(msg1)
                     assert not a.should_reply()
-                    b = listener.read()
+                    b = listener.read_next_msg()
                     assert b.equivalent(msg2)
                     assert not b.should_reply()
-                    c = listener.read()
+                    c = listener.read_next_msg()
                     assert c.equivalent(rep)
                     assert not c.should_reply()
 
@@ -1075,7 +1078,7 @@ class TestKernelModule:
 
                 mJim = Request('$.Fred.Jim')
                 f0.write(mJim)
-                r = f1.read()
+                r = f1.read_next_msg()
                 assert r.should_reply()
                 assert r.equivalent(mJim)
 
@@ -1097,12 +1100,12 @@ class TestKernelModule:
                     f0.write(mJim)      # should only go to f2
                     f0.write(mBob)      # should only go to f1
 
-                    rJim = f2.read()
+                    rJim = f2.read_next_msg()
                     assert rJim.should_reply()
                     assert rJim.equivalent(mJim)
                     assert f2.next_msg() == 0
 
-                    rBob = f1.read()
+                    rBob = f1.read_next_msg()
                     assert rBob.should_reply()
                     assert rBob.equivalent(mBob)
                     assert f1.next_msg() == 0
@@ -1120,7 +1123,7 @@ class TestKernelModule:
 
                 mJim = Request('$.Fred.Jim')
                 f0.write(mJim)
-                r = f1.read()
+                r = f1.read_next_msg()
                 assert r.should_reply()
                 assert r.equivalent(mJim)
 
@@ -1142,12 +1145,12 @@ class TestKernelModule:
                     f0.write(mJim)      # should only go to f2
                     f0.write(mJimBob)   # should only go to f1
 
-                    rJim = f2.read()
+                    rJim = f2.read_next_msg()
                     assert rJim.should_reply()
                     assert rJim.equivalent(mJim)
                     assert f2.next_msg() == 0
 
-                    rJimBob = f1.read()
+                    rJimBob = f1.read_next_msg()
                     assert rJimBob.should_reply()
                     assert rJimBob.equivalent(mJimBob)
                     assert f1.next_msg() == 0
@@ -1166,17 +1169,17 @@ class TestKernelModule:
                         f0.write(mJames)    # should only go to f2
                         f0.write(mJimBob)   # should only go to f1
 
-                        rJim = f3.read()
+                        rJim = f3.read_next_msg()
                         assert rJim.should_reply()
                         assert rJim.equivalent(mJim)
                         assert f3.next_msg() == 0
 
-                        rJames = f2.read()
+                        rJames = f2.read_next_msg()
                         assert rJames.should_reply()
                         assert rJames.equivalent(mJames)
                         assert f2.next_msg() == 0
 
-                        rJimBob = f1.read()
+                        rJimBob = f1.read_next_msg()
                         assert rJimBob.should_reply()
                         assert rJimBob.equivalent(mJimBob)
                         assert f1.next_msg() == 0

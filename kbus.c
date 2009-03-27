@@ -1138,6 +1138,10 @@ static int kbus_open(struct inode *inode, struct file *filp)
 	priv->last_msg_id = 0;	/* What else could it be... */
 	INIT_LIST_HEAD(&priv->message_queue);
 
+	priv->read_msg = NULL;
+	priv->read_msg_len = 0;
+	priv->read_msg_pos = 0;
+
 	(void) kbus_remember_open_file(dev,priv);
 
 	filp->private_data = priv;
@@ -1168,6 +1172,11 @@ static int kbus_release(struct inode *inode, struct file *filp)
 	 * XXX be replying to, kbus should really generate some sort
 	 * XXX of exception for each, indicating we have gone away...
 	 */
+
+	if (priv->read_msg) {
+		kfree(priv->read_msg);
+		priv->read_msg = NULL;
+	}
 
 	retval1 = kbus_empty_message_queue(priv);
 	kbus_forget_my_bindings(dev,priv->id);
@@ -1388,9 +1397,6 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 
 	printk(KERN_DEBUG "kbus/write: WRITE count %d, pos %d\n",count,(int)*f_pos);
 
-	if (!buf)
-		return -EINVAL;
-
 	if (down_interruptible(&dev->sem))
 		return -ERESTARTSYS;
 
@@ -1432,6 +1438,61 @@ done:
 		return retval;
 }
 
+#if 1
+// Our new revised ask-for-next-message-first read
+static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
+			 loff_t *f_pos)
+{
+	struct kbus_private_data	*priv = filp->private_data;
+	struct kbus_dev			*dev = priv->dev;
+	ssize_t				 retval = 0;
+	uint32_t			 len, left;
+
+	printk(KERN_DEBUG "kbus/read: READ count %d, pos %d\n",count,(int)*f_pos);
+
+	if (!dev) {
+		printk(KERN_ERR "kbus: kbus_read with NULL dev\n");
+		return -EINVAL;
+	}
+
+	if (down_interruptible(&dev->sem))
+		return -EAGAIN;			/* Just try again later */
+
+	if (priv->read_msg == NULL) {
+		/* Nothing more to read at the moment */
+		printk(KERN_DEBUG "kbus/read: Nothing to read\n");
+		retval = 0;
+		goto done;
+	}
+
+	left = priv->read_msg_len - priv->read_msg_pos;
+	len = min(left,count);
+
+	if (copy_to_user(buf, priv->read_msg + priv->read_msg_pos, len)) {
+		printk(KERN_ERR "kbus/read: error reading from dev %p\n",dev);
+		retval = -EFAULT;
+		goto done;
+	}
+	retval = len;
+
+	printk(KERN_DEBUG "kbus/read: Read %d bytes of %d left in %d, pos now %d\n",
+	       len,left,priv->read_msg_len,priv->read_msg_pos+len);
+
+	if (len == left) {
+		kfree(priv->read_msg);
+		priv->read_msg = NULL;
+		priv->read_msg_len = 0;
+		priv->read_msg_pos = 0;
+	} else {
+		priv->read_msg_pos += len;
+	}
+
+done:
+	up(&dev->sem);
+	return retval;
+}
+#else
+// Our original read
 static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 			 loff_t *f_pos)
 {
@@ -1491,6 +1552,7 @@ done:
 	up(&dev->sem);
 	return retval;
 }
+#endif
 
 static int kbus_bind(struct kbus_private_data	*priv,
 		     struct kbus_dev		*dev,
@@ -1535,7 +1597,7 @@ static int kbus_bind(struct kbus_private_data	*priv,
 		retval = -EBADMSG;
 		goto done;
 	}
-	printk(KERN_DEBUG "kbus: Bind request %c %d:'%s' on %u\n",
+	printk(KERN_DEBUG "kbus: BIND %c %d:'%s' on %u\n",
 	       (bind->replier?'R':'L'), bind->len, name, id);
 	retval = kbus_remember_binding(dev, id,
 				       bind->replier,
@@ -1594,7 +1656,7 @@ static int kbus_unbind(struct kbus_private_data	*priv,
 		retval = -EBADMSG;
 		goto done;
 	}
-	printk(KERN_DEBUG "kbus: Unbind request %c %d:'%s' on %u\n",
+	printk(KERN_DEBUG "kbus: UNBIND %c %d:'%s' on %u\n",
 	       (bind->replier?'R':'L'), bind->len, name, id);
 	retval = kbus_forget_binding(dev, id,
 				     bind->replier,
@@ -1640,7 +1702,7 @@ static int kbus_replier(struct kbus_private_data	*priv,
 	}
 	name[query->len] = 0;
 
-	printk(KERN_DEBUG "kbus: Bindas request %d:'%s' on %u\n",
+	printk(KERN_DEBUG "kbus: REPLIER for %d:'%s' via %u\n",
 	       query->len, name, id);
 	retval = kbus_find_replier(dev,
 				   &query->return_id,
@@ -1661,7 +1723,8 @@ done:
 	return retval;
 }
 
-#if 0
+#if 1
+// Our new revised "get me the next message" ioctl
 static int kbus_nextmsg(struct kbus_private_data	*priv,
 			struct kbus_dev			*dev,
 			unsigned long			 arg)
@@ -1671,6 +1734,7 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 
 	/* If we were partway through a message, lose it */
 	if (priv->read_msg) {
+		printk(KERN_DEBUG "kbus/NEXTMSG: Dropping partial message\n");
 		kfree(priv->read_msg);
 		priv->read_msg = NULL;
 		priv->read_msg_len = 0;
@@ -1680,6 +1744,7 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 	/* Have we got a next message? */
 	msg = kbus_pop_message(priv);
 	if (msg == NULL) {
+		printk(KERN_DEBUG "kbus/NEXTMSG: No next message\n");
 		/*
 		 * A return value of 0 means no message, and that's
 		 * what __put_user returns for success.
@@ -1689,6 +1754,9 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 	priv->read_msg = (char *)msg;
 	priv->read_msg_len = KBUS_MSG_LEN(msg->name_len,msg->data_len);
 	priv->read_msg_pos = 0;
+
+	printk(KERN_DEBUG "kbus/NEXTMSG: Next message length %u\n",
+	       priv->read_msg_len);
 
 	retval = __put_user(priv->read_msg_len, (uint32_t __user *)arg);
 	if (retval)
@@ -1740,8 +1808,6 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 	struct kbus_dev *dev = priv->dev;
 	uint32_t	 id  = priv->id;
 
-	printk(KERN_DEBUG "kbus: ioctl %08x arg %08lx\n", cmd, arg);
-
 	if (_IOC_TYPE(cmd) != KBUS_IOC_MAGIC) return -ENOTTY;
 	if (_IOC_NR(cmd) > KBUS_IOC_MAXNR) return -ENOTTY;
 	/*
@@ -1763,7 +1829,7 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 
 	case KBUS_IOC_RESET:
 		/* This is currently a no-op, but may be useful later */
-		printk(KERN_DEBUG "kbus: reset\n");
+		printk(KERN_DEBUG "kbus: RESET\n");
 		break;
 
 	case KBUS_IOC_BIND:
@@ -1771,6 +1837,7 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 		 * BIND: indicate that a file wants to receive messages of a
 		 * given name
 		 */
+		printk(KERN_DEBUG "kbus: BIND\n");
 		retval = kbus_bind(priv,dev,arg);
 		break;
 
@@ -1779,6 +1846,7 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 		 * UNBIND: indicate that a file no longer wants to receive
 		 * messages of a given name
 		 */
+		printk(KERN_DEBUG "kbus: UNBIND\n");
 		retval = kbus_unbind(priv,dev,arg);
 		break;
 
@@ -1787,7 +1855,7 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 		 * What is the "binding id" for this file descriptor
 		 * (this "listener")?
 		 */
-		printk(KERN_DEBUG "kbus: %p bound as %u\n",filp,id);
+		printk(KERN_DEBUG "kbus: %p BOUNDAS %u\n",filp,id);
 		retval = __put_user(id, (uint32_t __user *)arg);
 		break;
 
@@ -1801,6 +1869,7 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 		 * because it's an unsigned int, and the ioctl return must be
 		 * signed...
 		 */
+		printk(KERN_DEBUG "kbus: REPLIER\n");
 		retval = kbus_replier(priv, dev, arg);
 		break;
 
@@ -1818,6 +1887,7 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 		 * retval:  0 if no next message, 1 if there is a next message,
 		 *          negative value if there's an error.
 		 */
+		printk(KERN_DEBUG "kbus: NEXTMSG\n");
 		retval = kbus_nextmsg(priv, dev, arg);
 		break;
 
@@ -1846,7 +1916,8 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 		 * file descriptor? Before any messages have been written to this
 		 * file descriptor, this ioctl will return 0.
 		 */
-		printk(KERN_DEBUG "kbus: %p last message id %u\n",filp,priv->last_msg_id);
+		printk(KERN_DEBUG "kbus: LASTSENT for %u was %u\n",
+		       id,priv->last_msg_id);
 		retval = __put_user(priv->last_msg_id, (uint32_t __user *)arg);
 		break;
 

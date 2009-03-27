@@ -659,8 +659,30 @@ class Interface(object):
         # But we are responsible for flushing
         self.fd.flush()
 
-    def read(self):
+    def read_msg(self,length):
+        """Read a Message of length 'length' bytes.
+
+        It is assumed that 'length' was returned by a previous call
+        of 'next_msg'. It must be large enough to cause the entire
+        message to be read.
+
+        After the data has been read, it is passed to Message to
+        construct a message instance, which is returned.
+
+        Returns None if there was nothing to be read.
+        """
+        data = self.fd.read(length)
+        if data:
+            return Message(data)
+        else:
+            return None
+
+    def read_next_msg(self):
         """Read the next Message.
+
+        Equivalent to a call of 'next_msg', followed by reading the
+        appropriate number of bytes and passing that to Message to
+        construct a message instance, which is returned.
 
         Returns None if there was nothing to be read.
         """
@@ -669,6 +691,15 @@ class Interface(object):
             return Message(data)
         else:
             return None
+
+    def read(self,count):
+        """Read the next 'count' bytes, and return them.
+
+        Returns '' (the empty string) if there was nothing to be read,
+        which is consistent with now Python file reads normally behave
+        at end-of-file.
+        """
+        return self.fd.read(count)
 
     # It's modern times, so we really should implement "with"
     # (it's so convenient)
@@ -695,7 +726,7 @@ class Interface(object):
         return self
 
     def next(self):
-        msg = self.read()
+        msg = self.read_next_msg()
         if msg == None:
             raise StopIteration
         else:
