@@ -731,29 +731,27 @@ class TestKernelModule:
                 assert r.equivalent(m)
                 assert not r.should_reply()
 
-                # And it receives Requests (although it need not reply)
-                m = Request('$.Fred.Message')
-                f0.send_msg(m)
-                r = listener.read_next_msg()
-                assert r.equivalent(m)
-                assert not r.should_reply()
-
                 with RecordingInterface(0,'r',self.bindings) as replier:
                     replier.bind('$.Fred.Message',True)
+
+                    # And a listener receives Requests (although it need not reply)
+                    m = Request('$.Fred.Message')
+                    f0.send_msg(m)
+                    r = listener.read_next_msg()
+                    assert r.equivalent(m)
+                    assert not r.should_reply()
                     
+                    # The Replier receives the Request (and should reply)
+                    r = replier.read_next_msg()
+                    assert r.equivalent(m)
+                    assert r.should_reply()
+
                     # A replier does not receive Messages
                     # (presumably the listener still does, but we're not going
                     # to check)
                     m = Message('$.Fred.Message')
                     f0.send_msg(m)
                     assert replier.next_msg() == 0
-
-                    # But it does receive Requests (and it should reply)
-                    m = Request('$.Fred.Message')
-                    f0.send_msg(m)
-                    r = replier.read_next_msg()
-                    assert r.equivalent(m)
-                    assert r.should_reply()
 
     def test_wildcards_a_bit(self):
         """Some initial testing of wildcards. And use of 'with'
@@ -980,21 +978,22 @@ class TestKernelModule:
 
             f.send_msg(msg1)
             f.send_msg(msg2)
-            f.send_msg(msg3)
+
+            # We are not a Replier for m3, and there *isn't* a replier,
+            # so we can't send it
+            check_IOError(errno.EADDRNOTAVAIL, f.send_msg, msg3)
 
             m1 = f.read_next_msg()
             m2 = f.read_next_msg()
-            m3 = f.read_next_msg()
 
             # For message 1, we only see it as a listener
             # (because it is not a Request) so there is no reply needed
             assert not m1.should_reply()
+            assert m1.equivalent(msg1)
 
             # For message 2, a reply is wanted, and we are the replier
             assert m2.should_reply()
-
-            # For message 3, a reply is wanted, but we are just a listener
-            assert not m3.should_reply()
+            assert m2.equivalent(msg2)
 
             # So, we should reply to message 2 - let's do so
 
@@ -1017,6 +1016,7 @@ class TestKernelModule:
             # a listener for the message (that's the *point* of replies)
             m4 = f.read_next_msg()
             assert m4.equivalent(reply)
+            assert not m4.should_reply()
 
             # And there shouldn't be anything else to read
             assert f.next_msg() == 0
@@ -1321,5 +1321,56 @@ class TestKernelModule:
                 f0.discard()
                 check_IOError(errno.ENOMSG, f0.send)
                 assert f1.next_msg() == 0
+
+    def test_reply_to_specific_id(self):
+        """Test replying to a specific id.
+        """
+        with Interface(0,'rw') as f1:
+            with Interface(0,'rw') as f2:
+                with Interface(0,'rw') as f3:
+
+                    print 'f1 is',f1.bound_as()
+                    print 'f2 is',f2.bound_as()
+                    print 'f3 is',f3.bound_as()
+
+                    # f2 is listening for someone to say 'Hello'
+                    f2.bind('$.Hello')
+
+                    # f1 says 'Hello' to anyone listening
+                    m = Message('$.Hello','data')
+                    f1.send_msg(m)
+
+                    # We read the next message - it's a 'Hello'
+                    r = f2.read_next_msg()
+                    assert r.name == '$.Hello'
+                    print r
+
+                    # Two interfaces decide to listen to '$.Reponse'
+                    f1.bind('$.Response',True)
+                    f3.bind('$.Response')
+                    # However, f2 *cares* that f1 should receive its
+                    # response, and is not worried about anyone else
+                    # doing so
+                    target_id = r.from_
+                    print 'Hello from %d'%target_id
+                    m2 = Request('$.Response',data='fred',to=target_id)
+                    f2.send_msg(m2)
+
+                    # So, both recipients should "see" it
+                    r = f1.read_next_msg()
+                    assert r.equivalent(m2)
+                    r = f3.read_next_msg()
+                    assert r.equivalent(m2)
+
+                    # But if f1 should stop listening to the responses
+                    # (either because it "goes away", or because it unbinds)
+                    # then we want to know about this...
+                    f1.unbind('$.Response',True)
+                    check_IOError(errno.EADDRNOTAVAIL, f2.send_msg, m2)
+
+                    # And if someone different starts to reply, we want to
+                    # know about that as well
+                    f3.bind('$.Response',True)
+                    check_IOError(errno.EPIPE, f2.send_msg, m2)
 
 # vim: set tabstop=8 shiftwidth=4 expandtab:

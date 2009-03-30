@@ -495,7 +495,8 @@ class Reply(Message):
         # We don't need to set any flags.
         super(Reply,self).__init__(name, data=data,
                                    in_reply_to=id,
-                                   to=from_)
+                                   to=from_,
+                                   flags=0)
 
 class KbusBindStruct(ctypes.Structure):
     """The datastucture we need to describe a KBUS_IOC_BIND argument

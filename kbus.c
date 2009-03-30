@@ -1279,12 +1279,15 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 
 	/* Do we have anyone to send our message to? */
 
-	if ( (msg->flags & KBUS_BIT_WANT_A_REPLY) && replier == 0) {
-		printk(KERN_DEBUG "kbus/write: Message wants a reply, but no replier\n");
-		retval = -EADDRNOTAVAIL;
-		goto done_sending;
-	} else if (num_listeners == 0) {
-		printk(KERN_DEBUG "kbus/write: Message does not need a reply, but no listeners\n");
+	if (msg->flags & KBUS_BIT_WANT_A_REPLY) {
+	       if (replier == 0) {
+		       printk(KERN_DEBUG "kbus/write: Message wants a reply, but no replier\n");
+		       retval = -EADDRNOTAVAIL;
+		       goto done_sending;
+	       }
+	} else if (num_listeners == 0 && msg->in_reply_to == 0) {
+		printk(KERN_DEBUG "kbus/write: Message does not need a reply,"
+		       " but has no listeners\n");
 		retval = -EADDRNOTAVAIL;
 		goto done_sending;
 	}
@@ -1351,7 +1354,7 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 	}
 
 	/* Repliers only get the message if it is marked as wanting a reply. */
-	if (replier && KBUS_BIT_WANT_A_REPLY & msg->flags) {
+	if (replier && (KBUS_BIT_WANT_A_REPLY & msg->flags)) {
 		struct kbus_private_data *l_priv;
 		printk(KERN_DEBUG "kbus/write: Considering replier %u\n",
 		       replier);
