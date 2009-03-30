@@ -357,6 +357,8 @@ as values inside the IOError exception.
                 sent (either because there has been no write since the last
                 send, or because the message being written has been
                 discarded).
+:EPIPE:         On attempting to send 'to' a specific replier, the replier
+                with that id is no longer bound to the given message's name.
 
 
 // Local Variables:

@@ -131,13 +131,13 @@ struct kbus_message_struct {
 	 *   meaning "anyone listening" (but see below if "state" is being
 	 *   maintained).
 	 *
-	 *   When replying to a message, it should be set to the 'from' value
-	 *   of the orginal message
+	 *   When replying to a message, it shall be set to the 'from' value
+	 *   of the orginal message.
 	 *
-	 *   In a "stateful dialogue", 'to' can be set to the id of the
-	 *   expected replier, in which case KBUS will raise an
-	 *   exception/return an appropriate synthetic message if that replier
-	 *   is no longer the bound replier for this message,
+	 *   When constructing a request message (a message wanting a reply),
+	 *   then it can be set to a specific listener id. When such a message
+	 *   is sent, if the replier bound (at that time) does not have that
+	 *   specific listener id, then the send will fail.
 	 *
 	 * - 'from' indicates who sent the message.
 	 *
@@ -617,8 +617,6 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 	}
 
 	/* And join it up... */
-
-	new_msg->from = priv->id;	/* Remember it is from us */
 	item->msg = new_msg;
 
 	/*
@@ -1281,8 +1279,12 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 
 	/* Do we have anyone to send our message to? */
 
-	if (num_listeners == 0 && replier == 0 && !msg->in_reply_to) {
-		printk(KERN_DEBUG "kbus/write: Not a reply, no listeners, no replier\n");
+	if ( (msg->flags & KBUS_BIT_WANT_A_REPLY) && replier == 0) {
+		printk(KERN_DEBUG "kbus/write: Message wants a reply, but no replier\n");
+		retval = -EADDRNOTAVAIL;
+		goto done_sending;
+	} else if (num_listeners == 0) {
+		printk(KERN_DEBUG "kbus/write: Message does not need a reply, but no listeners\n");
 		retval = -EADDRNOTAVAIL;
 		goto done_sending;
 	}
@@ -1297,6 +1299,9 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 	if (dev->next_msg_id == 0)
 		dev->next_msg_id ++;
 	msg->id = dev->next_msg_id ++;
+
+	/* The message needs to say it is from us */
+	msg->from = priv->id;
 
 	/* And we need to add it to the queue for each interested party */
 
@@ -1350,6 +1355,17 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 		struct kbus_private_data *l_priv;
 		printk(KERN_DEBUG "kbus/write: Considering replier %u\n",
 		       replier);
+
+		/*
+		 * If the 'to' field was set, then we only want to send it if
+		 * it is *that* specific replier.
+		 */
+		if (msg->to && (replier != msg->to)) {
+			printk(KERN_DEBUG "kbus/write: Request to %u,"
+			       " but replier is %u\n",msg->to,replier);
+			retval = -EPIPE;	/* Well, sort of */
+			goto done_sending;
+		}
 
 		l_priv = kbus_find_private_data(priv,dev,replier);
 		if (l_priv == NULL) {
@@ -1406,7 +1422,7 @@ done_sending:
 	} else {
 		/*
 		 * We did send the message, so it becomes the last message we
-		 * sent, which can be queried
+		 * sent, whose id can be queried
 		 */
 		priv->last_msg_id = msg->id;
 	}
