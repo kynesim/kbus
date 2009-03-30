@@ -533,7 +533,7 @@ class Interface(object):
     KBUS_IOC_REPLIER  = _IOWR(KBUS_IOC_MAGIC, 5, ctypes.sizeof(ctypes.c_char_p))
     KBUS_IOC_NEXTMSG  = _IOR(KBUS_IOC_MAGIC,  6, ctypes.sizeof(ctypes.c_char_p))
     KBUS_IOC_LENLEFT  = _IOR(KBUS_IOC_MAGIC,  7, ctypes.sizeof(ctypes.c_char_p))
-    KBUS_IOC_SEND     = _IO(KBUS_IOC_MAGIC,   8)
+    KBUS_IOC_SEND     = _IOR(KBUS_IOC_MAGIC,  8, ctypes.sizeof(ctypes.c_char_p))
     KBUS_IOC_DISCARD  = _IO(KBUS_IOC_MAGIC,   9)
     KBUS_IOC_LASTSENT = _IOR(KBUS_IOC_MAGIC, 10, ctypes.sizeof(ctypes.c_char_p))
 
@@ -616,8 +616,12 @@ class Interface(object):
 
         Indicates that we have finished writing a message, and it should
         be sent.
+
+        Returns the length (in bytes) of the message sent.
         """
-        return fcntl.ioctl(self.fd, Interface.KBUS_IOC_SEND, 0);
+        msg_len = array.array('L',[0])
+        fcntl.ioctl(self.fd, Interface.KBUS_IOC_SEND, msg_len, True)
+        return msg_len[0]
 
     def discard(self):
         """Discard the message being written.
@@ -650,14 +654,30 @@ class Interface(object):
         else:
             return None
 
-    def write(self,message):
-        """Write a Message.
+    def write_msg(self,message):
+        """Write a Message. Doesn't send it.
         """
         # Message data is held in an array.array, and arrays know
         # how to write themselves out
         message.array.tofile(self.fd)
         # But we are responsible for flushing
         self.fd.flush()
+
+    def send_msg(self,message):
+        """Write a Message, and then send it.
+        """
+        self.write_msg(message)
+        self.send()
+
+    def write(self,data):
+        """Write out (and flush) some data.
+
+        Does not send it, does not imply that it is all of a message
+        (although clearly it should form *some* of a message).
+        """
+        ret = self.fd.write(data)
+        self.fd.flush()
+        return ret
 
     def read_msg(self,length):
         """Read a Message of length 'length' bytes.

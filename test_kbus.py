@@ -310,9 +310,11 @@ class TestKernelModule:
             assert f.next_msg() == 0
             assert f.read(1) == ''
 
-            # We can't write to it
+            # We can't write to it, by any of the obvious means
             msg2 = Message('$.Fred','data')
-            check_IOError(errno.EBADF,f.write,msg2)
+            check_IOError(errno.EBADF,f.write,msg2.array)
+            check_IOError(errno.EBADF,f.write_msg,msg2)
+            check_IOError(errno.EBADF,f.send_msg,msg2)
         finally:
             assert f.close() is None
 
@@ -329,20 +331,20 @@ class TestKernelModule:
             # We start off with no message
             self._check_read(f,None)
 
-            # We can write a message and read it back
+            # We can send a message and read it back
             msg1 = Message('$.B','data')
-            f.write(msg1)
+            f.send_msg(msg1)
             self._check_read(f,msg1)
 
-            # We can write a message and read it back, again
+            # We can send a message and read it back, again
             msg2 = Message('$.C','fred')
-            f.write(msg2)
+            f.send_msg(msg2)
             self._check_read(f,msg2)
 
-            # If we try to write a message that nobody is listening for,
+            # If we try to send a message that nobody is listening for,
             # we get an appropriate error
             msg3 = Message('$.D','fred')
-            check_IOError(errno.EADDRNOTAVAIL,f.write,msg3)
+            check_IOError(errno.EADDRNOTAVAIL,f.send_msg,msg3)
 
         finally:
             assert f.close() is None
@@ -368,12 +370,12 @@ class TestKernelModule:
 
                 # If we write, we can read appropriately
                 msg1 = Message('$.B','data')
-                f1.write(msg1)
+                f1.send_msg(msg1)
                 self._check_read(f2,msg1)
                 self._check_read(f1,msg1)
 
                 msg2 = Message('$.C','data')
-                f2.write(msg2)
+                f2.send_msg(msg2)
                 self._check_read(f1,msg2)
                 self._check_read(f2,msg2)
             finally:
@@ -536,12 +538,12 @@ class TestKernelModule:
             f.bind('$.William',False)
 
             msg1 = Message(name1,data=data1)
-            f.write(msg1)
+            f.send_msg(msg1)
             print 'Wrote:',msg1
 
             # There are no listeners for '$.Fred.Bob.William'
             msg2 = Message(name2,data=data2)
-            check_IOError(errno.EADDRNOTAVAIL, f.write, msg2)
+            check_IOError(errno.EADDRNOTAVAIL, f.send_msg, msg2)
 
             msg1r = f.read_next_msg()
             print 'Read: ',msg1r
@@ -575,19 +577,19 @@ class TestKernelModule:
 
                 # No one is listening for $.William
                 msgW = Message('$.William')
-                check_IOError(errno.EADDRNOTAVAIL, f1.write, msgW)
-                check_IOError(errno.EADDRNOTAVAIL, f2.write, msgW)
-                # (and attempting to write it doesn't increment KBUS's
+                check_IOError(errno.EADDRNOTAVAIL, f1.send_msg, msgW)
+                check_IOError(errno.EADDRNOTAVAIL, f2.send_msg, msgW)
+                # (and attempting to send it doesn't increment KBUS's
                 # counting of the message id)
 
                 # Writing to $.Fred on f1 - writes message id N
                 msgF = Message('$.Fred','data')
-                f1.write(msgF)
+                f1.send_msg(msgF)
                 n = f1.last_msg_id()
 
                 # Writing to $.Jim on f1 - writes message N+1
                 msgJ = Message('$.Jim','moredata')
-                f1.write(msgJ)
+                f1.send_msg(msgJ)
                 assert f1.last_msg_id() == n+1
 
                 # Reading f1 - message N
@@ -689,12 +691,12 @@ class TestKernelModule:
             # but we can make a good guess as to a silly sort of length
             m = Message('$.Fred',data='12345678'*1000)
             f.bind('$.Fred')
-            check_IOError(errno.EMSGSIZE, f.write, m)
+            check_IOError(errno.EMSGSIZE, f.send_msg, m)
         finally:
             assert f.close() is None
 
     def test_cant_write_to_wildcard(self):
-        """It's not possible to write a message with a wildcard name.
+        """It's not possible to send a message with a wildcard name.
         """
         f = RecordingInterface(0,'rw',self.bindings)
         assert f != None
@@ -703,12 +705,15 @@ class TestKernelModule:
             f.bind('$.Fred.*')
             # Create a message with a silly name - Message doesn't care
             m = Message('$.Fred.*')
-            # Try to write it -- this shall not work
-            check_IOError(errno.EBADMSG, f.write, m)
-            # Try a different wildcard
+            # We can write the message out
+            f.write_msg(m)
+            # But we can't send it
+            check_IOError(errno.EBADMSG, f.send)
+
+            # Try a different wildcard, and a different mechanism
             f.bind('$.Jim.%')
             m = Message('$.Jim.%')
-            check_IOError(errno.EBADMSG, f.write, m)
+            check_IOError(errno.EBADMSG, f.send_msg, m)
         finally:
             assert f.close() is None
 
@@ -721,14 +726,14 @@ class TestKernelModule:
                 
                 # A listener receives Messages
                 m = Message('$.Fred.Message')
-                f0.write(m)
+                f0.send_msg(m)
                 r = listener.read_next_msg()
                 assert r.equivalent(m)
                 assert not r.should_reply()
 
                 # And it receives Requests (although it need not reply)
                 m = Request('$.Fred.Message')
-                f0.write(m)
+                f0.send_msg(m)
                 r = listener.read_next_msg()
                 assert r.equivalent(m)
                 assert not r.should_reply()
@@ -740,12 +745,12 @@ class TestKernelModule:
                     # (presumably the listener still does, but we're not going
                     # to check)
                     m = Message('$.Fred.Message')
-                    f0.write(m)
+                    f0.send_msg(m)
                     assert replier.next_msg() == 0
 
                     # But it does receive Requests (and it should reply)
                     m = Request('$.Fred.Message')
-                    f0.write(m)
+                    f0.send_msg(m)
                     r = replier.read_next_msg()
                     assert r.equivalent(m)
                     assert r.should_reply()
@@ -760,26 +765,26 @@ class TestKernelModule:
 
             # We should receive the message, it matches the wildcard
             m = Message('$.Fred.Jim')
-            f.write(m)
+            f.send_msg(m)
             r = f.read_next_msg()
             assert r.equivalent(m)
 
             # And again
             m = Message('$.Fred.JimBob.William')
-            f.write(m)
+            f.send_msg(m)
             r = f.read_next_msg()
             assert r.equivalent(m)
 
             # But this does not match the wildcard
             m = Message('$.Fred')
-            check_IOError(errno.EADDRNOTAVAIL, f.write, m)
+            check_IOError(errno.EADDRNOTAVAIL, f.send_msg, m)
 
             # A more specific binding, overlapping the wildcard
             # Since we're bound as (just) a listener both times,
             # we should get the message twice, once for each binding
             f.bind('$.Fred.Jim',False)
             m = Message('$.Fred.Jim')
-            f.write(m)
+            f.send_msg(m)
             r = f.read_next_msg()
             assert r.equivalent(m)
             r = f.read_next_msg()
@@ -795,26 +800,26 @@ class TestKernelModule:
 
             # We should receive the message, it matches the wildcard
             m = Request('$.Fred.Jim')
-            f.write(m)
+            f.send_msg(m)
             r = f.read_next_msg()
             assert r.equivalent(m)
             assert r.should_reply()
 
             # And again
             m = Request('$.Fred.JimBob.William')
-            f.write(m)
+            f.send_msg(m)
             r = f.read_next_msg()
             assert r.equivalent(m)
             assert r.should_reply()
 
             # But this does not match the wildcard
             m = Request('$.Fred')
-            check_IOError(errno.EADDRNOTAVAIL, f.write, m)
+            check_IOError(errno.EADDRNOTAVAIL, f.send_msg, m)
 
             # A more specific binding, overlapping the wildcard
             f.bind('$.Fred.Jim',True)
             m = Request('$.Fred.Jim')
-            f.write(m)
+            f.send_msg(m)
             r = f.read_next_msg()
             assert r.equivalent(m)
             assert r.should_reply()
@@ -849,14 +854,14 @@ class TestKernelModule:
             f.bind('$.Fred')
             m = Message('$.Fred')
             for ii in range(5):
-                f.write(m)
+                f.send_msg(m)
             count = 0
             for r in f:
                 count += 1
             assert count == 5
             # And again
             for ii in range(5):
-                f.write(m)
+                f.send_msg(m)
             count = 0
             for r in f:
                 count += 1
@@ -897,7 +902,7 @@ class TestKernelModule:
                                 ]
 
                         for fd,wild,m in msgs:
-                            f0.write(m)
+                            f0.send_msg(m)
 
                         for fd,wild,m in msgs:
                             if wild:
@@ -944,7 +949,7 @@ class TestKernelModule:
                                 ]
 
                         for fd,wild,m in msgs:
-                            f0.write(m)
+                            f0.send_msg(m)
 
                         for fd,wild,m in msgs:
                             if wild:
@@ -973,9 +978,9 @@ class TestKernelModule:
             msg2 = Request(name2,data='dat2')
             msg3 = Request(name3,data='dat3')
 
-            f.write(msg1)
-            f.write(msg2)
-            f.write(msg3)
+            f.send_msg(msg1)
+            f.send_msg(msg2)
+            f.send_msg(msg3)
 
             m1 = f.read_next_msg()
             m2 = f.read_next_msg()
@@ -1006,7 +1011,7 @@ class TestKernelModule:
             assert reply == reply_by_hand
 
             # And the obvious thing to do with a reply is
-            f.write(reply)
+            f.send_msg(reply)
 
             # We should receive that reply, even though we're not
             # a listener for the message (that's the *point* of replies)
@@ -1030,8 +1035,8 @@ class TestKernelModule:
                     msg1 = Message('$.Fred')    # no reply necessary
                     msg2 = Request('$.Fred')
 
-                    writer.write(msg1)
-                    writer.write(msg2)
+                    writer.send_msg(msg1)
+                    writer.send_msg(msg2)
 
                     # The replier should not see msg1
                     # But it should see msg2, which should ask *us* for a reply
@@ -1041,7 +1046,7 @@ class TestKernelModule:
 
                     # Which we can reply to
                     rep = Reply(msg2)
-                    replier.write(rep)
+                    replier.send_msg(rep)
                     assert not rep.should_reply()       # just to check!
 
                     # But should not receive
@@ -1077,7 +1082,7 @@ class TestKernelModule:
                 f1.bind('$.Fred.*',replier=True)
 
                 mJim = Request('$.Fred.Jim')
-                f0.write(mJim)
+                f0.send_msg(mJim)
                 r = f1.read_next_msg()
                 assert r.should_reply()
                 assert r.equivalent(mJim)
@@ -1097,8 +1102,8 @@ class TestKernelModule:
                     # should need to reply to them.
                     mBob = Request('$.Fred.Bob')
 
-                    f0.write(mJim)      # should only go to f2
-                    f0.write(mBob)      # should only go to f1
+                    f0.send_msg(mJim)      # should only go to f2
+                    f0.send_msg(mBob)      # should only go to f1
 
                     rJim = f2.read_next_msg()
                     assert rJim.should_reply()
@@ -1122,7 +1127,7 @@ class TestKernelModule:
                 f1.bind('$.Fred.*',replier=True)
 
                 mJim = Request('$.Fred.Jim')
-                f0.write(mJim)
+                f0.send_msg(mJim)
                 r = f1.read_next_msg()
                 assert r.should_reply()
                 assert r.equivalent(mJim)
@@ -1142,8 +1147,8 @@ class TestKernelModule:
                     # who should need to reply to them.
                     mJimBob = Request('$.Fred.Jim.Bob')
 
-                    f0.write(mJim)      # should only go to f2
-                    f0.write(mJimBob)   # should only go to f1
+                    f0.send_msg(mJim)      # should only go to f2
+                    f0.send_msg(mJimBob)   # should only go to f1
 
                     rJim = f2.read_next_msg()
                     assert rJim.should_reply()
@@ -1165,9 +1170,9 @@ class TestKernelModule:
                         # Any requests to '$.Fred.Jim.Bob' should still only go to f1
                         mJames = Request('$.Fred.James')
 
-                        f0.write(mJim)      # should only go to f3
-                        f0.write(mJames)    # should only go to f2
-                        f0.write(mJimBob)   # should only go to f1
+                        f0.send_msg(mJim)      # should only go to f3
+                        f0.send_msg(mJames)    # should only go to f2
+                        f0.send_msg(mJimBob)   # should only go to f1
 
                         rJim = f3.read_next_msg()
                         assert rJim.should_reply()
@@ -1205,12 +1210,12 @@ class TestKernelModule:
                 m5 = Message('$.Fred','dat5')
                 m6 = Message('$.Fred','dat6')
 
-                f0.write(m1)
-                f0.write(m2)
-                f0.write(m3)
-                f0.write(m4)
-                f0.write(m5)
-                f0.write(m6)
+                f0.send_msg(m1)
+                f0.send_msg(m2)
+                f0.send_msg(m3)
+                f0.send_msg(m4)
+                f0.send_msg(m5)
+                f0.send_msg(m6)
 
                 # Low level reading, using explicit next_msg() and byte reading
                 length = f1.next_msg()

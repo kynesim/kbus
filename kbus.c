@@ -299,6 +299,11 @@ struct kbus_private_data {
 	char		*read_msg;
 	size_t		 read_msg_len;		/* Its length */
 	size_t		 read_msg_pos;		/* How far they've read */
+
+	/* The message currently being written by the user */
+	char		*write_msg;
+	size_t		 write_msg_size;	/* The buffer size */
+	size_t		 write_msg_len;		/* How much they've written */
 };
 
 /* Information belonging to each /dev/kbus<N> device */
@@ -356,6 +361,26 @@ struct kbus_message_queue_item {
 	struct list_head		 list;
 	struct kbus_message_struct	*msg;
 };
+
+static void kbus_empty_read_msg(struct kbus_private_data *priv)
+{
+	if (priv->read_msg)
+		kfree(priv->read_msg);
+	priv->read_msg = NULL;
+	priv->read_msg_len  = 0;
+	priv->read_msg_pos = 0;
+	return;
+}
+
+static void kbus_empty_write_msg(struct kbus_private_data *priv)
+{
+	if (priv->write_msg)
+		kfree(priv->write_msg);
+	priv->write_msg = NULL;
+	priv->write_msg_size = 0;
+	priv->write_msg_len  = 0;
+	return;
+}
 
 /*
  * Given a message name, is it valid?
@@ -563,7 +588,7 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 	       	return -EFAULT;
 	}
 
-	if (copy_from_user(new_msg,msg,msg_len)) {
+	if (!memcpy(new_msg,msg,msg_len)) {
 		printk(KERN_ERR "kbus: Cannot copy message\n");
 		kfree(new_msg);
 		kfree(item);
@@ -1047,7 +1072,7 @@ static struct kbus_private_data *kbus_find_open_file(struct kbus_dev	*dev,
 
 	list_for_each_entry_safe(ptr, next, &dev->open_files_list, list) {
 		if (id == ptr->id) {
-			printk(KERN_DEBUG "kbus: Found 'open file' id %u",id);
+			printk(KERN_DEBUG "kbus: Found 'open file' id %u\n",id);
 			return ptr;
 		}
 	}
@@ -1142,6 +1167,10 @@ static int kbus_open(struct inode *inode, struct file *filp)
 	priv->read_msg_len = 0;
 	priv->read_msg_pos = 0;
 
+	priv->write_msg = NULL;
+	priv->write_msg_size = 0;
+	priv->write_msg_len  = 0;
+
 	(void) kbus_remember_open_file(dev,priv);
 
 	filp->private_data = priv;
@@ -1173,10 +1202,8 @@ static int kbus_release(struct inode *inode, struct file *filp)
 	 * XXX of exception for each, indicating we have gone away...
 	 */
 
-	if (priv->read_msg) {
-		kfree(priv->read_msg);
-		priv->read_msg = NULL;
-	}
+	kbus_empty_read_msg(priv);
+	kbus_empty_write_msg(priv);
 
 	retval1 = kbus_empty_message_queue(priv);
 	kbus_forget_my_bindings(dev,priv->id);
@@ -1216,6 +1243,9 @@ static struct kbus_private_data
 
 /*
  * Actually write to anyone interested in this message.
+ *
+ * Remember that the caller is going to free the message data after
+ * calling us, on the assumption that we're taking a copy...
  *
  * Returns 0 if all goes well, or a negative number on error.
  */
@@ -1388,54 +1418,92 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 {
 	struct kbus_private_data	*priv = filp->private_data;
 	struct kbus_dev			*dev = priv->dev;
-	struct kbus_message_struct	*msg = NULL;
-
-	ssize_t		 retval;
-	uint32_t	 msg_len = 0;
-	char		*name_p;
-	uint32_t	*data_p;
+	ssize_t				 retval = 0;
 
 	printk(KERN_DEBUG "kbus/write: WRITE count %d, pos %d\n",count,(int)*f_pos);
 
+	/*
+	 * XXX Note for the future
+	 * XXX ===================
+	 * XXX At the moment, messages are hard-limited to be fairly
+	 * XXX short (as MAX_DATA_LEN is only 1000). Ultimately we don't
+	 * XXX *want* a maximum data length, so this could be quite large.
+	 * XXX However, at the size of a page (4096?) things get awkward
+	 * XXX if we're using kmalloc.
+	 * XXX
+	 * XXX So the probable sensible path (which ties in with other
+	 * XXX things, anyway) is:
+	 * XXX
+	 * XXX 1. When "copying" a message, do just copy its header
+	 * XXX 2. When "copying" a message, turn its message name into
+	 * XXX    a message name id, and copy that (as part of the header)
+	 * XXX 3. When "copying" message data, keep it as some sort of
+	 * XXX    linked list of data items that each takes up (no more than) a
+	 * XXX    page (look up how to do that sensibly), and reference count
+	 * XXX    use of that. That also means that there's no need to try
+	 * XXX    to allocate large amounts of *contiguous* space.
+	 * XXX
+	 * XXX And for the moment, ignore all of the above.
+	 */
+
+	/* XXX So, for the moment, honour a maximum message length */
+	if ( (count + priv->write_msg_len) >
+	     KBUS_MSG_LEN(KBUS_MAX_NAME_LEN,KBUS_MAX_DATA_LEN) ) {
+		printk(KERN_ERR "kbus/write: Message appears to be too long\n");
+		return -EMSGSIZE;
+	}
+
+// XXX Stupidly small values so I can watch it make more space
+#define INIT_WRITE_SIZE		10
+#define INCR_WRITE_SIZE		10
+
 	if (down_interruptible(&dev->sem))
-		return -ERESTARTSYS;
+		return -EAGAIN;
 
-	msg = (struct kbus_message_struct *) buf;
-
-	retval = kbus_dissect_message(msg,&msg_len,&name_p,&data_p);
-	if (retval) goto done;
-
-	/* We don't allow sending to wildcards */
-	if (name_p[msg->name_len-1] == '*' ||
-	    name_p[msg->name_len-1] == '%') {
-		retval = -EBADMSG;
-		goto done;
+	if (priv->write_msg == NULL) {
+		priv->write_msg_size = max((size_t)INIT_WRITE_SIZE,count);
+		printk(KERN_DEBUG "kbus/write: Allocating message buffer as %d bytes\n",
+		       priv->write_msg_size);
+		priv->write_msg = kmalloc(priv->write_msg_size, GFP_KERNEL);
+		if (!priv->write_msg) {
+			printk(KERN_ERR "kbus/write: kmalloc failed\n");
+			retval = -EFAULT;
+			goto done;
+		}
+		priv->write_msg_len = 0;
+	} else if ( (count + priv->write_msg_len) > priv->write_msg_size ) {
+		/*
+		 * Just go for the size actually needed, in the hope that
+		 * this is the last write?
+		 */
+		priv->write_msg_size = count + priv->write_msg_len;
+		printk(KERN_DEBUG "kbus/write: Reallocating message buffer as %d bytes\n",
+		       priv->write_msg_size);
+		priv->write_msg = krealloc(priv->write_msg,
+					   priv->write_msg_size, GFP_KERNEL);
+		if (!priv->write_msg) {
+			printk(KERN_ERR "kbus/write: krealloc failed\n");
+		       	retval = -EFAULT;
+			goto done;
+		}
 	}
 
-#if 0
-	/*
-	 * XXX We are insisting a whole message is written in one go.
-	 *
-	 * This is a significant limitation, and will need fixing.
-	 */
-	if (count != msg_len) {
-		printk(KERN_DEBUG "kbus/write: message length is %u,"
-		       " expecting %u from n:%u, d:%u\n",
-		       count,msg_len,msg->name_len,msg->data_len);
-		retval = -EINVAL;
+	if (copy_from_user(priv->write_msg + priv->write_msg_len,
+			   buf, count)) {
+		printk(KERN_ERR "kbus/write: copy from user failed (%d to %p + %u)\n",
+		       count,priv->write_msg,priv->write_msg_len);
+		kbus_empty_write_msg(priv);
+		retval = -EFAULT;
 		goto done;
 	}
-#endif
-
-	/*
-	 * Figure out who should receive this message, and write it to them
-	 */
-	retval = kbus_write_to_recipients(priv,dev,msg,msg_len,name_p,data_p);
+	priv->write_msg_len += count;
 
 done:
 	up(&dev->sem);
+	printk(KERN_DEBUG "kbus/write: Returning with retval %d, count %d\n",
+	       retval,count);
 	if (retval == 0)
-		return msg_len;
+		return count;
 	else
 		return retval;
 }
@@ -1478,14 +1546,10 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 	printk(KERN_DEBUG "kbus/read: Read %d bytes of %d left in %d, pos now %d\n",
 	       len,left,priv->read_msg_len,priv->read_msg_pos+len);
 
-	if (len == left) {
-		kfree(priv->read_msg);
-		priv->read_msg = NULL;
-		priv->read_msg_len = 0;
-		priv->read_msg_pos = 0;
-	} else {
+	if (len == left)
+		kbus_empty_read_msg(priv);
+	else
 		priv->read_msg_pos += len;
-	}
 
 done:
 	up(&dev->sem);
@@ -1671,10 +1735,7 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 	/* If we were partway through a message, lose it */
 	if (priv->read_msg) {
 		printk(KERN_DEBUG "kbus/NEXTMSG: Dropping partial message\n");
-		kfree(priv->read_msg);
-		priv->read_msg = NULL;
-		priv->read_msg_len = 0;
-		priv->read_msg_pos = 0;
+		kbus_empty_read_msg(priv);
 	}
 
 	/* Have we got a next message? */
@@ -1701,6 +1762,80 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 		return 1;	/* We had a message */
 }
 
+static int kbus_send(struct kbus_private_data	*priv,
+		     struct kbus_dev		*dev,
+		     unsigned long		 arg)
+{
+	ssize_t		 retval = 0;
+	uint32_t	 msg_len = 0;
+	char		*name_p;
+	uint32_t	*data_p;
+
+	struct kbus_message_struct *msg;
+
+	if (priv->write_msg == NULL)
+		return -EINVAL;		/* XXX Consider if there's better */
+
+	/*
+	 * We must have at least a minimum message length
+	 * - the shortest possible message name is '$.x',
+	 *   the shortest possible data length is 0
+	 *
+	 * XXX When/if message names may be (optionally) replaced by
+	 * XXX message ids in messages, the shortest length will be,
+	 * XXX well, shorter.
+	 */
+	if (priv->write_msg_len < KBUS_MSG_LEN(3,0))
+	{
+		retval = -EINVAL;	/* XXX Consider if there's better */
+		goto done;
+	}
+
+	msg = (struct kbus_message_struct *)priv->write_msg;
+
+	/* Check the message makes sense */
+	retval = kbus_dissect_message(msg, &msg_len, &name_p, &data_p);
+	if (retval) goto done;
+
+	/*
+	 * It would be nice if the calculate message length matched the length
+	 * of the data we've been given to write...
+	 */
+	if (msg_len > priv->write_msg_len) {
+		printk(KERN_ERR "kbus/send: Error: message data is %u bytes,"
+		       " calculated message length is %u\n",
+		       priv->write_msg_len,msg_len);
+		retval = -EINVAL;
+		goto done;
+	}
+
+	if (msg_len != priv->write_msg_len)
+		printk(KERN_DEBUG "kbus/send: Message data is %u bytes, calculated"
+		       " message length is %u\n",priv->write_msg_len,msg_len);
+
+	/* We don't allow sending to wildcards */
+	if (name_p[msg->name_len-1] == '*' ||
+	    name_p[msg->name_len-1] == '%') {
+		retval = -EBADMSG;
+		goto done;
+	}
+
+	/*
+	 * Figure out who should receive this message, and write it to them
+	 */
+	retval = kbus_write_to_recipients(priv, dev, msg, msg_len,
+					  name_p, data_p);
+
+done:
+	/* We've now finished with our copy of the message */
+	kbus_empty_write_msg(priv);
+
+	if (retval == 0) 
+		return __put_user(msg_len, (uint32_t __user *)arg);
+	else
+		return retval;
+}
+
 #include <linux/ioctl.h>
 #define KBUS_IOC_MAGIC	'k'	/* 0x6b - which seems fair enough for now */
 #define KBUS_IOC_RESET	  _IO(  KBUS_IOC_MAGIC,  1)
@@ -1710,7 +1845,7 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 #define KBUS_IOC_REPLIER  _IOWR(KBUS_IOC_MAGIC,  5, char *)
 #define KBUS_IOC_NEXTMSG  _IOR( KBUS_IOC_MAGIC,  6, char *)
 #define KBUS_IOC_LENLEFT  _IOR( KBUS_IOC_MAGIC,  7, char *)
-#define KBUS_IOC_SEND	  _IO(  KBUS_IOC_MAGIC,  8)
+#define KBUS_IOC_SEND	  _IOR( KBUS_IOC_MAGIC,  8, char *)
 #define KBUS_IOC_DISCARD  _IO(  KBUS_IOC_MAGIC,  9)
 #define KBUS_IOC_LASTSENT _IOR( KBUS_IOC_MAGIC, 10, char *)
 /* XXX If adding another IOCTL, remember to increment the next number! XXX */
@@ -1820,11 +1955,13 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 	case KBUS_IOC_SEND:
 		/* Send the curent message, we've finished writing it. */
 		printk(KERN_DEBUG "kbus: SEND\n");
+		retval = kbus_send(priv,dev, arg);
 		break;
 
 	case KBUS_IOC_DISCARD:
 		/* Throw away the message we're currently writing. */
 		printk(KERN_DEBUG "kbus: DISCARD\n");
+		kbus_empty_write_msg(priv);
 		break;
 
 	case KBUS_IOC_LASTSENT:

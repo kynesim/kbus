@@ -1,6 +1,8 @@
 KBUS -- Lightweight kernel-mediated messaging
 =============================================
 
+XXX TODO: document the new next_msg/read and write/send mechanisms.
+
 This is emergent documentation for the KBUS kernel module.
 
 It is intended that (if kbus is installed) this document should work as a
@@ -337,15 +339,15 @@ as values inside the IOError exception.
 
 :EADDRINUSE:    On attempting to bind a message name as replier: There is
                 already a replier bound for this message
-:EADDRNOTAVAIL: On attempting to write a message: There is no listener bound
+:EADDRNOTAVAIL: On attempting to send a message: There is no listener bound
                 for this message's name.
-:EBADMSG:       On attempting to bind, unbind or write a message: The message
-                name is not valid. On writing, this can also be because the
+:EBADMSG:       On attempting to bind, unbind or send a message: The message
+                name is not valid. On sending, this can also be because the
                 message name is a wildcard.
 :EINVAL:        Something went wrong (generic error).
-:EMSGSIZE:      On attempting to write a message: The message data is too
-                long.
-:ENAMETOOLONG:  On attempting to bind, unbind or write a message: The message
+:EMSGSIZE:      On attempting to write or send a message: The message data is
+                too long.
+:ENAMETOOLONG:  On attempting to bind, unbind or send a message: The message
                 name is too long.
 :ENOENT:        On attempting to open an Interface/open a '/dev/kbus<n>'
                 device: There is no such interface/device (normally because
