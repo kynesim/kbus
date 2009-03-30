@@ -308,11 +308,11 @@ class TestKernelModule:
         try:
             # Nothing to read
             assert f.next_msg() == 0
-            assert f.read(1) == ''
+            assert f.read_data(1) == ''
 
             # We can't write to it, by any of the obvious means
             msg2 = Message('$.Fred','data')
-            check_IOError(errno.EBADF,f.write,msg2.array)
+            check_IOError(errno.EBADF,f.write_data,msg2.array)
             check_IOError(errno.EBADF,f.write_msg,msg2)
             check_IOError(errno.EBADF,f.send_msg,msg2)
         finally:
@@ -623,11 +623,11 @@ class TestKernelModule:
 
                 # No more messages on f1
                 assert f1.next_msg() == 0
-                assert f1.read(1) == ''
+                assert f1.read_data(1) == ''
 
                 # No more messages on f2
                 assert f2.next_msg() == 0
-                assert f2.read(1) == ''
+                assert f2.read_data(1) == ''
             finally:
                 assert f2.close() is None
         finally:
@@ -1220,7 +1220,7 @@ class TestKernelModule:
                 # Low level reading, using explicit next_msg() and byte reading
                 length = f1.next_msg()
                 assert length == len(m1.array) * 4
-                data = f1.read(length)
+                data = f1.read_data(length)
                 assert len(data) == length
                 msg = Message(data)
                 assert msg.equivalent(m1)
@@ -1232,9 +1232,23 @@ class TestKernelModule:
                 # and buffering stuff)
                 length = f1.next_msg()
                 assert length == len(m2.array) * 4
+                # So, when we haven't read anything, we've still got all of the
+                # message data left
+                assert f1.len_left() == length
                 data = ''
-                for ii in range(length):
-                    data += f1.read(1)
+
+                # If we read a single byte:
+                data += f1.read_data(1)
+                # the underlying file system will actually have read in a
+                # "buffer load" of data, and for our small message size, this
+                # means that it will have read the entire message, so we find:
+                assert f1.len_left() == 0
+                # which is a little misleading. Oh well.
+
+                # Still, we can pretend to read the rest of the data
+                # byte-by-byte
+                for ii in range(length-1):
+                    data += f1.read_data(1)
                 assert len(data) == length
                 msg = Message(data)
                 assert msg.equivalent(m2)
@@ -1258,6 +1272,54 @@ class TestKernelModule:
                 assert m.equivalent(m6) # *not* m5
 
                 # Nothing more to read
+                assert f1.next_msg() == 0
+
+    def test_partial_writes(self):
+        """Test partial writes, etc.
+        """
+        with RecordingInterface(0,'rw',self.bindings) as f0:
+            # We'll use this interface to do all the writing of requests,
+            # just to keep life simple.
+
+            with RecordingInterface(0,'r',self.bindings) as f1:
+                f1.bind('$.Fred')
+
+                m = Message('$.Fred','data')
+
+                # We can do it all in one go (the convenient way)
+                f0.send_msg(m)
+                r = f1.read_next_msg()
+                assert r.equivalent(m)
+                assert f1.next_msg() == 0
+
+                # We can do it in two parts, but writing the whole message
+                f0.write_msg(m)
+                # Nothing sent yet
+                assert f1.next_msg() == 0
+                f0.send()
+                r = f1.read_next_msg()
+                assert r.equivalent(m)
+                assert f1.next_msg() == 0
+
+                # Or we can write our messsage out in convenient pieces
+                # Note that (unlike reading) because of the magic of 'flush',
+                # we can expect to be writing single bytes to our file
+                # descriptor -- maximally inefficient!
+                assert f1.next_msg() == 0
+                data = m.array.tostring()
+                for ch in data:
+                    f0.write_data(ch)        # which also flushes
+                    assert f1.next_msg() == 0
+                f0.send()
+                r = f1.read_next_msg()
+                assert r.equivalent(m)
+                assert f1.next_msg() == 0
+
+                # Since writing and sending are distinct, we can, of course,
+                # decide *not* to send a message we've written
+                f0.write_msg(m)
+                f0.discard()
+                check_IOError(errno.ENOMSG, f0.send)
                 assert f1.next_msg() == 0
 
 # vim: set tabstop=8 shiftwidth=4 expandtab:

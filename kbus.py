@@ -618,6 +618,8 @@ class Interface(object):
         be sent.
 
         Returns the length (in bytes) of the message sent.
+
+        Raises IOError with errno ENOMSG if there was no message to send.
         """
         msg_len = array.array('L',[0])
         fcntl.ioctl(self.fd, Interface.KBUS_IOC_SEND, msg_len, True)
@@ -669,7 +671,7 @@ class Interface(object):
         self.write_msg(message)
         self.send()
 
-    def write(self,data):
+    def write_data(self,data):
         """Write out (and flush) some data.
 
         Does not send it, does not imply that it is all of a message
@@ -712,7 +714,7 @@ class Interface(object):
         else:
             return None
 
-    def read(self,count):
+    def read_data(self,count):
         """Read the next 'count' bytes, and return them.
 
         Returns '' (the empty string) if there was nothing to be read,

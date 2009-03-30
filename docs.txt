@@ -353,6 +353,10 @@ as values inside the IOError exception.
                 device: There is no such interface/device (normally because
                 one has tried to open, for instance, '/dev/kbus9' when there
                 are only 3 KBUS devices).
+:ENOMSG:        On attempting to send, when there is no message waiting to be
+                sent (either because there has been no write since the last
+                send, or because the message being written has been
+                discarded).
 
 
 // Local Variables:

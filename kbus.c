@@ -1774,7 +1774,7 @@ static int kbus_send(struct kbus_private_data	*priv,
 	struct kbus_message_struct *msg;
 
 	if (priv->write_msg == NULL)
-		return -EINVAL;		/* XXX Consider if there's better */
+		return -ENOMSG;
 
 	/*
 	 * We must have at least a minimum message length
