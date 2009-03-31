@@ -831,7 +831,7 @@ static int kbus_empty_message_queue(struct kbus_private_data  *priv)
 		struct kbus_message_struct	*msg = ptr->msg;
 
 		/* XXX Let the user know */
-		printk(KERN_DEBUG "kbus: Deleting message from queue (%d)\n");
+		printk(KERN_DEBUG "kbus: Deleting message from queue\n");
 		(void) kbus_report_message(KERN_DEBUG, msg);
 
 		/*
@@ -1096,39 +1096,53 @@ static int kbus_we_should_keep_this_message(struct kbus_private_data    *priv,
 	num_listeners = kbus_find_listeners(priv->dev,&listeners,&replier,
 					    name_len,name);
 
+	printk(KERN_DEBUG "kbus: ___ is our request %d, replier %u, num_listeners %d\n",
+	       is_our_request,replier,num_listeners);
+
 	if (num_listeners < 0)		/* Hmm, what else to do on error? */
 		return true;
 	else if (num_listeners == 0)
-		return false;
+		goto done;
 
 	/*
-	 * If the message wanted us to reply to it, and we're still bound as a
-	 * replier on that message name, then we must keep it.
+	 * If the message wanted us, specifically, to reply to it, are we
+	 * still bound to do so?
 	 */
-	if (is_our_request && replier == priv->id) {
-		kfree(listeners);
-		return true;
+	if (is_our_request) {
+	       if (replier == priv->id) {
+		       printk(KERN_DEBUG "kbus: ___ we are replier\n");
+		       still_wanted = true;
+		       goto done;
+	       } else {
+		       printk(KERN_DEBUG "kbus: ___ we are not replier\n");
+		       still_wanted = false;
+		       goto done;
+	       }
 	}
+
 	for (ii=0; ii<num_listeners; ii++) {
 		if (listeners[ii] == priv->id) {
+			printk(KERN_DEBUG "kbus: ___ we are listener\n");
 			still_wanted = true;
-			break;
+			goto done;
 		}
 	}
+done:
 	kfree(listeners);
 	return still_wanted;
 }
 
 /*
- * Forget any messages (in our queue) that match.
+ * Forget any messages (in our queue) that were only in the queue because of
+ * the binding we've just removed.
  *
- * If they were a request (needing a reply) generate an appropriate synthetic
- * message.
+ * If the message was a request (needing a reply) generate an appropriate
+ * synthetic message.
  */
 static int kbus_forget_matching_messages(struct kbus_private_data  *priv,
 					 uint32_t		    bound_to,
-					 uint32_t		    replier,
-					 uint32_t		    guaranteed,
+					 uint32_t		    bound_as_replier,
+					 uint32_t		    delivery_guaranteed,
 					 uint32_t		    len,
 					 char			   *name)
 {
@@ -1140,21 +1154,41 @@ static int kbus_forget_matching_messages(struct kbus_private_data  *priv,
 
 	list_for_each_entry_safe(ptr, next, queue, list) {
 		struct kbus_message_struct	*msg = ptr->msg;
-		int  is_our_request = (KBUS_BIT_WANT_YOU_TO_REPLY & msg->flags);
-		/*
-		 * A replier binding matches only (our) requests, and a
-		 * non-replier binding matches only things we don't need
-		 * to reply to
-		 */
-		if (( is_our_request && !replier) ||
-		    (!is_our_request &&  replier) )
-			continue;
+		int  is_a_request = (KBUS_BIT_WANT_A_REPLY & msg->flags);
+		int  is_OUR_request = (KBUS_BIT_WANT_YOU_TO_REPLY & msg->flags);
 
+		/*
+		 * Deciding on the basis of message name is easy, so do that
+		 * first
+		 */
 		if (msg->name_len != len)
 			continue;
-
 		if (strncmp((char *)msg->rest,name,len))
 			continue;
+
+		printk(KERN_DEBUG "kbus: >>> bound_as_replier %d, is_OUR_request %d\n",
+		       bound_as_replier,is_OUR_request);
+		(void) kbus_report_message(KERN_DEBUG, msg);
+
+		/*
+		 * If this message didn't require a reply, and the binding
+		 * we just removed was a replier binding, then we presumably
+		 * haven't affected this message
+		 */
+		if ( !is_a_request && bound_as_replier ) {
+			printk(KERN_DEBUG "kbus: >>> removed replier binding, message not our business\n");
+			continue;
+		}
+
+		/*
+		 * If this message required US to reply, and we've just
+		 * removed a listener binding, then we presumably haven't
+		 * affected this message.
+		 */
+		if ( is_OUR_request && !bound_as_replier ) {
+			printk(KERN_DEBUG "kbus: >>> removed listener binding, specific request not our business\n");
+			continue;
+		}
 
 		/*
 		 * OK, it looks like it matches.
@@ -1164,7 +1198,8 @@ static int kbus_forget_matching_messages(struct kbus_private_data  *priv,
 		 * might be bound with a wildcard and with a more specific
 		 * binding)
 		 */
-		if (kbus_we_should_keep_this_message(priv, is_our_request,
+		if (kbus_we_should_keep_this_message(priv,
+						     is_OUR_request,
 						     msg->name_len,
 						     (char *)msg->rest))
 			continue;
@@ -1210,7 +1245,7 @@ static int kbus_forget_binding(struct kbus_dev		*dev,
 	struct kbus_message_binding *ptr;
 	struct kbus_message_binding *next;
 
-	int removed_entry = false;
+	int removed_binding = false;
 
 	/* We don't want anyone writing to the list whilst we do this */
 	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
@@ -1241,12 +1276,12 @@ static int kbus_forget_binding(struct kbus_dev		*dev,
 			 * to care if we're already manipulating this list
 			 * (just in case).
 			 */
-			removed_entry = true;
+			removed_binding = true;
 			break;
 		}
 	}
 
-	if (removed_entry) {
+	if (removed_binding) {
 		/* And forget any messages we now shouldn't receive */
 		(void) kbus_forget_matching_messages(priv,bound_to,
 						     replier,guaranteed,len,

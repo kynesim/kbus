@@ -354,8 +354,8 @@ class Message(object):
             mask = ~Message.WANT_A_REPLY
             self.array[self.IDX_FLAGS] = self.array[self.IDX_FLAGS] & mask
 
-    def should_reply(self):
-        """Return true if we're meant to reply to this message.
+    def wants_us_to_reply(self):
+        """Return true if we (*specifically* us) are should reply to this message.
         """
         return self.array[self.IDX_FLAGS] & Message.WANT_YOU_TO_REPLY
 

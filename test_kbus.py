@@ -729,7 +729,7 @@ class TestKernelModule:
                 f0.send_msg(m)
                 r = listener.read_next_msg()
                 assert r.equivalent(m)
-                assert not r.should_reply()
+                assert not r.wants_us_to_reply()
 
                 with RecordingInterface(0,'r',self.bindings) as replier:
                     replier.bind('$.Fred.Message',True)
@@ -739,12 +739,12 @@ class TestKernelModule:
                     f0.send_msg(m)
                     r = listener.read_next_msg()
                     assert r.equivalent(m)
-                    assert not r.should_reply()
+                    assert not r.wants_us_to_reply()
                     
                     # The Replier receives the Request (and should reply)
                     r = replier.read_next_msg()
                     assert r.equivalent(m)
-                    assert r.should_reply()
+                    assert r.wants_us_to_reply()
 
                     # A replier does not receive Messages
                     # (presumably the listener still does, but we're not going
@@ -801,14 +801,14 @@ class TestKernelModule:
             f.send_msg(m)
             r = f.read_next_msg()
             assert r.equivalent(m)
-            assert r.should_reply()
+            assert r.wants_us_to_reply()
 
             # And again
             m = Request('$.Fred.JimBob.William')
             f.send_msg(m)
             r = f.read_next_msg()
             assert r.equivalent(m)
-            assert r.should_reply()
+            assert r.wants_us_to_reply()
 
             # But this does not match the wildcard
             m = Request('$.Fred')
@@ -820,7 +820,7 @@ class TestKernelModule:
             f.send_msg(m)
             r = f.read_next_msg()
             assert r.equivalent(m)
-            assert r.should_reply()
+            assert r.wants_us_to_reply()
 
             # But we should only receive it once, on the more specific binding
             assert f.next_msg() == 0
@@ -988,11 +988,11 @@ class TestKernelModule:
 
             # For message 1, we only see it as a listener
             # (because it is not a Request) so there is no reply needed
-            assert not m1.should_reply()
+            assert not m1.wants_us_to_reply()
             assert m1.equivalent(msg1)
 
             # For message 2, a reply is wanted, and we are the replier
-            assert m2.should_reply()
+            assert m2.wants_us_to_reply()
             assert m2.equivalent(msg2)
 
             # So, we should reply to message 2 - let's do so
@@ -1016,7 +1016,7 @@ class TestKernelModule:
             # a listener for the message (that's the *point* of replies)
             m4 = f.read_next_msg()
             assert m4.equivalent(reply)
-            assert not m4.should_reply()
+            assert not m4.wants_us_to_reply()
 
             # And there shouldn't be anything else to read
             assert f.next_msg() == 0
@@ -1041,13 +1041,13 @@ class TestKernelModule:
                     # The replier should not see msg1
                     # But it should see msg2, which should ask *us* for a reply
                     rec2 = replier.read_next_msg()
-                    assert rec2.should_reply()
+                    assert rec2.wants_us_to_reply()
                     assert rec2.equivalent(msg2)
 
                     # Which we can reply to
                     rep = Reply(msg2)
                     replier.send_msg(rep)
-                    assert not rep.should_reply()       # just to check!
+                    assert not rep.wants_us_to_reply()       # just to check!
 
                     # But should not receive
                     assert replier.next_msg() == 0
@@ -1057,13 +1057,13 @@ class TestKernelModule:
                     # but should not be the replier for any of them
                     a = listener.read_next_msg()
                     assert a.equivalent(msg1)
-                    assert not a.should_reply()
+                    assert not a.wants_us_to_reply()
                     b = listener.read_next_msg()
                     assert b.equivalent(msg2)
-                    assert not b.should_reply()
+                    assert not b.wants_us_to_reply()
                     c = listener.read_next_msg()
                     assert c.equivalent(rep)
-                    assert not c.should_reply()
+                    assert not c.wants_us_to_reply()
 
                     # No-one should have any more messages
                     assert listener.next_msg() == 0
@@ -1084,7 +1084,7 @@ class TestKernelModule:
                 mJim = Request('$.Fred.Jim')
                 f0.send_msg(mJim)
                 r = f1.read_next_msg()
-                assert r.should_reply()
+                assert r.wants_us_to_reply()
                 assert r.equivalent(mJim)
 
                 assert f1.next_msg() == 0
@@ -1106,12 +1106,12 @@ class TestKernelModule:
                     f0.send_msg(mBob)      # should only go to f1
 
                     rJim = f2.read_next_msg()
-                    assert rJim.should_reply()
+                    assert rJim.wants_us_to_reply()
                     assert rJim.equivalent(mJim)
                     assert f2.next_msg() == 0
 
                     rBob = f1.read_next_msg()
-                    assert rBob.should_reply()
+                    assert rBob.wants_us_to_reply()
                     assert rBob.equivalent(mBob)
                     assert f1.next_msg() == 0
 
@@ -1129,7 +1129,7 @@ class TestKernelModule:
                 mJim = Request('$.Fred.Jim')
                 f0.send_msg(mJim)
                 r = f1.read_next_msg()
-                assert r.should_reply()
+                assert r.wants_us_to_reply()
                 assert r.equivalent(mJim)
 
                 assert f1.next_msg() == 0
@@ -1151,12 +1151,12 @@ class TestKernelModule:
                     f0.send_msg(mJimBob)   # should only go to f1
 
                     rJim = f2.read_next_msg()
-                    assert rJim.should_reply()
+                    assert rJim.wants_us_to_reply()
                     assert rJim.equivalent(mJim)
                     assert f2.next_msg() == 0
 
                     rJimBob = f1.read_next_msg()
-                    assert rJimBob.should_reply()
+                    assert rJimBob.wants_us_to_reply()
                     assert rJimBob.equivalent(mJimBob)
                     assert f1.next_msg() == 0
 
@@ -1175,17 +1175,17 @@ class TestKernelModule:
                         f0.send_msg(mJimBob)   # should only go to f1
 
                         rJim = f3.read_next_msg()
-                        assert rJim.should_reply()
+                        assert rJim.wants_us_to_reply()
                         assert rJim.equivalent(mJim)
                         assert f3.next_msg() == 0
 
                         rJames = f2.read_next_msg()
-                        assert rJames.should_reply()
+                        assert rJames.wants_us_to_reply()
                         assert rJames.equivalent(mJames)
                         assert f2.next_msg() == 0
 
                         rJimBob = f1.read_next_msg()
-                        assert rJimBob.should_reply()
+                        assert rJimBob.wants_us_to_reply()
                         assert rJimBob.equivalent(mJimBob)
                         assert f1.next_msg() == 0
 
@@ -1394,17 +1394,17 @@ class TestKernelModule:
                 r = f2.read_next_msg()
                 print r
                 assert r.equivalent(m)
-                assert r.should_reply()
+                assert r.wants_us_to_reply()
 
                 # Once as a listner
                 r = f2.read_next_msg()
                 print r
                 assert r.equivalent(m)
-                assert not r.should_reply()
+                assert not r.wants_us_to_reply()
 
                 assert f1.next_msg() == 0
 
-    def test_request_with_sender_absconding(self):
+    def test_request_with_replier_absconding(self):
         """Send a request, but the replier goes away.
         """
         with Interface(0,'rw') as f1:
@@ -1436,7 +1436,7 @@ class TestKernelModule:
             assert len(e.data) == 0
             assert f1.next_msg() == 0
 
-    def test_request_with_sender_absconding_2(self):
+    def test_request_with_replier_absconding_2(self):
         """Send a request, but the replier (who is also a listener) goes away.
         """
         with Interface(0,'rw') as f1:
@@ -1466,5 +1466,80 @@ class TestKernelModule:
             assert len(e.data) == 0
 
             assert f1.next_msg() == 0
+
+    def test_request_with_replier_unbinding(self):
+        """Send a request, but the replier goes unbinds.
+        """
+        with Interface(0,'rw') as f1:
+            f1_id = f1.bound_as()
+            f2_id = 0
+
+            m = Request('$.Fred','data')
+
+            with Interface(0,'rw') as f2:
+                f2_id = f2.bound_as()
+                f2.bind('$.Fred',replier=True)
+
+                f1.send_msg(m)
+                m_id = f1.last_msg_id()
+
+                # And f2 unbinds
+                f2.unbind('$.Fred',replier=True)
+
+                e = f1.read_next_msg()
+
+                print 'f1 is',f1_id
+                print 'f2 is',f2_id
+                print m
+                print e
+
+                assert e.to    == f1_id
+                assert e.from_ == f2_id
+                assert e.in_reply_to == m_id
+                assert e.name == '$.KBUS.Replier.Unbound'
+                assert e.is_synthetic()
+                assert len(e.data) == 0
+                assert f1.next_msg() == 0
+
+                assert f2.next_msg() == 0
+
+    def test_request_with_replier_unbinding_2(self):
+        """Send a request, but the replier (who is also a listener) unbinds.
+        """
+        with Interface(0,'rw') as f1:
+            f1_id = f1.bound_as()
+            f2_id = 0
+
+            m = Request('$.Fred','data')
+
+            with Interface(0,'rw') as f2:
+                f2_id = f2.bound_as()
+                f2.bind('$.Fred',replier=True)
+                f2.bind('$.Fred',replier=False)
+
+                f1.send_msg(m)
+                m_id = f1.last_msg_id()
+
+                # And f2 unbinds as a replier
+                #   the Request should be lost, and f1 should get told
+                # - the Message should still be "in transit"
+                f2.unbind('$.Fred',replier=True)
+
+                e = f1.read_next_msg()
+
+                assert e.to    == f1_id
+                assert e.from_ == f2_id
+                assert e.in_reply_to == m_id
+                assert e.name == '$.KBUS.Replier.Unbound'
+                assert e.is_synthetic()
+                assert len(e.data) == 0
+
+                assert f1.next_msg() == 0
+
+                r = f2.read_next_msg()
+                assert r.equivalent(m)
+                assert not r.wants_us_to_reply()
+
+                assert f2.next_msg() == 0
 
 # vim: set tabstop=8 shiftwidth=4 expandtab:
