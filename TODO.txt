@@ -5,9 +5,6 @@ In no particular order (well, except for the first):
 
 * REQ Always, update documentation.
 
-* REQ Implement URGENT messages -- these get added to the *front* of the
-  interface's queue.
-
 * REQ Implement maximum message queue length per interface -- so that if one
   keeps adding messages, and no-one is reading them, one doesn't fill up the
   world.
