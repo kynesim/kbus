@@ -1277,17 +1277,19 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 		goto done_sending;
 	}
 
-	/* Do we have anyone to send our message to? */
+	/*
+	 * In general, we don't mind if no-one is listening, but
+	 *
+	 * a. If we want a reply, we want there to be a replier
+	 * b. If we *are* a reply, we want there to be an original sender
+	 * c. If we have the "to" field set, and we want a reply, then we
+	 *    want that specific replier to exist
+	 *
+	 * We can check the first of those immediately.
+	 */
 
-	if (msg->flags & KBUS_BIT_WANT_A_REPLY) {
-	       if (replier == 0) {
-		       printk(KERN_DEBUG "kbus/write: Message wants a reply, but no replier\n");
-		       retval = -EADDRNOTAVAIL;
-		       goto done_sending;
-	       }
-	} else if (num_listeners == 0 && msg->in_reply_to == 0) {
-		printk(KERN_DEBUG "kbus/write: Message does not need a reply,"
-		       " but has no listeners\n");
+	if (msg->flags & KBUS_BIT_WANT_A_REPLY && replier == 0) {
+		printk(KERN_DEBUG "kbus/write: Message wants a reply, but no replier\n");
 		retval = -EADDRNOTAVAIL;
 		goto done_sending;
 	}
@@ -1396,8 +1398,9 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 		if (l_priv == NULL) {
 			printk(KERN_DEBUG "kbus/write: Can't find listener %u\n",
 			       listener);
-			/* Fairly nasty, but maybe it's worth going on... */
-			continue;	   /* XXX Review this choice */
+			/* The listener has presumably just gone away. */
+			/* XXX So presumably we should forget about them... */
+			continue;
 		}
 
 		retval = kbus_push_message(l_priv,msg_len,msg,false);

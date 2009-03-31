@@ -342,9 +342,9 @@ class TestKernelModule:
             self._check_read(f,msg2)
 
             # If we try to send a message that nobody is listening for,
-            # we get an appropriate error
+            # it just disappears into the void
             msg3 = Message('$.D','fred')
-            check_IOError(errno.EADDRNOTAVAIL,f.send_msg,msg3)
+            f.send_msg(msg3)
 
         finally:
             assert f.close() is None
@@ -543,7 +543,8 @@ class TestKernelModule:
 
             # There are no listeners for '$.Fred.Bob.William'
             msg2 = Message(name2,data=data2)
-            check_IOError(errno.EADDRNOTAVAIL, f.send_msg, msg2)
+            f.send_msg(msg2)
+            # So it just gets ignored
 
             msg1r = f.read_next_msg()
             print 'Read: ',msg1r
@@ -575,12 +576,11 @@ class TestKernelModule:
 
                 f2.bind('$.Jim',False)
 
-                # No one is listening for $.William
+                # No one is listening for $.William, so we can just send it
+                # and it will get ignored
                 msgW = Message('$.William')
-                check_IOError(errno.EADDRNOTAVAIL, f1.send_msg, msgW)
-                check_IOError(errno.EADDRNOTAVAIL, f2.send_msg, msgW)
-                # (and attempting to send it doesn't increment KBUS's
-                # counting of the message id)
+                f1.send_msg(msgW)
+                f2.send_msg(msgW)
 
                 # Writing to $.Fred on f1 - writes message id N
                 msgF = Message('$.Fred','data')
@@ -773,9 +773,9 @@ class TestKernelModule:
             r = f.read_next_msg()
             assert r.equivalent(m)
 
-            # But this does not match the wildcard
+            # But this does not match the wildcard, so gets ignored
             m = Message('$.Fred')
-            check_IOError(errno.EADDRNOTAVAIL, f.send_msg, m)
+            f.send_msg(m)
 
             # A more specific binding, overlapping the wildcard
             # Since we're bound as (just) a listener both times,
