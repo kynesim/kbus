@@ -1467,6 +1467,54 @@ class TestKernelModule:
 
             assert f1.next_msg() == 0
 
+    def test_request_with_replier_absconding_3(self):
+        """Send a request, but the replier (who is also a listener) goes away.
+        """
+        with Interface(0,'rw') as f1:
+            f1_id = f1.bound_as()
+            f2_id = 0
+
+            r1 = Request('$.Fred','data')
+            r2 = Request('$.Fred','more')
+            m1 = Message('$.Fred','data')
+            m2 = Message('$.Fred','more')
+
+            with Interface(0,'rw') as f2:
+                f2_id = f2.bound_as()
+                f2.bind('$.Fred',replier=True)
+                f2.bind('$.Fred',replier=False)
+
+                f1.send_msg(m1)
+                f1.send_msg(r1)
+                r1_id = f1.last_msg_id()
+
+                f1.send_msg(m2)
+                f1.send_msg(r2)
+                r2_id = f1.last_msg_id()
+
+            # And f2 closes ("releases" internally)
+            # - the Messages should just be lost, but we should be told about
+            #   the Requests
+            e = f1.read_next_msg()
+
+            assert e.to    == f1_id
+            assert e.from_ == f2_id
+            assert e.in_reply_to == r1_id
+            assert e.name == '$.KBUS.Replier.GoneAway'
+            assert e.is_synthetic()
+            assert len(e.data) == 0
+
+            e = f1.read_next_msg()
+
+            assert e.to    == f1_id
+            assert e.from_ == f2_id
+            assert e.in_reply_to == r2_id
+            assert e.name == '$.KBUS.Replier.GoneAway'
+            assert e.is_synthetic()
+            assert len(e.data) == 0
+
+            assert f1.next_msg() == 0
+
     def test_request_with_replier_unbinding(self):
         """Send a request, but the replier goes unbinds.
         """
@@ -1538,6 +1586,104 @@ class TestKernelModule:
 
                 r = f2.read_next_msg()
                 assert r.equivalent(m)
+                assert not r.wants_us_to_reply()
+
+                assert f2.next_msg() == 0
+
+    def test_request_with_replier_unbinding_3(self):
+        """Send a request, but the replier (who is also a listener) unbinds.
+        """
+        with Interface(0,'rw') as f1:
+            f1_id = f1.bound_as()
+            f2_id = 0
+
+            r1 = Request('$.Fred','data')
+            r2 = Request('$.Fred','more')
+            r3 = Request('$.Jim','that')
+
+            m1 = Message('$.Fred','data')
+            m2 = Message('$.Fred','more')
+            m3 = Message('$.Jim','what')
+
+            with Interface(0,'rw') as f2:
+                f2_id = f2.bound_as()
+                f2.bind('$.Fred',replier=True)
+                f2.bind('$.Fred',replier=False)
+                f2.bind('$.Jim',replier=True)
+                f2.bind('$.Jim',replier=False)
+
+                f1.send_msg(m1)
+                f1.send_msg(r1)
+                r1_id = f1.last_msg_id()
+                f1.send_msg(m3)
+
+                f1.send_msg(m2)
+                f1.send_msg(r2)
+                r2_id = f1.last_msg_id()
+                f1.send_msg(r3)
+
+                # Timeline is:
+                #
+                #       m1, r1, [r1], m3, m2, r2, [r2], r3, [r3]
+                #
+                # where [r1] is request 1 as a message
+
+                # And f2 unbinds as a replier for '$.Fred'
+                #   the Request should be lost, and f1 should get told
+                # - the Message should still be "in transit"
+                # - the '$.Jim' messages should be unaffected
+                f2.unbind('$.Fred',replier=True)
+
+                e = f1.read_next_msg()
+
+                assert e.to    == f1_id
+                assert e.from_ == f2_id
+                assert e.in_reply_to == r1_id
+                assert e.name == '$.KBUS.Replier.Unbound'
+                assert e.is_synthetic()
+                assert len(e.data) == 0
+
+                e = f1.read_next_msg()
+
+                assert e.to    == f1_id
+                assert e.from_ == f2_id
+                assert e.in_reply_to == r2_id
+                assert e.name == '$.KBUS.Replier.Unbound'
+                assert e.is_synthetic()
+                assert len(e.data) == 0
+
+                assert f1.next_msg() == 0
+
+                # So timeline should now be:
+                #
+                #       m1, [r1], m3, m2, [r2], r3, [r3]
+
+                r = f2.read_next_msg()
+                assert r.equivalent(m1)
+                assert not r.wants_us_to_reply()
+
+                r = f2.read_next_msg()
+                assert r.equivalent(r1)
+                assert not r.wants_us_to_reply()
+
+                r = f2.read_next_msg()
+                assert r.equivalent(m3)
+                assert not r.wants_us_to_reply()
+
+                r = f2.read_next_msg()
+                assert r.equivalent(m2)
+                assert not r.wants_us_to_reply()
+
+                r = f2.read_next_msg()
+                assert r.equivalent(r2)
+                assert not r.wants_us_to_reply()
+
+                r = f2.read_next_msg()
+                assert r.equivalent(r3)
+                assert r.wants_us_to_reply()
+
+                r = f2.read_next_msg()
+                assert r.equivalent(r3)
                 assert not r.wants_us_to_reply()
 
                 assert f2.next_msg() == 0
