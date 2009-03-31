@@ -831,15 +831,15 @@ static int kbus_empty_message_queue(struct kbus_private_data  *priv)
 		struct kbus_message_struct	*msg = ptr->msg;
 
 		/* XXX Let the user know */
-		printk(KERN_DEBUG "kbus: Deleting message from queue\n");
+		printk(KERN_DEBUG "kbus: Deleting message from queue (%d)\n");
 		(void) kbus_report_message(KERN_DEBUG, msg);
 
 		/*
-		 * If it wanted a reply. let the sender know it's going away
-		 * (but taking care not to send a message to ourselves, by
-		 * accident!)
+		 * If it wanted a reply (from us). let the sender know it's
+		 * going away (but take care not to send a message to
+		 * ourselves, by accident!)
 		 */
-		if ((msg->flags & KBUS_BIT_WANT_A_REPLY) &&
+		if ((msg->flags & KBUS_BIT_WANT_YOU_TO_REPLY) &&
 		     msg->to != priv->id ) {
 			/* There's not much else we can do if this should fail... */
 			(void) kbus_push_synthetic_message(priv->dev,priv->id,

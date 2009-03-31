@@ -1373,4 +1373,98 @@ class TestKernelModule:
                     f3.bind('$.Response',True)
                     check_IOError(errno.EPIPE, f2.send_msg, m2)
 
+    def test_request_with_replier_and_listener(self):
+        """Send a request to replier/listener (same interface)
+        """
+        with Interface(0,'rw') as f1:
+            f1_id = f1.bound_as()
+            f2_id = 0
+
+            m = Request('$.Fred','data')
+            print m
+
+            with Interface(0,'rw') as f2:
+                f2_id = f2.bound_as()
+                f2.bind('$.Fred',replier=True)
+                f2.bind('$.Fred',replier=False)
+
+                f1.send_msg(m)
+
+                # Once as a replier
+                r = f2.read_next_msg()
+                print r
+                assert r.equivalent(m)
+                assert r.should_reply()
+
+                # Once as a listner
+                r = f2.read_next_msg()
+                print r
+                assert r.equivalent(m)
+                assert not r.should_reply()
+
+                assert f1.next_msg() == 0
+
+    def test_request_with_sender_absconding(self):
+        """Send a request, but the replier goes away.
+        """
+        with Interface(0,'rw') as f1:
+            f1_id = f1.bound_as()
+            f2_id = 0
+
+            m = Request('$.Fred','data')
+
+            with Interface(0,'rw') as f2:
+                f2_id = f2.bound_as()
+                f2.bind('$.Fred',replier=True)
+
+                f1.send_msg(m)
+                m_id = f1.last_msg_id()
+
+            # And f2 closes ("releases" internally)
+            e = f1.read_next_msg()
+
+            print 'f1 is',f1_id
+            print 'f2 is',f2_id
+            print m
+            print e
+
+            assert e.to    == f1_id
+            assert e.from_ == f2_id
+            assert e.in_reply_to == m_id
+            assert e.name == '$.KBUS.Replier.GoneAway'
+            assert e.is_synthetic()
+            assert len(e.data) == 0
+            assert f1.next_msg() == 0
+
+    def test_request_with_sender_absconding_2(self):
+        """Send a request, but the replier (who is also a listener) goes away.
+        """
+        with Interface(0,'rw') as f1:
+            f1_id = f1.bound_as()
+            f2_id = 0
+
+            m = Request('$.Fred','data')
+
+            with Interface(0,'rw') as f2:
+                f2_id = f2.bound_as()
+                f2.bind('$.Fred',replier=True)
+                f2.bind('$.Fred',replier=False)
+
+                f1.send_msg(m)
+                m_id = f1.last_msg_id()
+
+            # And f2 closes ("releases" internally)
+            # - the Message should just be lost, but we should be told about
+            #   the Request
+            e = f1.read_next_msg()
+
+            assert e.to    == f1_id
+            assert e.from_ == f2_id
+            assert e.in_reply_to == m_id
+            assert e.name == '$.KBUS.Replier.GoneAway'
+            assert e.is_synthetic()
+            assert len(e.data) == 0
+
+            assert f1.next_msg() == 0
+
 # vim: set tabstop=8 shiftwidth=4 expandtab:

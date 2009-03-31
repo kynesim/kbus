@@ -453,11 +453,25 @@ class Request(Message):
        Message.WANT_A_REPLY flag set. There is nothing else special about it.
     """
 
-    def __init__(self, arg, **kwargs):
+    # I would quite like to do::
+    #
+    #   def __init__(self, arg, **kwargs):
+    #
+    # and then::
+    #
+    #   super(Request,self).__init__(arg, **kwargs)
+    #
+    # but then I wouldn't be able to do::
+    #
+    #   r = Request('$.Fred','data')
+    #
+    # which I *can* do (and want to be able to do) with Message
+
+    def __init__(self, arg, data=None, to=0, from_=0, in_reply_to=0, flags=0, id=0):
         """Arguments are exactly the same as for Message itself.
         """
         # First, just do what the caller asked for directly
-        super(Request,self).__init__(arg, **kwargs)
+        super(Request,self).__init__(arg,data,to,from_,in_reply_to,flags,id)
         # But then make sure that the "wants a reply" flags is set
         self.set_want_reply()
 
