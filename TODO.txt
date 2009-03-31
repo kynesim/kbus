@@ -1,0 +1,45 @@
+A crude to-do list
+==================
+
+In no particular order (well, except for the first):
+
+* Always, update documentation.
+
+* Implement URGENT messages -- these get added to the *front* of the
+  interface's queue.
+
+* Internally, split messages into
+
+      - header -- copy this between lists
+      - message name/id -- if we're doing message name ids, then those should
+        be copied prefererentially
+      - message data -- this should be reference counted
+
+* Optimisation: allow message name id to be used instead of message name in
+  messages. This would need:
+
+      - ability to look up message name and retrieve its id
+      - a way of indicating whether a message is storing message name (and
+        its length) or message name id
+      - some better terminology for "message name id"
+
+  Note that in the Python interface this is not a big deal to the user.
+
+* Consider keeping a list of all outstanding messages.
+
+* Large message support -- allow message data to be large, held as a list of
+  data split properly over pages. Really requires reference counting of
+  message data.
+
+* Blocking. Consider carefully what is needed.
+
+* Support for poll/select.
+
+* When an interface is closed, any Requests in its queue should cause KBUS to
+  generate a synthetic message to indicate that each such Request will not now
+  be getting a Reply.
+
+* Whan an interface unbinds from a message name, any Requests with that name
+  in its queue should (as above).
+
+* Reserve message names in '$.KBUS.*' for use by KBUS for synthetic messages.
