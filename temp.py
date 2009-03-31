@@ -9,44 +9,81 @@ time.sleep(0.5)
 
 try:
         with Interface(0,'rw') as f1:
-            f1_id = f1.bound_as()
-            f2_id = 0
-
-            m = Request('$.Fred','data')
-
             with Interface(0,'rw') as f2:
-                f2_id = f2.bound_as()
-                f2.bind('$.Fred',replier=True)
-                f2.bind('$.Fred',replier=False)
+                f2.bind('$.Message')
+                f2.bind('$.Request',True)
 
-                f1.send_msg(m)
-                m_id = f1.last_msg_id()
-                print m
+                f2.bind('$.Urgent.Message')
+                f2.bind('$.Urgent.Request',True)
 
-                # And f2 unbinds as a replier
-                #   the Request should be lost, and f1 should get told
-                # - the Message should still be "in transit"
-                f2.unbind('$.Fred',replier=True)
 
-                # Read the "gone away" synthetic message
-                e = f1.read_next_msg()
-                print e
+                m1 = Message('$.Message')
+                m2 = Message('$.Message')
 
-                assert e.to    == f1_id
-                assert e.from_ == f2_id
-                assert e.in_reply_to == m_id
-                assert e.name == '$.KBUS.Replier.Unbound'
-                assert e.is_synthetic()
-                assert len(e.data) == 0
+                r1 = Request('$.Request')
+                r2 = Request('$.Request')
 
-                assert f1.next_msg() == 0
+                f1.send_msg(m1)
+                m1_id = f1.last_msg_id()
 
-                # read the Message
-                r = f2.read_next_msg()
-                assert r.equivalent(m)
-                assert not r.wants_us_to_reply()
+                f1.send_msg(r1)
+                r1_id = f1.last_msg_id()
 
-                assert f2.next_msg() == 0
+                f1.send_msg(m2)
+                m2_id = f1.last_msg_id()
+
+                f1.send_msg(r2)
+                r2_id = f1.last_msg_id()
+
+                # Timeline should be: m1, r1, m2, r2
+
+                mu1 = Message('$.Urgent.Message')
+                mu1.set_urgent()
+                f1.send_msg(mu1)
+                mu1_id = f1.last_msg_id()
+
+                ru1 = Request('$.Urgent.Request')
+                ru1.set_urgent()
+                f1.send_msg(ru1)
+                ru1_id = f1.last_msg_id()
+
+                # Timeline should be: ru1, mu1, m1, r1, m2, r2
+
+                a = f2.read_next_msg()          # ru1
+                assert a.equivalent(ru1)
+                assert a.id == ru1_id
+                assert a.is_urgent()
+                assert a.wants_us_to_reply()
+
+                a = f2.read_next_msg()          # mu1
+                assert a.equivalent(mu1)
+                assert a.id == mu1_id
+                assert a.is_urgent()
+                assert not a.wants_us_to_reply()
+
+                a = f2.read_next_msg()          # m1
+                assert a.equivalent(m1)
+                assert a.id == m1_id
+                assert not a.is_urgent()
+                assert not a.wants_us_to_reply()
+
+                a = f2.read_next_msg()          # r1
+                assert a.equivalent(r1)
+                assert a.id == r1_id
+                assert not a.is_urgent()
+                assert a.wants_us_to_reply()
+
+                a = f2.read_next_msg()          # m2
+                assert a.equivalent(m2)
+                assert a.id == m2_id
+                assert not a.is_urgent()
+                assert not a.wants_us_to_reply()
+
+                a = f2.read_next_msg()          # r2
+                assert a.equivalent(r2)
+                assert a.id == r2_id
+                assert not a.is_urgent()
+                assert a.wants_us_to_reply()
 
 finally:
     os.system('sudo rmmod kbus')

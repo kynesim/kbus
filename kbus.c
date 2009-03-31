@@ -216,18 +216,23 @@ struct kbus_message_struct {
  * The KBUS_BIT_WANT_A_REPLY bit is set by the sender to indicate that a
  * reply is wanted.
  *
- * The KBUS_BIT_WANT_YOU_TO_REPLY is set by KBUS on a particular message
+ * The KBUS_BIT_WANT_YOU_TO_REPLY bit is set by KBUS on a particular message
  * to indicate that the particular recipient is responsible for replying
  * to (this instance of the) message.
  *
- * The KBUS_BIT_SYNTHETIC is set by KBUS when it generates a synthetic
+ * The KBUS_BIT_SYNTHETIC bit is set by KBUS when it generates a synthetic
  * message (an exception, if you will), for instance when a replier has
  * gone away and therefore a reply will never be generated for a request
  * that has already been queued.
+ *
+ * The KBUS_BIT_URGENT bit is set by the sender if this message is to be
+ * treated as urgent - i.e., it should be added to the *front* of the
+ * recipient's message queue, not the back.
  */
 #define	KBUS_BIT_WANT_A_REPLY		BIT(0)
 #define KBUS_BIT_WANT_YOU_TO_REPLY	BIT(1)
 #define KBUS_BIT_SYNTHETIC		BIT(2)
+#define KBUS_BIT_URGENT			BIT(3)
 
 /*
  * Given name_len (in bytes) and data_len (in 32-bit words), return the
@@ -561,7 +566,7 @@ static int kbus_dissect_message(struct kbus_message_struct	 *msg,
 	*data_p = &msg->rest[data_idx];
 
 	if (kbus_bad_message_name(*name_p,msg->name_len)) {
-		printk(KERN_DEBUG "kbus: message name '%*s' is not allowed\n",
+		printk(KERN_DEBUG "kbus: message name '%.*s' is not allowed\n",
 		       msg->name_len,*name_p);
 		return -EBADMSG;
 	}
@@ -589,12 +594,20 @@ static void kbus_report_message(char				*kern_prefix,
 	uint32_t	 msg_len;
 	char		*name_p;
 	uint32_t	*data_p;
-	if (!kbus_dissect_message(msg,&msg_len,&name_p,&data_p))
-		printk("%skbus: message id:%u to:%u from:%u"
-		       " flags:%08x name:'%*s' data/%u:%08x\n",
-		       kern_prefix,
-		       msg->id,msg->to,msg->from,msg->flags,msg->name_len,
-		       name_p,msg->data_len,data_p[0]);
+	if (!kbus_dissect_message(msg,&msg_len,&name_p,&data_p)) {
+		if (msg->data_len)
+			printk("%skbus: message id:%u to:%u from:%u"
+			       " flags:%08x name:'%.*s' data/%u:%08x\n",
+			       kern_prefix,
+			       msg->id,msg->to,msg->from,msg->flags,msg->name_len,
+			       name_p,msg->data_len,data_p[0]);
+		else
+			printk("%skbus: message id:%u to:%u from:%u"
+			       " flags:%08x name:'%.*s'\n",
+			       kern_prefix,
+			       msg->id,msg->to,msg->from,msg->flags,msg->name_len,
+			       name_p);
+	}
 }
 
 /*
@@ -668,11 +681,16 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 	/* And join it up... */
 	item->msg = new_msg;
 
-	/*
-	 * We want a FIFO, so add to the end of the list (just before the list
-	 * head)
+	/* By default, we're using the list as a FIFO, so we want to add our
+	 * new message to the end (just before the first item). However, if the
+	 * URGENT flag is set, then we instead want to add it to the start.
 	 */
-	list_add_tail(&item->list, queue);
+	if (msg->flags & KBUS_BIT_URGENT) {
+		printk(KERN_DEBUG "kbus: Message is URGENT\n");
+		list_add(&item->list, queue);
+	} else {
+		list_add_tail(&item->list, queue);
+	}
 
 	priv->message_count ++;
 
@@ -786,36 +804,6 @@ static struct kbus_message_struct *kbus_pop_message(struct kbus_private_data *pr
 }
 
 /*
- * Return the length of the next message waiting to be read (if any) on this
- * listener's file descriptor
- *
- * Returns 0 if there is no message, the message size (in bytes) if there is,
- * and a negative number if something goes wrong.
- */
-static int kbus_next_message_len(struct kbus_private_data  *priv)
-{
-	struct list_head		*queue = &priv->message_queue;
-	struct kbus_message_queue_item	*ptr;
-	struct kbus_message_struct	*msg;
-	int    retval = 0;
-
-	printk(KERN_DEBUG "kbus: ** Looking for length of next message\n");
-
-	if (list_empty(queue))
-		return 0;
-
-	/* Retrieve the next message */
-	ptr = list_first_entry(queue, struct kbus_message_queue_item, list);
-	msg = ptr->msg;
-	retval = KBUS_MSG_LEN(msg->name_len,msg->data_len);
-
-	printk(KERN_DEBUG "kbus: First message len %d\n",retval);
-	kbus_report_message(KERN_DEBUG,msg);
-
-	return retval;
-}
-
-/*
  * Empty a message queue. Send synthetic messages for any outstanding
  * request messages that are now not going to be delivered/replied to.
  */
@@ -887,7 +875,7 @@ static int kbus_find_replier(struct kbus_dev	*dev,
 		if ( ptr->replier &&
 		     ptr->len == len &&
 		     !strncmp(name,ptr->name,len) ) {
-			printk(KERN_DEBUG "kbus: %d:'%s' has replier %u\n",
+			printk(KERN_DEBUG "kbus: '%.*s' has replier %u\n",
 			       ptr->len,ptr->name,
 			       ptr->bound_to);
 			*bound_to = ptr->bound_to;
@@ -952,7 +940,7 @@ static int kbus_find_listeners(struct kbus_dev	 *dev,
        	enum replier_type	replier_type = UNSET;
        	enum replier_type	new_replier_type = UNSET;
 
-	printk(KERN_DEBUG "kbus: Looking for listeners/repliers for %d:'%s'\n",
+	printk(KERN_DEBUG "kbus: Looking for listeners/repliers for '%.*s'\n",
 	       name_len,name);
 
 	*listeners = kmalloc(sizeof(uint32_t) * array_size,GFP_KERNEL);
@@ -963,7 +951,7 @@ static int kbus_find_listeners(struct kbus_dev	 *dev,
 	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
 
 		if (kbus_message_name_matches(name,name_len,ptr->name)) {
-			printk(KERN_DEBUG "kbus: '%*s' matches '%s' for listener %u%s\n",
+			printk(KERN_DEBUG "kbus: '%.*s' matches '%s' for listener %u%s\n",
 			       name_len, name, ptr->name,
 			       ptr->bound_to, (ptr->replier?" (replier)":""));
 
@@ -1008,10 +996,10 @@ static int kbus_find_listeners(struct kbus_dev	 *dev,
 			}
 		}
 	}
-	printk(KERN_DEBUG "kbus: Found %d listener%s%s for '%s'\n",
+	printk(KERN_DEBUG "kbus: Found %d listener%s%s for '%.*s'\n",
 	       count, (count==1?"":"s"),
 	       (*replier==0?"":" and a replier"),
-	       name);
+	       name_len,name);
 
 	return count;
 }
@@ -1067,10 +1055,11 @@ static int kbus_remember_binding(struct kbus_dev	*dev,
 
 	list_add(&new->list, &dev->bound_message_list);
 
-	printk(KERN_DEBUG "kbus: Bound %u %c %c '%s'\n",
+	printk(KERN_DEBUG "kbus: Bound %u %c %c '%.*s'\n",
 	       new->bound_to,
 	       (new->replier?'R':'L'),
 	       (new->guaranteed?'T':'F'),
+	       new->len,
 	       new->name);
 	return 0;
 }
@@ -1258,10 +1247,11 @@ static int kbus_forget_binding(struct kbus_dev		*dev,
 		if (len != ptr->len)
 			continue;
 		if ( !strncmp(name,ptr->name,len) ) {
-			printk(KERN_DEBUG "kbus: Unbound %u %c %c '%s'\n",
+			printk(KERN_DEBUG "kbus: Unbound %u %c %c '%.*s'\n",
 			       ptr->bound_to,
 			       (ptr->replier?'R':'L'),
 			       (ptr->guaranteed?'T':'F'),
+			       ptr->len,
 			       ptr->name);
 			/* And we don't want anyone reading for this */
 			list_del(&ptr->list);
@@ -1288,11 +1278,11 @@ static int kbus_forget_binding(struct kbus_dev		*dev,
 						     name);
 		return 0;
 	} else {
-		printk(KERN_DEBUG "kbus: Could not find/unbind %u %c %c '%s'\n",
+		printk(KERN_DEBUG "kbus: Could not find/unbind %u %c %c '%.*s'\n",
 		       bound_to,
 		       (replier?'R':'L'),
 		       (guaranteed?'T':'F'),
-		       name);
+		       len,name);
 		return -EINVAL;
 	}
 }
@@ -1311,10 +1301,11 @@ static void kbus_forget_my_bindings(struct kbus_dev	*dev,
 
 	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
 		if (bound_to == ptr->bound_to) {
-			printk(KERN_DEBUG "kbus: Unbound %u %c %c '%s'\n",
+			printk(KERN_DEBUG "kbus: Unbound %u %c %c '%.*s'\n",
 			       ptr->bound_to,
 			       (ptr->replier?'R':'L'),
 			       (ptr->guaranteed?'T':'F'),
+			       ptr->len,
 			       ptr->name);
 			list_del(&ptr->list);
 			if (ptr->name)
@@ -1338,10 +1329,11 @@ static void kbus_forget_all_bindings(struct kbus_dev	*dev)
 	struct kbus_message_binding *next;
 
 	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
-		printk(KERN_DEBUG "kbus: Unbinding %u %c %c '%s'\n",
+		printk(KERN_DEBUG "kbus: Unbinding %u %c %c '%.*s'\n",
 		       ptr->bound_to,
 		       (ptr->replier?'R':'L'),
 		       (ptr->guaranteed?'T':'F'),
+		       ptr->len,
 		       ptr->name);
 		/* And we don't want anyone reading for this */
 		list_del(&ptr->list);
@@ -1930,7 +1922,7 @@ static int kbus_bind(struct kbus_private_data	*priv,
 		retval = -EBADMSG;
 		goto done;
 	}
-	printk(KERN_DEBUG "kbus: BIND %c %d:'%s' on %u\n",
+	printk(KERN_DEBUG "kbus: BIND %c '%.*s' on %u\n",
 	       (bind->replier?'R':'L'), bind->len, name, id);
 	retval = kbus_remember_binding(dev, id,
 				       bind->replier,
@@ -1988,7 +1980,7 @@ static int kbus_unbind(struct kbus_private_data	*priv,
 		retval = -EBADMSG;
 		goto done;
 	}
-	printk(KERN_DEBUG "kbus: UNBIND %c %d:'%s' on %u\n",
+	printk(KERN_DEBUG "kbus: UNBIND %c '%.*s' on %u\n",
 	       (bind->replier?'R':'L'), bind->len, name, priv->id);
 	retval = kbus_forget_binding(dev, priv, priv->id,
 				     bind->replier,
@@ -2034,7 +2026,7 @@ static int kbus_replier(struct kbus_private_data	*priv,
 	}
 	name[query->len] = 0;
 
-	printk(KERN_DEBUG "kbus: REPLIER for %d:'%s' via %u\n",
+	printk(KERN_DEBUG "kbus: REPLIER for '%.*s' via %u\n",
 	       query->len, name, id);
 	retval = kbus_find_replier(dev,
 				   &query->return_id,
@@ -2392,11 +2384,12 @@ static int kbus_read_proc_bindings(char *buf, char **start, off_t offset,
 			    strlen(ptr->name) + 1 < limit)
 			{
 				len += sprintf(buf+len,
-					       "%2d: %1u %c %c %s\n",
+					       "%2d: %1u %c %c %.*s\n",
 					       ii,
 					       ptr->bound_to,
 					       (ptr->replier?'R':'L'),
 					       (ptr->guaranteed?'T':'F'),
+					       ptr->len,
 					       ptr->name);
 			} else {
 				/* Icky trick to indicate we didn't finish */
