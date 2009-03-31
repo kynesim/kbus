@@ -3,6 +3,8 @@ KBUS -- Lightweight kernel-mediated messaging
 
 XXX TODO: document the new next_msg/read and write/send mechanisms.
 
+.. note:: XXX TODO: This document has fallen behind the current implementation
+
 This is emergent documentation for the KBUS kernel module.
 
 It is intended that (if kbus is installed) this document should work as a
@@ -166,8 +168,10 @@ A message is sent by:
 1. opening the appropriate kbus device (for write)
 2. writing a messsage to the resultant file descriptor
 
-If there are no listeners bound to that message name, then the write will fail
-(with error XXX).
+If there are no listeners bound to that message name, then the message will
+be ignored.
+
+    Note: requests and replies are special.
 
 If the message is flagged as needing a reply, and there are no repliers bound
 to that message name, then the write will fail (with error XXX).

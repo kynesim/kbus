@@ -219,9 +219,15 @@ struct kbus_message_struct {
  * The KBUS_BIT_WANT_YOU_TO_REPLY is set by KBUS on a particular message
  * to indicate that the particular recipient is responsible for replying
  * to (this instance of the) message.
+ *
+ * The KBUS_BIT_SYNTHETIC is set by KBUS when it generates a synthetic
+ * message (an exception, if you will), for instance when a replier has
+ * gone away and therefore a reply will never be generated for a request
+ * that has already been queued.
  */
 #define	KBUS_BIT_WANT_A_REPLY		BIT(0)
 #define KBUS_BIT_WANT_YOU_TO_REPLY	BIT(1)
+#define KBUS_BIT_SYNTHETIC		BIT(2)
 
 /*
  * Given name_len (in bytes) and data_len (in 32-bit words), return the
@@ -362,6 +368,10 @@ struct kbus_message_queue_item {
 	struct kbus_message_struct	*msg;
 };
 
+/* As few foreshadowings as I can get away with */
+static struct kbus_private_data *kbus_find_open_file(struct kbus_dev	*dev,
+						     uint32_t		 id);
+
 static void kbus_empty_read_msg(struct kbus_private_data *priv)
 {
 	if (priv->read_msg)
@@ -380,6 +390,45 @@ static void kbus_empty_write_msg(struct kbus_private_data *priv)
 	priv->write_msg_size = 0;
 	priv->write_msg_len  = 0;
 	return;
+}
+
+/*
+ * Build a KBUS synthetic message/exception. We assume no data.
+ */
+static struct kbus_message_struct *kbus_build_kbus_message(const char  *name,
+							   uint32_t	from,
+							   uint32_t	to,
+							   uint32_t	in_reply_to)
+{
+	size_t		name_len;
+	uint32_t	msg_len;
+	struct kbus_message_struct	*new_msg;
+
+	name_len = strlen(name);
+	msg_len = KBUS_MSG_LEN(name_len,0);
+
+	new_msg = kmalloc(msg_len, GFP_KERNEL);
+	if (!new_msg) {
+		printk(KERN_ERR "kbus: Cannot kmalloc synthetic message\n");
+	       	return NULL;
+	}
+
+	memset(new_msg, 0, msg_len);
+	new_msg->start_guard = KBUS_MSG_START_GUARD;
+	new_msg->from = from;
+	new_msg->to = to;
+	new_msg->in_reply_to = in_reply_to;
+	new_msg->flags = KBUS_BIT_SYNTHETIC;
+	new_msg->name_len = name_len;
+	strncpy((char *)new_msg->rest, name, name_len);
+	new_msg->rest[KBUS_MSG_END_GUARD_INDEX(name_len,0)] = KBUS_MSG_END_GUARD;
+
+	/*
+	 * Remember that message id 0 is reserved for messages from KBUS - we
+	 * don't distinguish them (XXX perhaps reconsider this later on XXX)
+	 */
+
+	return new_msg;
 }
 
 /*
@@ -549,7 +598,7 @@ static void kbus_report_message(char				*kern_prefix,
 }
 
 /*
- * Copy the given message from user space, and add it to the end of the queue
+ * Copy the given message, and add it to the end of the queue
  *
  * We assume the message has been checked for sanity.
  *
@@ -634,6 +683,71 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 }
 
 /*
+ * Generate a synthetic message, and add it to the recipient's message queue.
+ *
+ * 'from' is the id of the recipient who has gone away (this allows the
+ * recipient of the synthetic message to tell who has gone, which they may want
+ * to know).
+ *
+ * 'to' is the 'from' for the message we're bouncing (or whatever).
+ *
+ * 'in_reply_to' should be the message id of that same message.
+ *
+ * Returns 0 if all goes well, or a negative error.
+ */
+static int kbus_push_synthetic_message(struct kbus_dev	*dev,
+				       uint32_t		 from,
+				       uint32_t		 to,
+				       uint32_t		 in_reply_to,
+				       const char	*name)
+{
+	struct kbus_private_data	*priv = NULL;
+	struct list_head		*queue = NULL;
+	struct kbus_message_struct	*new_msg;
+	struct kbus_message_queue_item	*item;
+
+	/* Who *was* the original message to? */
+	priv = kbus_find_open_file(dev,to);
+	if (!priv) {
+		printk(KERN_ERR "kbus: Cannot send synthetic reply to %u,"
+		       " as they are gone\n",to);
+		return -EADDRNOTAVAIL;
+	}
+
+	queue = &priv->message_queue;
+
+	printk(KERN_DEBUG "kbus: ** Pushing synthetic message '%s'"
+	       " onto queue for %u\n",name,to);
+
+	new_msg = kbus_build_kbus_message(name,from,to,in_reply_to);
+	if (!new_msg) return -EFAULT;
+
+	item = kmalloc(sizeof(*item), GFP_KERNEL);
+	if (!item) {
+		printk(KERN_ERR "kbus: Cannot kmalloc new (synthetic) message item\n");
+		kfree(new_msg);
+	       	return -EFAULT;
+	}
+	item->msg = new_msg;
+
+	/* XXX Just in case */
+	kbus_report_message(KERN_DEBUG,new_msg);
+
+	/*
+	 * We want a FIFO, so add to the end of the list (just before the list
+	 * head)
+	 */
+	list_add_tail(&item->list, queue);
+
+	priv->message_count ++;
+
+	printk(KERN_DEBUG "kbus: Leaving %d messages in queue\n",
+	       priv->message_count);
+
+	return 0;
+}
+
+/*
  * Pop the next message off our queue.
  *
  * Returns a pointer to the message, or NULL if there is no next message.
@@ -702,7 +816,8 @@ static int kbus_next_message_len(struct kbus_private_data  *priv)
 }
 
 /*
- * Empty a message queue.
+ * Empty a message queue. Send synthetic messages for any outstanding
+ * request messages that are now not going to be delivered/replied to.
  */
 static int kbus_empty_message_queue(struct kbus_private_data  *priv)
 {
@@ -713,10 +828,24 @@ static int kbus_empty_message_queue(struct kbus_private_data  *priv)
 	printk(KERN_DEBUG "kbus: ** Emptying message queue\n");
 
 	list_for_each_entry_safe(ptr, next, queue, list) {
+		struct kbus_message_struct	*msg = ptr->msg;
 
 		/* XXX Let the user know */
 		printk(KERN_DEBUG "kbus: Deleting message from queue\n");
-		(void) kbus_check_message(ptr->msg);
+		(void) kbus_report_message(KERN_DEBUG, msg);
+
+		/*
+		 * If it wanted a reply. let the sender know it's going away
+		 * (but taking care not to send a message to ourselves, by
+		 * accident!)
+		 */
+		if ((msg->flags & KBUS_BIT_WANT_A_REPLY) &&
+		     msg->to != priv->id ) {
+			/* There's not much else we can do if this should fail... */
+			(void) kbus_push_synthetic_message(priv->dev,priv->id,
+							   msg->from,msg->id,
+							   "$.KBUS.Replier.GoneAway");
+		}
 
 		/* Remove it from the list */
 		list_del(&ptr->list);
@@ -769,7 +898,7 @@ static int kbus_find_replier(struct kbus_dev	*dev,
 }
 
 /*
- * Find out who, if anyone, is bound as a listener to the given message name.
+ * Find out who, if anyone, is bound as listener/replier to this message name.
  *
  * 'listeners' is an array of (just) listener ids. It may be NULL (if there are
  * no listeners or if there was an error). It is up to the caller to free it.
@@ -947,19 +1076,141 @@ static int kbus_remember_binding(struct kbus_dev	*dev,
 }
 
 /*
+ * Decide if we should keep this message, because we are still bound to it.
+ */
+static int kbus_we_should_keep_this_message(struct kbus_private_data    *priv,
+					    int				 is_our_request,
+					    uint32_t			 name_len,
+					    char			*name)
+{
+	uint32_t	*listeners = NULL;
+	uint32_t	 replier = 0;
+	int		 num_listeners, ii;
+	int		 still_wanted = false;
+
+	/*
+	 * This is rather a heavy hammer to wield, but we shouldn't do it
+	 * *that* often, and it does guarantee to do (what we think is) the
+	 * Right Thing.
+	 */
+	num_listeners = kbus_find_listeners(priv->dev,&listeners,&replier,
+					    name_len,name);
+
+	if (num_listeners < 0)		/* Hmm, what else to do on error? */
+		return true;
+	else if (num_listeners == 0)
+		return false;
+
+	/*
+	 * If the message wanted us to reply to it, and we're still bound as a
+	 * replier on that message name, then we must keep it.
+	 */
+	if (is_our_request && replier == priv->id) {
+		kfree(listeners);
+		return true;
+	}
+	for (ii=0; ii<num_listeners; ii++) {
+		if (listeners[ii] == priv->id) {
+			still_wanted = true;
+			break;
+		}
+	}
+	kfree(listeners);
+	return still_wanted;
+}
+
+/*
+ * Forget any messages (in our queue) that match.
+ *
+ * If they were a request (needing a reply) generate an appropriate synthetic
+ * message.
+ */
+static int kbus_forget_matching_messages(struct kbus_private_data  *priv,
+					 uint32_t		    bound_to,
+					 uint32_t		    replier,
+					 uint32_t		    guaranteed,
+					 uint32_t		    len,
+					 char			   *name)
+{
+	struct list_head		*queue = &priv->message_queue;
+	struct kbus_message_queue_item	*ptr;
+	struct kbus_message_queue_item	*next;
+
+	printk(KERN_DEBUG "kbus: Forgetting matching messages\n");
+
+	list_for_each_entry_safe(ptr, next, queue, list) {
+		struct kbus_message_struct	*msg = ptr->msg;
+		int  is_our_request = (KBUS_BIT_WANT_YOU_TO_REPLY & msg->flags);
+		/*
+		 * A replier binding matches only (our) requests, and a
+		 * non-replier binding matches only things we don't need
+		 * to reply to
+		 */
+		if (( is_our_request && !replier) ||
+		    (!is_our_request &&  replier) )
+			continue;
+
+		if (msg->name_len != len)
+			continue;
+
+		if (strncmp((char *)msg->rest,name,len))
+			continue;
+
+		/*
+		 * OK, it looks like it matches.
+		 *
+		 * However, we don't know if there is another binding in the
+		 * bindings list that matches as well (even for a replier, we
+		 * might be bound with a wildcard and with a more specific
+		 * binding)
+		 */
+		if (kbus_we_should_keep_this_message(priv, is_our_request,
+						     msg->name_len,
+						     (char *)msg->rest))
+			continue;
+
+		/* XXX Let the user know */
+		printk(KERN_DEBUG "kbus: Deleting message from queue\n");
+		(void) kbus_report_message(KERN_DEBUG, msg);
+
+		/* If it wanted a reply. let the sender know it's going away */
+		if (msg->flags & KBUS_BIT_WANT_A_REPLY) {
+			/* There's not much else we can do if this should fail... */
+			(void) kbus_push_synthetic_message(priv->dev,priv->id,
+							   msg->from,msg->id,
+							   "$.KBUS.Replier.Unbound");
+		}
+
+		/* Remove it from the list */
+		list_del(&ptr->list);
+		/* And forget all about it... */
+		kfree(ptr->msg);
+		kfree(ptr);
+
+		priv->message_count --;
+	}
+	printk(KERN_DEBUG "kbus: Leaving %d messages in queue\n",
+	       priv->message_count);
+	return 0;
+}
+
+/*
  * Remove an existing binding.
  *
  * Returns 0 if all went well, a negative value if it did not.
  */
-static int kbus_forget_binding(struct kbus_dev	*dev,
-			       uint32_t		 bound_to,
-			       uint32_t		 replier,
-			       uint32_t		 guaranteed,
-			       uint32_t		 len,
-			       char		*name)
+static int kbus_forget_binding(struct kbus_dev		*dev,
+			       struct kbus_private_data *priv,
+			       uint32_t			 bound_to,
+			       uint32_t			 replier,
+			       uint32_t			 guaranteed,
+			       uint32_t			 len,
+			       char			*name)
 {
 	struct kbus_message_binding *ptr;
 	struct kbus_message_binding *next;
+
+	int removed_entry = false;
 
 	/* We don't want anyone writing to the list whilst we do this */
 	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
@@ -982,19 +1233,40 @@ static int kbus_forget_binding(struct kbus_dev	*dev,
 			if (ptr->name)
 				kfree(ptr->name);
 			kfree(ptr);
-			return 0;
+
+			/*
+			 * Leave dealing with the implications of this until
+			 * we're safely out of our iteration over this list.
+			 * This means the code to do such dealing doesn't need
+			 * to care if we're already manipulating this list
+			 * (just in case).
+			 */
+			removed_entry = true;
+			break;
 		}
 	}
-	printk(KERN_DEBUG "kbus: Could not find/unbind %u %c %c '%s'\n",
-	       bound_to,
-	       (replier?'R':'L'),
-	       (guaranteed?'T':'F'),
-	       name);
-	return -EINVAL;
+
+	if (removed_entry) {
+		/* And forget any messages we now shouldn't receive */
+		(void) kbus_forget_matching_messages(priv,bound_to,
+						     replier,guaranteed,len,
+						     name);
+		return 0;
+	} else {
+		printk(KERN_DEBUG "kbus: Could not find/unbind %u %c %c '%s'\n",
+		       bound_to,
+		       (replier?'R':'L'),
+		       (guaranteed?'T':'F'),
+		       name);
+		return -EINVAL;
+	}
 }
 
 /*
  * Remove all bindings for a particular listener.
+ *
+ * Called from kbus_release, which will itself handle removing messages
+ * (that *were* bound) from the message queue.
  */
 static void kbus_forget_my_bindings(struct kbus_dev	*dev,
 				   uint32_t		 bound_to)
@@ -1021,7 +1293,9 @@ static void kbus_forget_my_bindings(struct kbus_dev	*dev,
 /*
  * Remove all bindings.
  *
- * Assumed to be called because the device is closing, and thus doesn't lock.
+ * Assumed to be called because the device is closing, and thus doesn't lock,
+ * nor does it worry about generating synthetic messages as requests are doomed
+ * not to get replies.
  */
 static void kbus_forget_all_bindings(struct kbus_dev	*dev)
 {
@@ -1643,7 +1917,6 @@ static int kbus_unbind(struct kbus_private_data	*priv,
 		       unsigned long		 arg)
 {
 	int		retval = 0;
-	uint32_t	id  = priv->id;
 	struct kbus_m_bind_struct *bind;
 	char		*name = NULL;
 
@@ -1681,8 +1954,8 @@ static int kbus_unbind(struct kbus_private_data	*priv,
 		goto done;
 	}
 	printk(KERN_DEBUG "kbus: UNBIND %c %d:'%s' on %u\n",
-	       (bind->replier?'R':'L'), bind->len, name, id);
-	retval = kbus_forget_binding(dev, id,
+	       (bind->replier?'R':'L'), bind->len, name, priv->id);
+	retval = kbus_forget_binding(dev, priv, priv->id,
 				     bind->replier,
 				     bind->guaranteed,
 				     bind->len,
@@ -1820,7 +2093,7 @@ static int kbus_send(struct kbus_private_data	*priv,
 	if (retval) goto done;
 
 	/*
-	 * It would be nice if the calculate message length matched the length
+	 * It would be nice if the calculated message length matched the length
 	 * of the data we've been given to write...
 	 */
 	if (msg_len > priv->write_msg_len) {
