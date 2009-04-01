@@ -234,7 +234,7 @@ class Message(object):
         """Set our data from individual arguments.
 
         Note that 'data' must be:
-        
+
         1. an array.array('L',...) instance, or
         2. a string, or something else compatible, which will be converted to
            the above, or
@@ -327,9 +327,9 @@ class Message(object):
 
     def equivalent(self,other):
         """Returns true if the two messages are mostly the same.
-        
+
         For purposes of this comparison, we ignore:
-        
+
         * 'id',
         * 'flags',
         * 'in_reply_to' and
@@ -341,9 +341,9 @@ class Message(object):
         parts1 = list(self.extract())
         parts2 = list(other.extract())
         parts1[0] = parts2[0]   # id
-	parts1[1] = parts2[1]   # in_reply_to
-	parts1[3] = parts2[3]   # from_
-	parts1[4] = parts2[4]   # flags
+        parts1[1] = parts2[1]   # in_reply_to
+        parts1[3] = parts2[3]   # from_
+        parts1[4] = parts2[4]   # flags
         return parts1 == parts2
 
     def set_want_reply(self,value=True):
@@ -801,12 +801,12 @@ def read_bindings(names):
 
     'names' is a dictionary of file descriptor binding id to string (name)
     - for instance:
-    
+
         { 10:'f1', 11:'f2' }
 
     If there is no entry in the 'names' dictionary for a given id, then the
     id will be used (as an integer).
-        
+
     Thus with the above we would return a list of the form::
 
         [ ('f1',True,True,'$.Fred'), ('f2',False,True,'$.Fred.Bob'),
