@@ -90,6 +90,22 @@ struct kbus_m_bind_query_struct {
 	char		*name;
 };
 
+/* A message id is made up of two fields.
+ *
+ * If the network id is 0, then it is up to us (KBUS) to assign the
+ * serial number. In other words, this is a local message.
+ *
+ * If the network id is non-zero, then this message is presumed to
+ * have originated from another "network", and we preserve both the
+ * network id and the serial number.
+ *
+ * The message id {0,0} is special and reserved (for use by KBUS).
+ */
+struct kbus_message_id {
+	uint32_t		network_id;
+	uint32_t		serial_num;
+};
+
 /* When the user writes/reads a message, they use: */
 struct kbus_message_struct {
 	/*
@@ -364,7 +380,7 @@ struct kbus_dev
 	 * Every message sent has a unique id (again, unique per device).
 	 * We're the obvious keeper of this...
 	 */
-	uint32_t		next_msg_id;
+	uint32_t		next_msg_serial_num;
 };
 
 /* Our actual devices, 0 through kbus_num_devices */
@@ -1571,7 +1587,6 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 	int		 num_listeners;
 	int		 ii;
 	int		 num_sent = 0;	/* # successfully "sent" */
-	uint32_t	 old_next_msg_id = dev->next_msg_id;
 
 	/*
 	 * Remember that
@@ -1604,20 +1619,6 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 		retval = -EADDRNOTAVAIL;
 		goto done_sending;
 	}
-
-	/*
-	 * Since we apparently have some listeners, or a replier, or at least
-	 * we *are* a reply, it seems safe to assume we're going to be able to
-	 * send this message, so (slightly tentatively) assign it a message id.
-	 *
-	 * We reserve id 0, for use by kbus for synthetic messages.
-	 */
-	if (dev->next_msg_id == 0)
-		dev->next_msg_id ++;
-	msg->id = dev->next_msg_id ++;
-
-	/* The message needs to say it is from us */
-	msg->from = priv->id;
 
 	/* And we need to add it to the queue for each interested party */
 
@@ -1726,24 +1727,6 @@ done_sending:
 
 	if (listeners)
 		kfree(listeners);
-
-	if (num_sent == 0) {
-		/*
-		 * We didn't actually manage to send this message to anyone, so
-		 * we can reuse the message id...
-		 *
-		 * Luckily (!) we remembered what the "next msg id" used to be,
-		 * so we don't have to worry about decrementing back over the
-		 * unsigned overflow boundary...
-		 */
-		dev->next_msg_id = old_next_msg_id;
-	} else {
-		/*
-		 * We did send the message, so it becomes the last message we
-		 * sent, whose id can be queried
-		 */
-		priv->last_msg_id = msg->id;
-	}
 	return retval;
 }
 
@@ -2158,6 +2141,27 @@ static int kbus_send(struct kbus_private_data	*priv,
 		goto done;
 	}
 
+	/* The message needs to say it is from us */
+	msg->from = priv->id;
+
+	/*
+	 * After this point, we're fairly happy that the message is
+	 * well-formed, and any problem will end up sending back an
+	 * exception/synthetic message.
+	 *
+	 * XXX Or at least that's the intention XXX
+	 *
+	 * So assign our message its serial number
+	 *
+	 * (Note that we reserve id 0, just in case)
+	 */
+	if (dev->next_msg_serial_num == 0)
+		dev->next_msg_serial_num ++;
+	msg->id = dev->next_msg_serial_num ++;
+
+	/* Also, remember this as the "message we last (tried to) send" */
+	priv->last_msg_id = msg->id;
+
 	/*
 	 * Figure out who should receive this message, and write it to them
 	 */
@@ -2392,7 +2396,7 @@ static void kbus_setup_cdev(struct kbus_dev *dev, int devno)
 	INIT_LIST_HEAD(&dev->open_files_list);
 
 	dev->next_file_id = 0;
-	dev->next_msg_id = 0;
+	dev->next_msg_serial_num = 0;
 
 	cdev_init(&dev->cdev, &kbus_fops);
 	dev->cdev.owner = THIS_MODULE;
