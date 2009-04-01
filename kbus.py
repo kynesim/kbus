@@ -75,6 +75,53 @@ def _IOWR(t,nr,size):
 def _BIT(nr):
     return 1L << nr
 
+class MessageId(object):
+    """A wrapper around a message id.
+
+        >>> a = MessageId(1,2)
+        >>> a
+        MessageId(1,2)
+        >>> a < MessageId(2,2) and a < MessageId(1,3)
+        True
+        >>> a == MessageId(1,2)
+        True
+        >>> a > MessageId(0,2) and a > MessageId(1,1)
+        True
+
+    We support addition in a limited manner:
+
+        >>> a + 3
+        MessageId(1,5)
+
+    simply to make it convenient to generate unique message ids.
+    """
+
+    def __init__(self,network_id=0,serial_num=0):
+        self.network_id = network_id
+        self.serial_num = serial_num
+
+    def __repr__(self):
+        return 'MessageId(%u,%u)'%(self.network_id,self.serial_num)
+
+    def __cmp__(self,other):
+        if self.network_id == other.network_id:
+            if self.serial_num == other.serial_num:
+                return 0
+            elif self.serial_num < other.serial_num:
+                return -1
+            else:
+                return 1
+        elif self.network_id < other.network_id:
+            return -1
+        else:
+            return 1
+
+    def __add__(self,other):
+        if not isinstance(other,int):
+            raise NotImplemented
+        else:
+            return MessageId(self.network_id,self.serial_num+other)
+
 class Message(object):
     """A wrapper for a KBUS message
 
@@ -82,7 +129,7 @@ class Message(object):
 
         >>> msg1 = Message('$.Fred',data='1234')
         >>> msg1
-        Message('$.Fred', data=array('L', [875770417L]), to=0L, from_=0L, in_reply_to=0L, flags=0x00000000, id=0L)
+        Message('$.Fred', data=array('L', [875770417L]), to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
 
     Note that if the 'data' is specified as a string, there must be a multiple
     of 4 characters -- i.e., it must "fill out" an array of unsigned int-32
@@ -109,7 +156,7 @@ class Message(object):
     Or one can use an array (of unsigned 32-bit words):
 
         >>> msg1.array
-        array('L', [1937072747L, 0L, 0L, 0L, 0L, 0L, 6L, 1L, 1917201956L, 25701L, 875770417L, 1801614707L])
+        array('L', [1937072747L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 6L, 1L, 1917201956L, 25701L, 875770417L, 1801614707L])
         >>> msg3 = Message(msg1.array)
         >>> msg3 == msg1
         True
@@ -123,20 +170,28 @@ class Message(object):
 
     For convenience, the parts of a Message may be retrieved as properties:
 
-        >>> msg1.id
-        0L
+        >>> print msg1.id
+        None
         >>> msg1.name
         '$.Fred'
         >>> msg1.to
         0L
         >>> msg1.from_
         0L
-        >>> msg1.in_reply_to
-        0L
+        >>> print msg1.in_reply_to
+        None
         >>> msg1.flags
         0L
         >>> msg1.data
         array('L', [875770417L])
+
+    Message ids are objects if set:
+
+        >>> msg1 = Message('$.Fred',data='1234',id=MessageId(0,33))
+        >>> msg1
+        Message('$.Fred', data=array('L', [875770417L]), to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=MessageId(0,33))
+        >>> msg1.id
+        MessageId(0,33)
 
     The arguments to Message() are:
 
@@ -182,15 +237,17 @@ class Message(object):
     URGENT              = _BIT(3)
 
     # Header offsets (in case I change them again)
-    IDX_START_GUARD     = 0
-    IDX_ID              = 1
-    IDX_IN_REPLY_TO     = 2
-    IDX_TO              = 3
-    IDX_FROM            = 4
-    IDX_FLAGS           = 5
-    IDX_NAME_LEN        = 6
-    IDX_DATA_LEN        = 7     # required to be the last fixed item
-    IDX_END_GUARD       = -1
+    IDX_START_GUARD            = 0
+    IDX_ID_NETWORK_ID          = 1
+    IDX_ID_SERIAL_NUM          = 2
+    IDX_IN_REPLY_TO_NETWORK_ID = 3
+    IDX_IN_REPLY_TO_SERIAL_NUM = 4
+    IDX_TO                     = 5
+    IDX_FROM                   = 6
+    IDX_FLAGS                  = 7
+    IDX_NAME_LEN               = 8
+    IDX_DATA_LEN               = 9     # required to be the last fixed item
+    IDX_END_GUARD              = -1
 
     def __init__(self, arg, data=None, to=0, from_=0, in_reply_to=0, flags=0, id=0):
         """Initialise a Message.
@@ -230,8 +287,11 @@ class Message(object):
         # And I personally find it useful to have the length available
         self.length = len(self.array)
 
-    def _from_data(self,name,data=None,to=0,from_=0,in_reply_to=0,flags=0,id=0):
+    def _from_data(self,name,data=None,to=0,from_=0,in_reply_to=None,flags=0,id=None):
         """Set our data from individual arguments.
+
+        Note that, if given, 'id' and 'in_reply_to' must be MessageId
+        instances.
 
         Note that 'data' must be:
 
@@ -245,8 +305,18 @@ class Message(object):
 
         # Start guard, id, to, from, flags -- all defaults for the moment
         msg.append(self.START_GUARD)    # start guard
-        msg.append(id)                  # remember KBUS will overwrite the id
-        msg.append(in_reply_to)
+        if id:
+            msg.append(id.network_id)
+            msg.append(id.serial_num)
+        else:
+            msg.append(0)
+            msg.append(0)
+        if in_reply_to:
+            msg.append(in_reply_to.network_id)
+            msg.append(in_reply_to.serial_num)
+        else:
+            msg.append(0)
+            msg.append(0)
         msg.append(to)
         msg.append(from_)
         msg.append(flags)
@@ -380,10 +450,20 @@ class Message(object):
         return self.array[self.IDX_FLAGS] & Message.URGENT
 
     def _get_id(self):
-        return self.array[self.IDX_ID]
+        network_id = self.array[self.IDX_ID_NETWORK_ID]
+        serial_num = self.array[self.IDX_ID_SERIAL_NUM]
+        if network_id == 0 and serial_num == 0:
+            return None
+        else:
+            return MessageId(network_id,serial_num)
 
     def _get_in_reply_to(self):
-        return self.array[self.IDX_IN_REPLY_TO]
+        network_id = self.array[self.IDX_IN_REPLY_TO_NETWORK_ID]
+        serial_num = self.array[self.IDX_IN_REPLY_TO_SERIAL_NUM]
+        if network_id == 0 and serial_num == 0:
+            return None
+        else:
+            return MessageId(network_id,serial_num)
 
     def _get_to(self):
         return self.array[self.IDX_TO]
@@ -453,10 +533,10 @@ class Request(Message):
 
         >>> msg = Message('$.Fred',data='abcd',flags=Message.WANT_A_REPLY)
         >>> msg
-        Message('$.Fred', data=array('L', [1684234849L]), to=0L, from_=0L, in_reply_to=0L, flags=0x00000001, id=0L)
+        Message('$.Fred', data=array('L', [1684234849L]), to=0L, from_=0L, in_reply_to=None, flags=0x00000001, id=None)
         >>> req = Request('$.Fred',data='abcd')
         >>> req
-        Message('$.Fred', data=array('L', [1684234849L]), to=0L, from_=0L, in_reply_to=0L, flags=0x00000001, id=0L)
+        Message('$.Fred', data=array('L', [1684234849L]), to=0L, from_=0L, in_reply_to=None, flags=0x00000001, id=None)
         >>> req == msg
         True
 
@@ -497,12 +577,12 @@ class Reply(Message):
 
     For instance:
 
-        >>> msg = Message('$.Fred',data='abcd',from_=27,to=99,id=132,flags=Message.WANT_A_REPLY)
+        >>> msg = Message('$.Fred',data='abcd',from_=27,to=99,id=MessageId(0,132),flags=Message.WANT_A_REPLY)
         >>> msg
-        Message('$.Fred', data=array('L', [1684234849L]), to=99L, from_=27L, in_reply_to=0L, flags=0x00000001, id=132L)
+        Message('$.Fred', data=array('L', [1684234849L]), to=99L, from_=27L, in_reply_to=None, flags=0x00000001, id=MessageId(0,132))
         >>> reply = Reply(msg)
         >>> reply
-        Message('$.Fred', data=array('L'), to=27L, from_=0L, in_reply_to=132L, flags=0x00000000, id=0L)
+        Message('$.Fred', data=array('L'), to=27L, from_=0L, in_reply_to=MessageId(0,132), flags=0x00000000, id=None)
 
     Note that:
 
@@ -678,9 +758,9 @@ class Interface(object):
 
         Returns 0 before any messages have been sent.
         """
-        id = array.array('L',[0])
+        id = array.array('L',[0,0])
         fcntl.ioctl(self.fd, Interface.KBUS_IOC_LASTSENT, id, True)
-        return id[0]
+        return MessageId(id[0],id[1])
 
     def find_replier(self,name):
         """Find the id of the replier (if any) for this message.

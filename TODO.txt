@@ -5,6 +5,9 @@ In no particular order (well, except for the first):
 
 * REQ Always, update documentation.
 
+* REQ Come up with a new name to replace Interface, so that other things can
+  use that term without confusion.
+
 * REQ Implement maximum message queue length per interface -- so that if one
   keeps adding messages, and no-one is reading them, one doesn't fill up the
   world.
@@ -53,14 +56,25 @@ In no particular order (well, except for the first):
 
   Note that in the Python interface this is not a big deal to the user.
 
-* ??? Consider keeping a list of all outstanding messages. (Why?)
+* REQ Keep a list of all Requests that have not been replied to, and send the
+  sender a synthetic message when an interface has released, or unbound, but
+  has not replied to a message, even though it *has* read it.
 
-* REQ Consider keeping a list of all Requests that have not been replied to
-  (this would allow kbus.c to notice that an interface has released, or
-  unbound, but has not replied to a message, even though it *has* read it).
   I might consider not doing this for the "unbind" case, since (a) it would be
   complicated and (b) the interface might well unbind and then bind again.
   Yes, that sounds a good excuse.
+
+* REQ Provide a flag on file descriptors to say:
+
+  When I've send a message, send me back a synthesised message when that
+  message has "left the system" -- i.e., when all listeners (that are going
+  to) have read it, when all repliers (that are going to) have replied to it,
+  and (if that isn't going to happen) when any exceptions regarding it have
+  been sent.
+
+  In other words, if the sender is remembering information about messages that
+  have been sent, this allows the sender to know that it can forget about the
+  message.
 
 * REQ Large message support -- allow message data to be large, held as a list
   of data split properly over pages. Really requires reference counting of

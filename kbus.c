@@ -101,7 +101,7 @@ struct kbus_m_bind_query_struct {
  *
  * The message id {0,0} is special and reserved (for use by KBUS).
  */
-struct kbus_message_id {
+struct kbus_msg_id {
 	uint32_t		network_id;
 	uint32_t		serial_num;
 };
@@ -211,17 +211,16 @@ struct kbus_message_struct {
 	 * with value 0x7375626B ('subk') (so the *actual* data is always one
 	 * 32-bit word shorter than that indicated).
 	 */
-	uint32_t	 start_guard;
-	uint32_t	 id;		/* Unique to this message */
-	uint32_t	 in_reply_to;	/* Which message this is a reply to */
-	uint32_t	 to;		/* 0 (normally) or a replier id */
-	uint32_t	 from;		/* 0 (KBUS) or the sender's id */
-	uint32_t	 flags;		/* Message type/flags */
-	uint32_t	 name_len;	/* Message name's length, in bytes */
-	uint32_t	 data_len;	/* Message length, as 32 bit words */
-	uint32_t	 rest[];	/* Message name, data and end_guard */
+	uint32_t		start_guard;
+	struct kbus_msg_id	id;	     /* Unique to this message */
+	struct kbus_msg_id	in_reply_to; /* Which message this is a reply to */
+	uint32_t		to;	     /* 0 (normally) or a replier id */
+	uint32_t		from;	     /* 0 (KBUS) or the sender's id */
+	uint32_t		flags;	     /* Message type/flags */
+	uint32_t		name_len;    /* Message name's length, in bytes */
+	uint32_t		data_len;    /* Message length, as 32 bit words */
+	uint32_t		rest[];	     /* Message name, data and end_guard */
 };
-/* XXX and, at least for the moment, we also use this internally */
 
 #define KBUS_MSG_START_GUARD	0x7375626B
 #define KBUS_MSG_END_GUARD	0x6B627573
@@ -319,7 +318,7 @@ struct kbus_private_data {
 	struct list_head	 list;
 	struct kbus_dev		*dev;		/* Which device we are on */
 	uint32_t	 	 id;		/* Our own id */
-	uint32_t		 last_msg_id;	/* Last message written to us */
+	struct kbus_msg_id	 last_msg_id;	/* Last message written to us */
 	uint32_t		 message_count;	/* How many messages for us */
 	uint32_t		 max_messages;	/* How many messages allowed */
 	struct list_head	 message_queue;	/* Messages for us */
@@ -378,7 +377,6 @@ struct kbus_dev
 
 	/*
 	 * Every message sent has a unique id (again, unique per device).
-	 * We're the obvious keeper of this...
 	 */
 	uint32_t		next_msg_serial_num;
 };
@@ -426,10 +424,11 @@ static void kbus_empty_write_msg(struct kbus_private_data *priv)
 /*
  * Build a KBUS synthetic message/exception. We assume no data.
  */
-static struct kbus_message_struct *kbus_build_kbus_message(const char  *name,
-							   uint32_t	from,
-							   uint32_t	to,
-							   uint32_t	in_reply_to)
+static struct kbus_message_struct
+	*kbus_build_kbus_message(const char		*name,
+				 uint32_t		 from,
+				 uint32_t		 to,
+				 struct kbus_msg_id	 in_reply_to)
 {
 	size_t		name_len;
 	uint32_t	msg_len;
@@ -622,16 +621,18 @@ static void kbus_report_message(char				*kern_prefix,
 	uint32_t	*data_p;
 	if (!kbus_dissect_message(msg,&msg_len,&name_p,&data_p)) {
 		if (msg->data_len)
-			printk("%skbus: message id:%u to:%u from:%u"
-			       " flags:%08x name:'%.*s' data/%u:%08x\n",
+			printk("%skbus: message id %u:%u to %u from %u"
+			       " flags %08x name '%.*s' data/%u %08x\n",
 			       kern_prefix,
-			       msg->id,msg->to,msg->from,msg->flags,msg->name_len,
+			       msg->id.network_id,msg->id.serial_num,
+			       msg->to,msg->from,msg->flags,msg->name_len,
 			       name_p,msg->data_len,data_p[0]);
 		else
-			printk("%skbus: message id:%u to:%u from:%u"
-			       " flags:%08x name:'%.*s'\n",
+			printk("%skbus: message id %u:%u to %u from %u"
+			       " flags %08x name '%.*s'\n",
 			       kern_prefix,
-			       msg->id,msg->to,msg->from,msg->flags,msg->name_len,
+			       msg->id.network_id,msg->id.serial_num,
+			       msg->to,msg->from,msg->flags,msg->name_len,
 			       name_p);
 	}
 }
@@ -739,11 +740,11 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
  *
  * Returns 0 if all goes well, or a negative error.
  */
-static int kbus_push_synthetic_message(struct kbus_dev	*dev,
-				       uint32_t		 from,
-				       uint32_t		 to,
-				       uint32_t		 in_reply_to,
-				       const char	*name)
+static int kbus_push_synthetic_message(struct kbus_dev	  *dev,
+				       uint32_t		   from,
+				       uint32_t		   to,
+				       struct kbus_msg_id  in_reply_to,
+				       const char	  *name)
 {
 	struct kbus_private_data	*priv = NULL;
 	struct list_head		*queue = NULL;
@@ -1468,7 +1469,7 @@ static int kbus_open(struct inode *inode, struct file *filp)
 	 * Use the official magic to retrieve our actual device data
 	 * so we can remember it for other file operations.
 	 */
-	dev = priv->dev = container_of(inode->i_cdev, struct kbus_dev, cdev);
+	dev = container_of(inode->i_cdev, struct kbus_dev, cdev);
 
 	if (down_interruptible(&dev->sem)) {
 		kfree(priv);
@@ -1488,19 +1489,12 @@ static int kbus_open(struct inode *inode, struct file *filp)
 	 */
 	if (dev->next_file_id == 0)
 		dev->next_file_id ++;
-	priv->id = dev->next_file_id ++;
-	priv->message_count = 0;
+
+	memset(priv, 0, sizeof(*priv));
+	priv->dev = dev;
+	priv->id  = dev->next_file_id ++;
 	priv->max_messages = DEF_MAX_MESSAGES;
-	priv->last_msg_id = 0;	/* What else could it be... */
 	INIT_LIST_HEAD(&priv->message_queue);
-
-	priv->read_msg = NULL;
-	priv->read_msg_len = 0;
-	priv->read_msg_pos = 0;
-
-	priv->write_msg = NULL;
-	priv->write_msg_size = 0;
-	priv->write_msg_len  = 0;
 
 	(void) kbus_remember_open_file(dev,priv);
 
@@ -1647,7 +1641,8 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 	 * If this is a reply message, then we need to send it to the
 	 * original sender, irrespective of whether they are a listener or not.
 	 */
-	if (msg->in_reply_to) {
+	if (msg->in_reply_to.network_id != 0 ||
+	    msg->in_reply_to.serial_num != 0) {
 		struct kbus_private_data *l_priv;
 		printk(KERN_DEBUG "kbus/write: Replying to original sender %u\n",
 		       msg->to);
@@ -2151,13 +2146,15 @@ static int kbus_send(struct kbus_private_data	*priv,
 	 *
 	 * XXX Or at least that's the intention XXX
 	 *
-	 * So assign our message its serial number
+	 * So if it's in our network, assign our message its serial number
 	 *
 	 * (Note that we reserve id 0, just in case)
 	 */
-	if (dev->next_msg_serial_num == 0)
-		dev->next_msg_serial_num ++;
-	msg->id = dev->next_msg_serial_num ++;
+	if (msg->id.network_id == 0) {
+		if (dev->next_msg_serial_num == 0)
+			dev->next_msg_serial_num ++;
+		msg->id.serial_num = dev->next_msg_serial_num ++;
+	}
 
 	/* Also, remember this as the "message we last (tried to) send" */
 	priv->last_msg_id = msg->id;
@@ -2291,10 +2288,6 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 
 	case KBUS_IOC_NEXTMSG:
 		/*
-		 * What is the length of the next message queued for this
-		 * file descriptor (0 if no next message)
-		 *
-		 * XXX TO BECOME:
 		 * Get the next message ready to be read, and return its
 		 * length.
 		 *
@@ -2332,11 +2325,14 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 		/*
 		 * What was the message id of the last message written to this
 		 * file descriptor? Before any messages have been written to this
-		 * file descriptor, this ioctl will return 0.
+		 * file descriptor, this ioctl will return {0,0).
 		 */
-		printk(KERN_DEBUG "kbus: LASTSENT for %u was %u\n",
-		       id,priv->last_msg_id);
-		retval = __put_user(priv->last_msg_id, (uint32_t __user *)arg);
+		printk(KERN_DEBUG "kbus: LASTSENT for %u was %u:%u\n",id,
+		       priv->last_msg_id.network_id,
+		       priv->last_msg_id.serial_num);
+		if (copy_to_user((void *)arg, &priv->last_msg_id,
+				      sizeof(priv->last_msg_id)))
+			retval = -EFAULT;
 		break;
 
 	case KBUS_IOC_MAXMSGS:

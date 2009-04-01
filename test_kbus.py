@@ -585,41 +585,36 @@ class TestKernelModule:
                 # Writing to $.Fred on f1 - writes message id N
                 msgF = Message('$.Fred','data')
                 f1.send_msg(msgF)
-                n = f1.last_msg_id()
+                n0 = f1.last_msg_id()
 
                 # Writing to $.Jim on f1 - writes message N+1
                 msgJ = Message('$.Jim','moredata')
                 f1.send_msg(msgJ)
-                assert f1.last_msg_id() == n+1
+                assert f1.last_msg_id() == n0+1
 
                 # Reading f1 - message N
                 length = f1.next_msg()
                 assert length == msgF.length*4
                 data = f1.read_msg(length)
-                # Extract the message id -- this is N
-                n0 = data.extract()[0]
-                assert n == n0
+                assert n0 == data.id
 
                 # Reading f2 - should be message N+1
                 length = f2.next_msg()
                 assert length == msgJ.length*4
                 data = f2.read_msg(length)
-                n3 = data.extract()[0]
-                assert n3 == n0+1
+                assert data.id == n0+1
 
                 # Reading f1 - should be message N again
                 length = f1.next_msg()
                 assert length == msgF.length*4
                 data = f1.read_msg(length)
-                n1 = data.extract()[0]
-                assert n1 == n0
+                assert data.id == n0
 
                 # Reading f1 - should be message N again
                 length = f1.next_msg()
                 assert length == msgF.length*4
                 data = f1.read_msg(length)
-                n2 = data.extract()[0]
-                assert n2 == n0
+                assert data.id == n0
 
                 # No more messages on f1
                 assert f1.next_msg() == 0
