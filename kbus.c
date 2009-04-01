@@ -293,10 +293,10 @@ struct kbus_message_binding {
  * 'last_msg_id' is the message id of the last message that was (successfully)
  * written to this file descriptor. It is needed when constructing a reply.
  *
- * XXX 'message_count' is a count of the number of messages currently in the
- * XXX 'message_queue' -- i.e., the number of messages waiting to be read. I'm
- * XXX not * convinced that this is actually necessary, and it might go away
- * XXX later on.
+ * We have a queue of messages waiting for us to read them, in 'message_queue'.
+ * 'message_count' is how many messages are in the queue, and 'max_messages'
+ * is an indication of how many messages we shall allow in the queue (although
+ * this might not be "binding" under some circumstances - XXX clarify XXX)
  */
 struct kbus_private_data {
 	struct list_head	 list;
@@ -304,6 +304,7 @@ struct kbus_private_data {
 	uint32_t	 	 id;		/* Our own id */
 	uint32_t		 last_msg_id;	/* Last message written to us */
 	uint32_t		 message_count;	/* How many messages for us */
+	uint32_t		 max_messages;	/* How many messages allowed */
 	struct list_head	 message_queue;	/* Messages for us */
 
 	/* The message currently being read by the user */
@@ -316,6 +317,9 @@ struct kbus_private_data {
 	size_t		 write_msg_size;	/* The buffer size */
 	size_t		 write_msg_len;		/* How much they've written */
 };
+
+/* What is a sensible number for the default maximum number of messages? */
+#define DEF_MAX_MESSAGES	100
 
 /* Information belonging to each /dev/kbus<N> device */
 struct kbus_dev
@@ -372,6 +376,11 @@ struct kbus_message_queue_item {
 	struct list_head		 list;
 	struct kbus_message_struct	*msg;
 };
+
+/*
+ * ===========================================================================
+ * This is to allow *me* to see where the definitions end and code starts
+ */
 
 /* As few foreshadowings as I can get away with */
 static struct kbus_private_data *kbus_find_open_file(struct kbus_dev	*dev,
@@ -1459,6 +1468,7 @@ static int kbus_open(struct inode *inode, struct file *filp)
 		dev->next_file_id ++;
 	priv->id = dev->next_file_id ++;
 	priv->message_count = 0;
+	priv->max_messages = DEF_MAX_MESSAGES;
 	priv->last_msg_id = 0;	/* What else could it be... */
 	INIT_LIST_HEAD(&priv->message_queue);
 
@@ -1494,12 +1504,6 @@ static int kbus_release(struct inode *inode, struct file *filp)
 
 	if (down_interruptible(&dev->sem))
 		return -ERESTARTSYS;
-
-	/*
-	 * XXX If there are any messages in our queue that we should
-	 * XXX be replying to, kbus should really generate some sort
-	 * XXX of exception for each, indicating we have gone away...
-	 */
 
 	kbus_empty_read_msg(priv);
 	kbus_empty_write_msg(priv);
@@ -1701,6 +1705,8 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 			       listener);
 			/* The listener has presumably just gone away. */
 			/* XXX So presumably we should forget about them... */
+			/* XXX But what could cause this to happen, unexpectedly? */
+			/* XXX How much *should* we worry here? */
 			continue;
 		}
 
@@ -2158,6 +2164,26 @@ done:
 		return retval;
 }
 
+static int kbus_maxmsgs(struct kbus_private_data	*priv,
+			struct kbus_dev			*dev,
+			unsigned long			 arg)
+{
+	int		retval = 0;
+	uint32_t	requested_max;
+
+	retval = __get_user(requested_max, (uint32_t __user *)arg);
+	if (retval) return retval;
+
+	printk(KERN_DEBUG "kbus: MAXMSGS requests %u (was %u) for %u\n",
+	       requested_max, priv->max_messages, priv->id);
+
+	/* A value of 0 is just a query for what the current length is */
+	if (requested_max > 0)
+		priv->max_messages = requested_max;
+
+	return __put_user(priv->max_messages, (uint32_t __user *)arg);
+}
+
 #include <linux/ioctl.h>
 #define KBUS_IOC_MAGIC	'k'	/* 0x6b - which seems fair enough for now */
 #define KBUS_IOC_RESET	  _IO(  KBUS_IOC_MAGIC,  1)
@@ -2170,8 +2196,9 @@ done:
 #define KBUS_IOC_SEND	  _IOR( KBUS_IOC_MAGIC,  8, char *)
 #define KBUS_IOC_DISCARD  _IO(  KBUS_IOC_MAGIC,  9)
 #define KBUS_IOC_LASTSENT _IOR( KBUS_IOC_MAGIC, 10, char *)
+#define KBUS_IOC_MAXMSGS  _IOWR(KBUS_IOC_MAGIC, 11, char *)
 /* XXX If adding another IOCTL, remember to increment the next number! XXX */
-#define KBUS_IOC_MAXNR	10
+#define KBUS_IOC_MAXNR	11
 
 static int kbus_ioctl(struct inode *inode, struct file *filp,
 		      unsigned int cmd, unsigned long arg)
@@ -2295,6 +2322,19 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 		printk(KERN_DEBUG "kbus: LASTSENT for %u was %u\n",
 		       id,priv->last_msg_id);
 		retval = __put_user(priv->last_msg_id, (uint32_t __user *)arg);
+		break;
+
+	case KBUS_IOC_MAXMSGS:
+		/*
+		 * Set (and/or query) maximum number of messages in this
+		 * interfaces queue.
+		 *
+		 * arg in: 0 (for query) or maximum number wanted
+		 * arg out: maximum number allowed
+		 * return: 0 means OK, otherwise not OK
+		 */
+		printk(KERN_DEBUG "kbus: REPLIER\n");
+		retval = kbus_maxmsgs(priv, dev, arg);
 		break;
 
 	default:  /* *Should* be redundant, if we got our range checks right */

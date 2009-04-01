@@ -572,6 +572,7 @@ class Interface(object):
     KBUS_IOC_SEND     = _IOR(KBUS_IOC_MAGIC,  8, ctypes.sizeof(ctypes.c_char_p))
     KBUS_IOC_DISCARD  = _IO(KBUS_IOC_MAGIC,   9)
     KBUS_IOC_LASTSENT = _IOR(KBUS_IOC_MAGIC, 10, ctypes.sizeof(ctypes.c_char_p))
+    KBUS_IOC_MAXMSGS  = _IOWR(KBUS_IOC_MAGIC,11, ctypes.sizeof(ctypes.c_char_p))
 
     def __init__(self,which=0,mode='r'):
         if mode not in ('r','rw'):
@@ -680,7 +681,7 @@ class Interface(object):
         fcntl.ioctl(self.fd, Interface.KBUS_IOC_LASTSENT, id, True)
         return id[0]
 
-    def find_listener(self,name):
+    def find_replier(self,name):
         """Find the id of the replier (if any) for this message.
 
         Returns None if there was no replier, otherwise the replier's id.
@@ -691,6 +692,19 @@ class Interface(object):
             return arg.return_id
         else:
             return None
+
+    def set_max_messages(self,count):
+        """Set the number of messages that can be queued on this Interface.
+
+        A 'count' of 0 does not actually change the value - this may thus be
+        used to query the Interface for the current value of the maximum.
+
+        Returns the number of message that are allowed to be queued on this
+        Interface.
+        """
+        id = array.array('L',[count])
+        fcntl.ioctl(self.fd, Interface.KBUS_IOC_MAXMSGS, id, True)
+        return id[0]
 
     def write_msg(self,message):
         """Write a Message. Doesn't send it.
