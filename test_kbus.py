@@ -1768,7 +1768,7 @@ class TestKernelModule:
                 assert a.wants_us_to_reply()
 
     def test_max_messages_readonly_1(self):
-        """Test that we can set the maximum number of messages in a queue.
+        """Test that we can set the maximum number of messages in a queue (R).
         """
         with Interface(0,'r') as f1:
             # Find out what the current value is
@@ -1785,7 +1785,7 @@ class TestKernelModule:
             assert orig_size == f1.set_max_messages(0)
 
     def test_max_messages_readwrite_1(self):
-        """Test that we can set the maximum number of messages in a queue.
+        """Test that we can set the maximum number of messages in a queue (RW).
         """
         with Interface(0,'rw') as f1:
             # Find out what the current value is
@@ -1800,6 +1800,23 @@ class TestKernelModule:
             # And we should be able to put it back
             assert orig_size == f1.set_max_messages(orig_size)
             assert orig_size == f1.set_max_messages(0)
+
+    def test_max_messages_readwrite_1a(self):
+        """Test that we can set the maximum number of messages in a queue (1a).
+        """
+        with Interface(0,'rw') as f1:
+            # Find out what the current value is - use the More Pythonic method
+            orig_size = f1.max_messages(0)
+            # It should stay the same if we ask again
+            assert orig_size == f1.max_messages(0)
+            # If we ask for a value, we should get it back
+            new_size = orig_size + 100
+            assert new_size == f1.set_max_messages(new_size)
+            # And again if we just ask
+            assert new_size == f1.max_messages(0)
+            # And we should be able to put it back
+            assert orig_size == f1.set_max_messages(orig_size)
+            assert orig_size == f1.max_messages(0)
 
 
 

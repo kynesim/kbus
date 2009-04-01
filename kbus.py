@@ -693,11 +693,21 @@ class Interface(object):
         else:
             return None
 
+    def max_messages(self,count):
+        """Return the number of messages that can be queued on this Interface.
+        """
+        id = array.array('L',[0])
+        fcntl.ioctl(self.fd, Interface.KBUS_IOC_MAXMSGS, id, True)
+        return id[0]
+
     def set_max_messages(self,count):
         """Set the number of messages that can be queued on this Interface.
 
         A 'count' of 0 does not actually change the value - this may thus be
         used to query the Interface for the current value of the maximum.
+        However, the "more Pythonic" 'max_messages()' method is provided for
+        use when such a query is wanted, which is just syntactic sugar around
+        such a call.
 
         Returns the number of message that are allowed to be queued on this
         Interface.
