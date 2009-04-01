@@ -1909,4 +1909,41 @@ class TestKernelModule:
                 assert e.name == '$.KBUS.Replier.QueueFull'
                 assert e.is_synthetic()
 
+    def test_write_too_many_messages_to_replier_with_listener(self):
+        """Writing too many messages to a replier (with listener)
+
+        Some should get dropped.
+        """
+        with Interface(0,'rw') as sender:
+            with Interface(0,'rw') as replier:
+                with Interface(0,'r') as listener:
+                    replier.bind('$.Fred',replier=True)
+                    listener.bind('$.Fred',replier=False)
+
+                    assert replier.set_max_messages(1) == 1
+
+                    m = Request('$.Fred')
+                    sender.send_msg(m)
+                    ok_msg_id = sender.last_msg_id()
+                    sender.send_msg(m)
+                    failed_msg_id = sender.last_msg_id()
+
+                    r = replier.read_next_msg()
+                    assert r.equivalent(m)
+                    assert r.id == ok_msg_id
+
+                    assert replier.next_msg() == 0
+
+                    e = sender.read_next_msg()
+                    assert e.name == '$.KBUS.Replier.QueueFull'
+                    assert e.is_synthetic()
+                    assert e.in_reply_to == failed_msg_id
+
+                    # And the listener should only see the message that succeeded
+                    a = listener.read_next_msg()
+                    assert a.equivalent(m)
+                    assert a.id == ok_msg_id
+
+                    assert listener.next_msg() == 0
+
 # vim: set tabstop=8 shiftwidth=4 expandtab:
