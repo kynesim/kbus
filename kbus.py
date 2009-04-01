@@ -536,10 +536,10 @@ class Reply(Message):
 class KbusBindStruct(ctypes.Structure):
     """The datastucture we need to describe a KBUS_IOC_BIND argument
     """
-    _fields_ = [('replier',    ctypes.c_uint),
-                ('guaranteed', ctypes.c_uint),
-                ('len',        ctypes.c_uint),
-                ('name',       ctypes.c_char_p)]
+    _fields_ = [('is_replier',    ctypes.c_uint),
+                ('is_guaranteed', ctypes.c_uint),
+                ('len',           ctypes.c_uint),
+                ('name',          ctypes.c_char_p)]
 
 class KbusListenerStruct(ctypes.Structure):
     """The datastucture we need to describe a KBUS_IOC_REPLIER argument
@@ -573,6 +573,7 @@ class Interface(object):
     KBUS_IOC_DISCARD  = _IO(KBUS_IOC_MAGIC,   9)
     KBUS_IOC_LASTSENT = _IOR(KBUS_IOC_MAGIC, 10, ctypes.sizeof(ctypes.c_char_p))
     KBUS_IOC_MAXMSGS  = _IOWR(KBUS_IOC_MAGIC,11, ctypes.sizeof(ctypes.c_char_p))
+    KBUS_IOC_NUMMSGS  = _IOR(KBUS_IOC_MAGIC, 12, ctypes.sizeof(ctypes.c_char_p))
 
     def __init__(self,which=0,mode='r'):
         if mode not in ('r','rw'):
@@ -693,7 +694,7 @@ class Interface(object):
         else:
             return None
 
-    def max_messages(self,count):
+    def max_messages(self):
         """Return the number of messages that can be queued on this Interface.
         """
         id = array.array('L',[0])
@@ -714,6 +715,13 @@ class Interface(object):
         """
         id = array.array('L',[count])
         fcntl.ioctl(self.fd, Interface.KBUS_IOC_MAXMSGS, id, True)
+        return id[0]
+
+    def num_messages(self):
+        """Return the number of messages that are queued on this Interface.
+        """
+        id = array.array('L',[0])
+        fcntl.ioctl(self.fd, Interface.KBUS_IOC_NUMMSGS, id, True)
         return id[0]
 
     def write_msg(self,message):

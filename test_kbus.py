@@ -1806,18 +1806,62 @@ class TestKernelModule:
         """
         with Interface(0,'rw') as f1:
             # Find out what the current value is - use the More Pythonic method
-            orig_size = f1.max_messages(0)
+            orig_size = f1.max_messages()
             # It should stay the same if we ask again
-            assert orig_size == f1.max_messages(0)
+            assert orig_size == f1.max_messages()
             # If we ask for a value, we should get it back
             new_size = orig_size + 100
             assert new_size == f1.set_max_messages(new_size)
             # And again if we just ask
-            assert new_size == f1.max_messages(0)
+            assert new_size == f1.max_messages()
             # And we should be able to put it back
             assert orig_size == f1.set_max_messages(orig_size)
-            assert orig_size == f1.max_messages(0)
+            assert orig_size == f1.max_messages()
 
+    def test_write_too_many_messages(self):
+        """Writing too many messages to an ordinary listener.
 
+        Some should get dropped.
+        """
+        with Interface(0,'rw') as sender:
+            with Interface(0,'r') as listener:
+                listener.bind('$.Fred')
+                assert listener.set_max_messages(1) == 1
+
+                m = Message('$.Fred')
+                sender.send_msg(m)
+                sender.send_msg(m)
+
+                r = listener.read_next_msg()
+                assert r.equivalent(m)
+
+                assert listener.next_msg() == 0
+
+    def test_write_too_many_messages_guaranteed(self):
+        """Writing too many messages to an ordinary listener, guaranteed.
+
+        With guaranteed delivery, the messages should not be dropped.
+        """
+        with Interface(0,'rw') as sender:
+            with Interface(0,'r') as listener:
+                listener.bind('$.Fred',guaranteed=True)
+                assert listener.set_max_messages(1) == 1
+
+                m = Message('$.Fred')
+                sender.send_msg(m)
+                sender.send_msg(m)
+
+                # Because we asked for guaranteed delivery, we should
+                # keep the message, even though it makes out queue too long
+                assert listener.max_messages() == 1
+                assert listener.num_messages() == 2
+
+                r = listener.read_next_msg()
+                assert r.equivalent(m)
+
+                r = listener.read_next_msg()
+                assert r.equivalent(m)
+
+                assert listener.next_msg() == 0
 
 # vim: set tabstop=8 shiftwidth=4 expandtab:
