@@ -1813,7 +1813,7 @@ class TestKernelModule:
             assert orig_size == f1.set_max_messages(orig_size)
             assert orig_size == f1.max_messages()
 
-    def test_write_too_many_messages(self):
+    def test_write_too_many_messages_to_listener(self):
         """Writing too many messages to an ordinary listener.
 
         Some should get dropped.
@@ -1832,7 +1832,7 @@ class TestKernelModule:
 
                 assert listener.next_msg() == 0
 
-    def test_write_too_many_messages_guaranteed(self):
+    def test_write_too_many_messages_to_guaranteed_listener(self):
         """Writing too many messages to an ordinary listener, guaranteed.
 
         With guaranteed delivery, the messages should not be dropped.
@@ -1847,7 +1847,7 @@ class TestKernelModule:
                 sender.send_msg(m)
 
                 # Because we asked for guaranteed delivery, we should
-                # keep the message, even though it makes out queue too long
+                # keep the message, even though it makes our queue too long
                 assert listener.max_messages() == 1
                 assert listener.num_messages() == 2
 
@@ -1858,5 +1858,55 @@ class TestKernelModule:
                 assert r.equivalent(m)
 
                 assert listener.next_msg() == 0
+
+    def test_write_too_many_messages_to_guaranteed_replier(self):
+        """Writing too many messages to a replier, guaranteed.
+
+        With guaranteed delivery, the messages should not be dropped.
+        """
+        with Interface(0,'rw') as sender:
+            with Interface(0,'rw') as replier:
+                replier.bind('$.Fred',replier=True,guaranteed=True)
+                assert replier.set_max_messages(1) == 1
+
+                m = Request('$.Fred')
+                sender.send_msg(m)
+                sender.send_msg(m)
+
+                # Because we asked for guaranteed delivery, we should
+                # keep the message, even though it makes our queue too long
+                assert replier.max_messages() == 1
+                assert replier.num_messages() == 2
+
+                r = replier.read_next_msg()
+                assert r.equivalent(m)
+
+                r = replier.read_next_msg()
+                assert r.equivalent(m)
+
+                assert replier.next_msg() == 0
+
+    def test_write_too_many_messages_to_replier(self):
+        """Writing too many messages to a replier.
+
+        Some should get dropped.
+        """
+        with Interface(0,'rw') as sender:
+            with Interface(0,'rw') as replier:
+                replier.bind('$.Fred',replier=True)
+                assert replier.set_max_messages(1) == 1
+
+                m = Request('$.Fred')
+                sender.send_msg(m)
+                sender.send_msg(m)
+
+                r = replier.read_next_msg()
+                assert r.equivalent(m)
+
+                assert replier.next_msg() == 0
+
+                e = sender.read_next_msg()
+                assert e.name == '$.KBUS.Replier.QueueFull'
+                assert e.is_synthetic()
 
 # vim: set tabstop=8 shiftwidth=4 expandtab:

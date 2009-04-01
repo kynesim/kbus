@@ -730,9 +730,8 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 /*
  * Generate a synthetic message, and add it to the recipient's message queue.
  *
- * 'from' is the id of the recipient who has gone away (this allows the
- * recipient of the synthetic message to tell who has gone, which they may want
- * to know).
+ * 'from' is the id of the recipient who has gone away, not received the
+ * message, or whatever.
  *
  * 'to' is the 'from' for the message we're bouncing (or whatever).
  *
@@ -1640,6 +1639,12 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 	/*
 	 * If this is a reply message, then we need to send it to the
 	 * original sender, irrespective of whether they are a listener or not.
+	 *
+	 * XXX Should we be respecting message queue lengths here?
+	 * XXX It's a bit difficult, because the recipient is not (well,
+	 * XXX need not be) a replier or listener, so doesn't have the
+	 * XXX option of setting a GUARANTEE delivery flag on itself
+	 * XXX - I thus tend to think that we should assume such.
 	 */
 	if (msg->in_reply_to.network_id != 0 ||
 	    msg->in_reply_to.serial_num != 0) {
@@ -1662,11 +1667,12 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 			goto done_sending;
 	}
 
-	/* Repliers only get the message if it is marked as wanting a reply. */
+	/* Repliers only get request messages */
 	if (replier && (KBUS_BIT_WANT_A_REPLY & msg->flags)) {
+		struct kbus_private_data    *l_priv   = replier->bound_to;
+
 		printk(KERN_DEBUG "kbus/write: Considering replier %u\n",
 		       replier->bound_to_id);
-
 		/*
 		 * If the 'to' field was set, then we only want to send it if
 		 * it is *that* specific replier.
@@ -1677,6 +1683,31 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 			retval = -EPIPE;	/* Well, sort of */
 			goto done_sending;
 		}
+
+		/* ============================================================== */
+		/* NB: I'm aware this is likely to need moving elsewhere later on */
+		/* ============================================================== */
+		/*
+		 * If we're not guaranteeing to deliver this message, check
+		 * we've got room for it on our queue
+		 */
+		if (!replier->is_guaranteed &&
+		    l_priv->message_count >= l_priv->max_messages) {
+			printk(KERN_DEBUG "kbus: Message queue for replier %u has"
+			       " %u/%u messages (full)\n",l_priv->id,
+			       l_priv->message_count,l_priv->max_messages);
+
+			/* What can we sensibly do if this goes wrong? */
+			(void) kbus_push_synthetic_message(dev,
+							   replier->bound_to_id,
+							   msg->from,
+							   msg->id,
+							   "$.KBUS.Replier.QueueFull");
+
+			/* We've not sent it. so no listeners get it either */
+			goto done_sending;
+		}
+		/* ============================================================== */
 
 		retval = kbus_push_message(replier->bound_to,msg_len,msg,true);
 		if (retval == 0)
@@ -1702,7 +1733,7 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 		 */
 		if (!binding->is_guaranteed &&
 		    l_priv->message_count >= l_priv->max_messages) {
-			printk(KERN_DEBUG "kbus: Message queue for %d has"
+			printk(KERN_DEBUG "kbus: Message queue for listener %u has"
 			       " %u/%u messages (full)\n",l_priv->id,
 			       l_priv->message_count,l_priv->max_messages);
 			/* For now, just ignore *this* listener */
@@ -2146,7 +2177,8 @@ static int kbus_send(struct kbus_private_data	*priv,
 	 *
 	 * XXX Or at least that's the intention XXX
 	 *
-	 * So if it's in our network, assign our message its serial number
+	 * So if it's in the local network, assign our message its serial
+	 * number
 	 *
 	 * (Note that we reserve id 0, just in case)
 	 */
