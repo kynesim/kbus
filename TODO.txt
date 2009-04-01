@@ -8,11 +8,32 @@ In no particular order (well, except for the first):
 * REQ Come up with a new name to replace Interface, so that other things can
   use that term without confusion.
 
-* REQ Implement maximum message queue length per interface -- so that if one
-  keeps adding messages, and no-one is reading them, one doesn't fill up the
-  world.
+        Slot, Port, Opening, Access, Talker, Bus, ...
 
-* REQ Implement GUARANTEED message delivery (a listener *shall* receive all
+* DONE Message ids should have more "space"
+
+  * Network id can be used to indicate that the message came from another
+    namespace (e.g., through a bridge). Our local namespace has network id
+    set to 0.
+
+    Interface such as bridges, which pipe through messages from another
+    namespace, can use the network id to (a) indicate that the local KBUS
+    should not change the message id serial number, and (b) store whatever
+    information is deemed useful in translating the message id back to the
+    equivalent in the other namespace.
+
+  * Message id is unique within a network/namespace. If network id is 0, then
+    KBUS will assign a new message id to a message, on "send", when it has
+    determined that the message is (basically) well formed. This means that
+    after "send" one can always do "sender.get_last_msg_id()", and *that*
+    allows one to identify the message being named in an exception message
+    (a synthetic message from KBUS itself).
+
+* DONE (see below) Implement maximum message queue length per interface -- so
+  that if one keeps adding messages, and no-one is reading them, one doesn't
+  fill up the world.
+
+* DONE Implement GUARANTEED message delivery (a listener *shall* receive all
   messages it is bound to, irrespective of the above point).
 
   - If a replier is not guaranteed to receive a request with a particular
