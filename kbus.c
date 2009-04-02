@@ -430,6 +430,20 @@ struct kbus_message_queue_item {
 static struct kbus_private_data *kbus_find_open_file(struct kbus_dev	*dev,
 						     uint32_t		 id);
 
+static int kbus_same_message_id(struct kbus_msg_id 	*msg_id,
+				uint32_t		 network_id,
+				uint32_t		 serial_num)
+{
+	return msg_id->network_id == network_id &&
+		msg_id->serial_num == serial_num;
+}
+
+/* A message is a reply iff 'in_reply_to' is non-zero */
+static int kbus_message_is_reply(struct kbus_message_struct *msg)
+{
+	return !kbus_same_message_id(&msg->in_reply_to,0,0);
+}
+
 static void kbus_empty_read_msg(struct kbus_private_data *priv)
 {
 	if (priv->read_msg)
@@ -1577,6 +1591,22 @@ static struct kbus_private_data
 }
 
 /*
+ * Determine if the specified recipient has room for a message in their queue
+ */
+static int kbus_queue_is_full(struct kbus_private_data	*priv,
+			      char			*what)
+{
+	if (priv->message_count < priv->max_messages) {
+		return false;
+	} else {
+		printk(KERN_DEBUG "kbus: Message queue for %s %u is full"
+		       " (%u/%u messages)\n",what,priv->id,
+		       priv->message_count,priv->max_messages);
+		return true;
+	}
+}
+
+/*
  * Actually write to anyone interested in this message.
  *
  * Remember that the caller is going to free the message data after
@@ -1593,6 +1623,7 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 {
 	struct kbus_message_binding	**listeners = NULL;
 	struct kbus_message_binding	 *replier = NULL;
+	struct kbus_private_data	 *reply_to = NULL;
 	ssize_t		 retval = 0;
 	int		 num_listeners;
 	int		 ii;
@@ -1633,9 +1664,87 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 	/* And we need to add it to the queue for each interested party */
 
 	/*
-	 * XXX We *should* check if this is allowed before doing it,
-	 * XXX for instance if we've run out of room on one of the
-	 * XXX queues, but ignore that for the moment...
+	 * ===================================================================
+	 * Check if the proposed recipients *can* receive
+	 * ===================================================================
+	 */
+
+	/*
+	 * Are we replying to a sender's request?
+	 * Replies are unusual in that the recipient will not normally have
+	 * bound to the appropriate message name.
+	 */
+	if (kbus_message_is_reply(msg)) {
+		printk(KERN_DEBUG "kbus/write: Considering sender-of-request %u\n",
+		       msg->to);
+
+		reply_to = kbus_find_private_data(priv,dev,msg->to);
+		if (reply_to == NULL) {
+			printk(KERN_DEBUG "kbus/write: Can't find sender %u\n",msg->to);
+			/* Which sounds fairly nasty */
+			goto done_sending;
+		}
+
+		if (kbus_queue_is_full(reply_to,"sender-of-request")) {
+			/* XXX This seems inadequate, somehow XXX */
+			(void) kbus_push_synthetic_message(dev,
+							   replier->bound_to_id,
+							   msg->from,
+							   msg->id,
+							   "$.KBUS.Sender.QueueFull");
+
+			/* We've not sent it, so no listeners get it either */
+			goto done_sending;
+		}
+	}
+
+	/* Repliers only get request messages */
+	if (replier && !(msg->flags & KBUS_BIT_WANT_A_REPLY))
+		replier = NULL;
+
+	/* And even then, only if they have room in their queue */
+	if (replier) {
+		printk(KERN_DEBUG "kbus/write: Considering replier %u\n",
+		       replier->bound_to_id);
+		/*
+		 * If the 'to' field was set, then we only want to send it if
+		 * it is *that* specific replier (and otherwise we want to fail
+		 * with "that's the wrong person for this (stateful) request").
+		 */
+		if (msg->to && (replier->bound_to_id != msg->to)) {
+			printk(KERN_DEBUG "kbus/write: Request to %u,"
+			       " but replier is %u\n",msg->to,replier->bound_to_id);
+			retval = -EPIPE;	/* Well, sort of */
+			goto done_sending;
+		}
+
+		if (kbus_queue_is_full(replier->bound_to,"replier")) {
+			(void) kbus_push_synthetic_message(dev,
+							   replier->bound_to_id,
+							   msg->from,
+							   msg->id,
+							   "$.KBUS.Replier.QueueFull");
+
+			/* We've not sent it. so no listeners get it either */
+			goto done_sending;
+		}
+	}
+
+	for (ii=0; ii<num_listeners; ii++) {
+		printk(KERN_DEBUG "kbus/write: Considering listener %u\n",
+		       listeners[ii]->bound_to_id);
+
+		if (kbus_queue_is_full(listeners[ii]->bound_to,"listener")) {
+			/* For now, just ignore *this* listener */
+			listeners[ii] = NULL;
+			continue;
+		}
+	}
+
+	/*
+	 * ===================================================================
+	 * Actually send the messages
+	 * ===================================================================
 	 */
 
 	/*
@@ -1653,93 +1762,17 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 	 * Be careful if altering this...
 	 */
 
-	/*
-	 * If this is a reply message, then we need to send it to the original
-	 * sender, irrespective of whether they are a listener or not.
-	 */
-	if (msg->in_reply_to.network_id != 0 ||
-	    msg->in_reply_to.serial_num != 0) {
-		struct kbus_private_data *l_priv;
-		printk(KERN_DEBUG "kbus/write: Replying to original sender %u\n",
-		       msg->to);
-
-		l_priv = kbus_find_private_data(priv,dev,msg->to);
-		if (l_priv == NULL) {
-			printk(KERN_DEBUG "kbus/write: Can't find sender %u\n",
-			       msg->to);
-			/* Which sounds fairly nasty */
-			goto done_sending;
-		}
-
-		/* ============================================================== */
-		/* NB: I'm aware this is likely to need moving elsewhere later on */
-		/* ============================================================== */
-		/*
-		 * Check we've got room for this message on our queue
-		 */
-		if (l_priv->message_count >= l_priv->max_messages) {
-			printk(KERN_DEBUG "kbus: Message queue for sender-of-request %u has"
-			       " %u/%u messages (full)\n",l_priv->id,
-			       l_priv->message_count,l_priv->max_messages);
-
-			/* What can we sensibly do if this goes wrong? */
-			/* XXX This seems inadequate, somehow XXX */
-			(void) kbus_push_synthetic_message(dev,
-							   replier->bound_to_id,
-							   msg->from,
-							   msg->id,
-							   "$.KBUS.Sender.QueueFull");
-
-			/* We've not sent it. so no listeners get it either */
-			goto done_sending;
-		}
-		/* ============================================================== */
-
-		retval = kbus_push_message(l_priv,msg_len,msg,true);
+	/* If it's a reply message and we've got someone to reply to, send it */
+	if (reply_to) {
+		retval = kbus_push_message(reply_to,msg_len,msg,true);
 		if (retval == 0)
 			num_sent ++;
 		else
 			goto done_sending;
 	}
 
-	/* Repliers only get request messages */
-	if (replier && (KBUS_BIT_WANT_A_REPLY & msg->flags)) {
-		struct kbus_private_data    *l_priv   = replier->bound_to;
-
-		printk(KERN_DEBUG "kbus/write: Considering replier %u\n",
-		       replier->bound_to_id);
-		/*
-		 * If the 'to' field was set, then we only want to send it if
-		 * it is *that* specific replier.
-		 */
-		if (msg->to && (replier->bound_to_id != msg->to)) {
-			printk(KERN_DEBUG "kbus/write: Request to %u,"
-			       " but replier is %u\n",msg->to,replier->bound_to_id);
-			retval = -EPIPE;	/* Well, sort of */
-			goto done_sending;
-		}
-
-		/* ============================================================== */
-		/* NB: I'm aware this is likely to need moving elsewhere later on */
-		/* ============================================================== */
-		/* Check we've got room for this message on our queue */
-		if (l_priv->message_count >= l_priv->max_messages) {
-			printk(KERN_DEBUG "kbus: Message queue for replier %u has"
-			       " %u/%u messages (full)\n",l_priv->id,
-			       l_priv->message_count,l_priv->max_messages);
-
-			/* What can we sensibly do if this goes wrong? */
-			(void) kbus_push_synthetic_message(dev,
-							   replier->bound_to_id,
-							   msg->from,
-							   msg->id,
-							   "$.KBUS.Replier.QueueFull");
-
-			/* We've not sent it. so no listeners get it either */
-			goto done_sending;
-		}
-		/* ============================================================== */
-
+	/* If it's a request, and we've got a replier for it, send it */
+	if (replier) {
 		retval = kbus_push_message(replier->bound_to,msg_len,msg,true);
 		if (retval == 0)
 			num_sent ++;
@@ -1747,33 +1780,16 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 			goto done_sending;
 	}
 
+	/* For each listener, if they're still interested, send it */
 	for (ii=0; ii<num_listeners; ii++) {
-		struct kbus_message_binding *binding  = listeners[ii];
-		uint32_t		     listener = binding->bound_to_id;
-		struct kbus_private_data    *l_priv   = binding->bound_to;
-
-		printk(KERN_DEBUG "kbus/write: Considering listener %u\n",
-		       listener);
-
-		/* ============================================================== */
-		/* NB: I'm aware this is likely to need moving elsewhere later on */
-		/* ============================================================== */
-		/* Check we've got room for this message on our queue */
-		if (l_priv->message_count >= l_priv->max_messages) {
-			printk(KERN_DEBUG "kbus: Message queue for listener %u has"
-			       " %u/%u messages (full)\n",l_priv->id,
-			       l_priv->message_count,l_priv->max_messages);
-			/* For now, just ignore *this* listener */
-			retval = 0;
-			continue;
+		struct kbus_message_binding *listener = listeners[ii];
+		if (listener) {
+			retval = kbus_push_message(listener->bound_to,msg_len,msg,false);
+			if (retval == 0)
+				num_sent ++;
+			else
+				goto done_sending;
 		}
-		/* ============================================================== */
-
-		retval = kbus_push_message(l_priv,msg_len,msg,false);
-		if (retval == 0)
-			num_sent ++;
-		else
-			goto done_sending;
 	}
 
 done_sending:
