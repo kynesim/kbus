@@ -799,13 +799,14 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
  *
  * 'in_reply_to' should be the message id of that same message.
  *
- * Returns 0 if all goes well, or a negative error.
+ * Doesn't return anything since I can't think of anything useful to do if it
+ * goes wrong.
  */
-static int kbus_push_synthetic_message(struct kbus_dev	  *dev,
-				       uint32_t		   from,
-				       uint32_t		   to,
-				       struct kbus_msg_id  in_reply_to,
-				       const char	  *name)
+static void kbus_push_synthetic_message(struct kbus_dev	  *dev,
+					uint32_t		   from,
+					uint32_t		   to,
+					struct kbus_msg_id  in_reply_to,
+					const char	  *name)
 {
 	struct kbus_private_data	*priv = NULL;
 	struct list_head		*queue = NULL;
@@ -817,7 +818,7 @@ static int kbus_push_synthetic_message(struct kbus_dev	  *dev,
 	if (!priv) {
 		printk(KERN_ERR "kbus: Cannot send synthetic reply to %u,"
 		       " as they are gone\n",to);
-		return -EADDRNOTAVAIL;
+		return;
 	}
 
 	queue = &priv->message_queue;
@@ -826,13 +827,13 @@ static int kbus_push_synthetic_message(struct kbus_dev	  *dev,
 	       " onto queue for %u\n",name,to);
 
 	new_msg = kbus_build_kbus_message(name,from,to,in_reply_to);
-	if (!new_msg) return -EFAULT;
+	if (!new_msg) return;
 
 	item = kmalloc(sizeof(*item), GFP_KERNEL);
 	if (!item) {
 		printk(KERN_ERR "kbus: Cannot kmalloc new (synthetic) message item\n");
 		kfree(new_msg);
-	       	return -EFAULT;
+	       	return;
 	}
 	item->msg = new_msg;
 
@@ -850,7 +851,7 @@ static int kbus_push_synthetic_message(struct kbus_dev	  *dev,
 	printk(KERN_DEBUG "kbus: Leaving %d messages in queue\n",
 	       priv->message_count);
 
-	return 0;
+	return;
 }
 
 /*
@@ -917,10 +918,9 @@ static int kbus_empty_message_queue(struct kbus_private_data  *priv)
 		 */
 		if ((msg->flags & KBUS_BIT_WANT_YOU_TO_REPLY) &&
 		     msg->to != priv->id ) {
-			/* There's not much else we can do if this should fail... */
-			(void) kbus_push_synthetic_message(priv->dev,priv->id,
-							   msg->from,msg->id,
-							   "$.KBUS.Replier.GoneAway");
+			kbus_push_synthetic_message(priv->dev,priv->id,
+						    msg->from,msg->id,
+						    "$.KBUS.Replier.GoneAway");
 		}
 
 		/* Remove it from the list */
@@ -1288,10 +1288,9 @@ static int kbus_forget_matching_messages(struct kbus_private_data  *priv,
 
 		/* If it wanted a reply. let the sender know it's going away */
 		if (msg->flags & KBUS_BIT_WANT_A_REPLY) {
-			/* There's not much else we can do if this should fail... */
-			(void) kbus_push_synthetic_message(priv->dev,priv->id,
-							   msg->from,msg->id,
-							   "$.KBUS.Replier.Unbound");
+			kbus_push_synthetic_message(priv->dev,priv->id,
+						    msg->from,msg->id,
+						    "$.KBUS.Replier.Unbound");
 		}
 
 		/* Remove it from the list */
@@ -1649,6 +1648,9 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 	int		 ii;
 	int		 num_sent = 0;	/* # successfully "sent" */
 
+	int	all_or_fail = msg->flags & KBUS_BIT_ALL_OR_FAIL;
+	int	all_or_wait = msg->flags & KBUS_BIT_ALL_OR_WAIT;
+
 	/*
 	 * Remember that
 	 * (a) a listener may occur more than once in our array, and
@@ -1706,14 +1708,19 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 		}
 
 		if (kbus_queue_is_full(reply_to,"sender-of-request")) {
-			/* XXX This seems inadequate, somehow XXX */
-			(void) kbus_push_synthetic_message(dev,
-							   replier->bound_to_id,
-							   msg->from,
-							   msg->id,
-							   "$.KBUS.SenderOfRequest.QueueFull");
-
-			/* We've not sent it, so no listeners get it either */
+			if (all_or_wait)
+				kbus_push_synthetic_message(dev,
+							    reply_to->id,
+							    msg->from,
+							    msg->id,
+							    "$.KBUS.BlockingNotImplemented");
+			else
+				kbus_push_synthetic_message(dev,
+							    reply_to->id,
+							    msg->from,
+							    msg->id,
+							    "$.KBUS.SenderOfRequest.QueueFull");
+			retval = 1;
 			goto done_sending;
 		}
 	}
@@ -1739,13 +1746,19 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 		}
 
 		if (kbus_queue_is_full(replier->bound_to,"replier")) {
-			(void) kbus_push_synthetic_message(dev,
-							   replier->bound_to_id,
-							   msg->from,
-							   msg->id,
-							   "$.KBUS.Replier.QueueFull");
-
-			/* We've not sent it. so no listeners get it either */
+			if (all_or_wait)
+				kbus_push_synthetic_message(dev,
+							    replier->bound_to_id,
+							    msg->from,
+							    msg->id,
+							    "$.KBUS.BlockingNotImplemented");
+			else
+				kbus_push_synthetic_message(dev,
+							    replier->bound_to_id,
+							    msg->from,
+							    msg->id,
+							    "$.KBUS.Replier.QueueFull");
+			retval = 1;
 			goto done_sending;
 		}
 	}
@@ -1755,9 +1768,27 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 		       listeners[ii]->bound_to_id);
 
 		if (kbus_queue_is_full(listeners[ii]->bound_to,"listener")) {
-			/* For now, just ignore *this* listener */
-			listeners[ii] = NULL;
-			continue;
+			if (all_or_wait) {
+				kbus_push_synthetic_message(dev,
+							    listeners[ii]->bound_to_id,
+							    msg->from,
+							    msg->id,
+							    "$.KBUS.BlockingNotImplemented");
+				retval = 1;
+				goto done_sending;
+			} else if (all_or_fail) {
+				kbus_push_synthetic_message(dev,
+							    listeners[ii]->bound_to_id,
+							    msg->from,
+							    msg->id,
+							    "$.KBUS.Listener.QueueFull");
+				retval = 1;
+				goto done_sending;
+			} else {
+				/* For now, just ignore *this* listener */
+				listeners[ii] = NULL;
+				continue;
+			}
 		}
 	}
 
