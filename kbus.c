@@ -2234,10 +2234,12 @@ done:
 	/* We've now finished with our copy of the message */
 	kbus_empty_write_msg(priv);
 
-	if (retval == 0) 
-		return __put_user(msg_len, (uint32_t __user *)arg);
-	else
-		return retval;
+	if (retval == 0) {
+		if (copy_to_user((void *)arg,
+				 &priv->last_msg_id, sizeof(priv->last_msg_id)))
+			retval = -EFAULT;
+	}
+	return retval;
 }
 
 static int kbus_maxmsgs(struct kbus_private_data	*priv,
@@ -2375,7 +2377,10 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 		break;
 
 	case KBUS_IOC_SEND:
-		/* Send the curent message, we've finished writing it. */
+		/*
+		 * Send the curent message, we've finished writing it.
+		 * Return the message id of said message.
+		 */
 		printk(KERN_DEBUG "kbus: SEND\n");
 		retval = kbus_send(priv,dev, arg);
 		break;

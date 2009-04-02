@@ -761,9 +761,9 @@ class Interface(object):
 
         Raises IOError with errno ENOMSG if there was no message to send.
         """
-        msg_len = array.array('L',[0])
-        fcntl.ioctl(self.fd, Interface.KBUS_IOC_SEND, msg_len, True)
-        return self.last_msg_id()
+        id = array.array('L',[0,0])
+        fcntl.ioctl(self.fd, Interface.KBUS_IOC_SEND, id, True)
+        return MessageId(id[0],id[1])
 
     def discard(self):
         """Discard the message being written.
