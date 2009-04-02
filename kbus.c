@@ -78,7 +78,6 @@ static struct device    **kbus_class_devices;
 /* When the user asks to bind a message name to an interface, they use: */
 struct kbus_m_bind_struct {
 	uint32_t	 is_replier;	/* are we a replier? */
-	uint32_t	 is_guaranteed;	/* do we receive *all* the messages? */
 	uint32_t	 name_len;
 	char		*name;
 };
@@ -251,10 +250,12 @@ struct kbus_message_struct {
  *
  *    If both bits are set, the message will be rejected as invalid.
  *
+ *    Both flags are ignored in reply messages (i.e., messages with the
+ *    'in_reply_to' field set).
+ *
  * If both are unset, then a send will behave in the default manner. That is,
- * the message will be added to a listener's queue if there is room or if the
- * listener is GUARANTEED to receive that message, but otherwise the listener
- * will (silently) not receive the message.
+ * the message will be added to a listener's queue if there is room but
+ * otherwise the listener will (silently) not receive the message.
  *
  *     (Obviously, if the listener is a replier, and the message is a request,
  *     then a KBUS message will be synthesised in the normal manner when a
@@ -262,15 +263,14 @@ struct kbus_message_struct {
  *
  * If the KBUS_BIT_ALL_OR_WAIT bit is set, then a send should block until
  * all recipients can be sent the message. Specifically, before the message is
- * sent, all recipients must either be GUARANTEED recipients, or must have room
- * on their message queues for this message, and if they do not, the send will
- * block until there is room for the message on all the non-GUARANTEED queues.
+ * sent, all recipients must have room on their message queues for this
+ * message, and if they do not, the send will block until there is room for the
+ * message on all the queues.
  *
  * If the KBUS_BIT_ALL_OR_FAIL bit is set, then a send should fail if all
  * recipients cannot be sent the message. Specifically, before the message is
- * sent, all recipients must either be GUARANTEED recipients, or must have room
- * on their message queues for this message, and if they do not, the send will
- * fail.
+ * sent, all recipients must have room on their message queues for this
+ * message, and if they do not, the send will fail.
  */
 #define	KBUS_BIT_WANT_A_REPLY		BIT(0)
 #define KBUS_BIT_WANT_YOU_TO_REPLY	BIT(1)
@@ -314,7 +314,6 @@ struct kbus_message_binding {
 	struct kbus_private_data *bound_to;	/* who we're bound to */
 	uint32_t		  bound_to_id;	/* but the id is often useful */
 	uint32_t		  is_replier;	/* bound as a replier */
-	uint32_t		  is_guaranteed;/* delivery guaranteed */
 	uint32_t		  name_len;
 	char			 *name;		/* the message name */
 };
@@ -342,8 +341,7 @@ struct kbus_message_binding {
  *
  * We have a queue of messages waiting for us to read them, in 'message_queue'.
  * 'message_count' is how many messages are in the queue, and 'max_messages'
- * is an indication of how many messages we shall allow in the queue (although
- * this might not be "binding" under some circumstances - XXX clarify XXX)
+ * is an indication of how many messages we shall allow in the queue.
  */
 struct kbus_private_data {
 	struct list_head	 list;
@@ -1080,7 +1078,6 @@ static int kbus_find_listeners(struct kbus_dev			 *dev,
 static int kbus_remember_binding(struct kbus_dev	  *dev,
 				 struct kbus_private_data *priv,
 				 uint32_t		   replier,
-				 uint32_t		   guaranteed,
 				 uint32_t		   name_len,
 				 char			  *name)
 {
@@ -1111,16 +1108,14 @@ static int kbus_remember_binding(struct kbus_dev	  *dev,
 	new->bound_to = priv;
 	new->bound_to_id = priv->id;	/* Useful shorthand? */
 	new->is_replier = replier;
-	new->is_guaranteed = guaranteed;
 	new->name_len = name_len;
 	new->name = name;
 
 	list_add(&new->list, &dev->bound_message_list);
 
-	printk(KERN_DEBUG "kbus: Bound %u %c %c '%.*s'\n",
+	printk(KERN_DEBUG "kbus: Bound %u %c '%.*s'\n",
 	       new->bound_to_id,
 	       (new->is_replier?'R':'L'),
-	       (new->is_guaranteed?'T':'F'),
 	       new->name_len,
 	       new->name);
 	return 0;
@@ -1193,7 +1188,6 @@ done:
 static int kbus_forget_matching_messages(struct kbus_private_data  *priv,
 					 uint32_t		    bound_to_id,
 					 uint32_t		    bound_as_replier,
-					 uint32_t		    delivery_guaranteed,
 					 uint32_t		    name_len,
 					 char			   *name)
 {
@@ -1289,7 +1283,6 @@ static int kbus_forget_binding(struct kbus_dev		*dev,
 			       struct kbus_private_data *priv,
 			       uint32_t			 bound_to_id,
 			       uint32_t			 replier,
-			       uint32_t			 guaranteed,
 			       uint32_t			 name_len,
 			       char			*name)
 {
@@ -1304,15 +1297,12 @@ static int kbus_forget_binding(struct kbus_dev		*dev,
 			continue;
 		if (replier != ptr->is_replier)
 			continue;
-		if (guaranteed != ptr->is_guaranteed)
-			continue;
 		if (name_len != ptr->name_len)
 			continue;
 		if ( !strncmp(name,ptr->name,name_len) ) {
-			printk(KERN_DEBUG "kbus: Unbound %u %c %c '%.*s'\n",
+			printk(KERN_DEBUG "kbus: Unbound %u %c '%.*s'\n",
 			       ptr->bound_to_id,
 			       (ptr->is_replier?'R':'L'),
-			       (ptr->is_guaranteed?'T':'F'),
 			       ptr->name_len,
 			       ptr->name);
 			/* And we don't want anyone reading for this */
@@ -1336,14 +1326,12 @@ static int kbus_forget_binding(struct kbus_dev		*dev,
 	if (removed_binding) {
 		/* And forget any messages we now shouldn't receive */
 		(void) kbus_forget_matching_messages(priv,bound_to_id,
-						     replier,guaranteed,name_len,
-						     name);
+						     replier,name_len,name);
 		return 0;
 	} else {
-		printk(KERN_DEBUG "kbus: Could not find/unbind %u %c %c '%.*s'\n",
+		printk(KERN_DEBUG "kbus: Could not find/unbind %u %c '%.*s'\n",
 		       bound_to_id,
 		       (replier?'R':'L'),
-		       (guaranteed?'T':'F'),
 		       name_len,name);
 		return -EINVAL;
 	}
@@ -1363,10 +1351,9 @@ static void kbus_forget_my_bindings(struct kbus_dev	*dev,
 
 	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
 		if (bound_to_id == ptr->bound_to_id) {
-			printk(KERN_DEBUG "kbus: Unbound %u %c %c '%.*s'\n",
+			printk(KERN_DEBUG "kbus: Unbound %u %c '%.*s'\n",
 			       ptr->bound_to_id,
 			       (ptr->is_replier?'R':'L'),
-			       (ptr->is_guaranteed?'T':'F'),
 			       ptr->name_len,
 			       ptr->name);
 			list_del(&ptr->list);
@@ -1391,10 +1378,9 @@ static void kbus_forget_all_bindings(struct kbus_dev	*dev)
 	struct kbus_message_binding *next;
 
 	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
-		printk(KERN_DEBUG "kbus: Unbinding %u %c %c '%.*s'\n",
+		printk(KERN_DEBUG "kbus: Unbinding %u %c '%.*s'\n",
 		       ptr->bound_to_id,
 		       (ptr->is_replier?'R':'L'),
-		       (ptr->is_guaranteed?'T':'F'),
 		       ptr->name_len,
 		       ptr->name);
 		/* And we don't want anyone reading for this */
@@ -1671,11 +1657,8 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 	 * If this is a reply message, then we need to send it to the
 	 * original sender, irrespective of whether they are a listener or not.
 	 *
-	 * XXX Should we be respecting message queue lengths here?
-	 * XXX It's a bit difficult, because the recipient is not (well,
-	 * XXX need not be) a replier or listener, so doesn't have the
-	 * XXX option of setting a GUARANTEE delivery flag on itself
-	 * XXX - I thus tend to think that we should assume such.
+	 * XXX We should handle message queue limits here just as we do for
+	 * XXX all other circumstances
 	 */
 	if (msg->in_reply_to.network_id != 0 ||
 	    msg->in_reply_to.serial_num != 0) {
@@ -1690,6 +1673,30 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 			/* Which sounds fairly nasty */
 			goto done_sending;
 		}
+
+		/* ============================================================== */
+		/* NB: I'm aware this is likely to need moving elsewhere later on */
+		/* ============================================================== */
+		/*
+		 * Check we've got room for this message on our queue
+		 */
+		if (l_priv->message_count >= l_priv->max_messages) {
+			printk(KERN_DEBUG "kbus: Message queue for sender-of-request %u has"
+			       " %u/%u messages (full)\n",l_priv->id,
+			       l_priv->message_count,l_priv->max_messages);
+
+			/* What can we sensibly do if this goes wrong? */
+			/* XXX This seems inadequate, somehow XXX */
+			(void) kbus_push_synthetic_message(dev,
+							   replier->bound_to_id,
+							   msg->from,
+							   msg->id,
+							   "$.KBUS.Sender.QueueFull");
+
+			/* We've not sent it. so no listeners get it either */
+			goto done_sending;
+		}
+		/* ============================================================== */
 
 		retval = kbus_push_message(l_priv,msg_len,msg,true);
 		if (retval == 0)
@@ -1718,12 +1725,8 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 		/* ============================================================== */
 		/* NB: I'm aware this is likely to need moving elsewhere later on */
 		/* ============================================================== */
-		/*
-		 * If we're not guaranteeing to deliver this message, check
-		 * we've got room for it on our queue
-		 */
-		if (!replier->is_guaranteed &&
-		    l_priv->message_count >= l_priv->max_messages) {
+		/* Check we've got room for this message on our queue */
+		if (l_priv->message_count >= l_priv->max_messages) {
 			printk(KERN_DEBUG "kbus: Message queue for replier %u has"
 			       " %u/%u messages (full)\n",l_priv->id,
 			       l_priv->message_count,l_priv->max_messages);
@@ -1758,12 +1761,8 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 		/* ============================================================== */
 		/* NB: I'm aware this is likely to need moving elsewhere later on */
 		/* ============================================================== */
-		/*
-		 * If we're not guaranteeing to deliver this message, check
-		 * we've got room for it on our queue
-		 */
-		if (!binding->is_guaranteed &&
-		    l_priv->message_count >= l_priv->max_messages) {
+		/* Check we've got room for this message on our queue */
+		if (l_priv->message_count >= l_priv->max_messages) {
 			printk(KERN_DEBUG "kbus: Message queue for listener %u has"
 			       " %u/%u messages (full)\n",l_priv->id,
 			       l_priv->message_count,l_priv->max_messages);
@@ -1976,7 +1975,6 @@ static int kbus_bind(struct kbus_private_data	*priv,
 	       (bind->is_replier?'R':'L'), bind->name_len, name, priv->id);
 	retval = kbus_remember_binding(dev, priv,
 				       bind->is_replier,
-				       bind->is_guaranteed,
 				       bind->name_len,
 				       name);
 	if (retval == 0) {
@@ -2034,7 +2032,6 @@ static int kbus_unbind(struct kbus_private_data	*priv,
 	       (bind->is_replier?'R':'L'), bind->name_len, name, priv->id);
 	retval = kbus_forget_binding(dev, priv, priv->id,
 				     bind->is_replier,
-				     bind->is_guaranteed,
 				     bind->name_len,
 				     name);
 done:
@@ -2510,15 +2507,13 @@ static int kbus_read_proc_bindings(char *buf, char **start, off_t offset,
 			return -ERESTARTSYS;
 
 		list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
-			if (len + 4 + 10 + 3 + 3 +
-			    strlen(ptr->name) + 1 < limit)
+			if (len + 4 + 10 + 3 + strlen(ptr->name) + 1 < limit)
 			{
 				len += sprintf(buf+len,
-					       "%2d: %1u %c %c %.*s\n",
+					       "%2d: %1u %c %.*s\n",
 					       ii,
 					       ptr->bound_to_id,
 					       (ptr->is_replier?'R':'L'),
-					       (ptr->is_guaranteed?'T':'F'),
 					       ptr->name_len,
 					       ptr->name);
 			} else {

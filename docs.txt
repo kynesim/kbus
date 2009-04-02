@@ -224,30 +224,20 @@ Messages are sent by a mechanism which:
 This can cause problems if one of the queues is already full (allowing
 infinite expansion of queues would also cause problems, of couse).
 
-There are two mechanisms that can be used to (help) avoid such problems.
-
-Firstly, a listener can choose, when binding to a message name, whether or not
-it is *guaranteed* to receive all messages with that name. If a listener is
-not guaranteed to receive a particular message, and its queue is full, then
-the message will not be added to its queue.
-
-If a *replier* is not guaranteed to receive a particular message, and its
-queue is full, then the message will not be added to its queue, and the sender
-will be sent a synthetic message (an exception) to let it know that this has
-happened.
+If a *replier* cannot receive a particular message, because its queue is full,
+then the message will not be added to its queue, and the sender will be sent a
+synthetic message (an exception) to let it know that this has happened.
 
     The synthetic message may only indicate that N messages have been lost,
     rather than having a message for each lost message.
 
-Secondly, a sender can indicate if it wants a message to be:
+However, a sender can indicate if it wants a message to be:
 
-1. Added to all the listener queues, regardless (subject to the above
-   listener guarantee flags), in which case it will block until that can be
-   done (ALL_or_WAIT, sender blocks)
+1. Added to all the listener queues, regardless, in which case it will block
+   until that can be done (ALL_or_WAIT, sender blocks)
 2. Added to all the listener queues, and fail if that can't be done
    (ALL_or_FAIL)
-3. Added to all the listener queues that *guarantee* to receive the message,
-   and any other listener queues that have room (GUARANTEED)
+3. Added to all the listener queues that have room (the default)
 
 Replying
 --------

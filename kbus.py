@@ -643,7 +643,6 @@ class KbusBindStruct(ctypes.Structure):
     """The datastucture we need to describe a KBUS_IOC_BIND argument
     """
     _fields_ = [('is_replier',    ctypes.c_uint),
-                ('is_guaranteed', ctypes.c_uint),
                 ('len',           ctypes.c_uint),
                 ('name',          ctypes.c_char_p)]
 
@@ -707,24 +706,21 @@ class Interface(object):
         self.mode = None
         return ret
 
-    def bind(self,name,replier=False,guaranteed=False):
+    def bind(self,name,replier=False):
         """Bind the given name to the file descriptor.
 
         If 'replier', then we are binding as the only fd that can reply to this
         message name.
-
-        If 'guaranteed', then we require that *all* messages to us be delivered,
-        otherwise kbus may drop messages if necessary.
         """
-        arg = KbusBindStruct(replier,guaranteed,len(name),name)
+        arg = KbusBindStruct(replier,len(name),name)
         return fcntl.ioctl(self.fd, Interface.KBUS_IOC_BIND, arg);
 
-    def unbind(self,name,replier=False,guaranteed=False):
+    def unbind(self,name,replier=False):
         """Unbind the given name from the file descriptor.
 
         The arguments need to match the binding that we want to unbind.
         """
-        arg = KbusBindStruct(replier,guaranteed,len(name),name)
+        arg = KbusBindStruct(replier,len(name),name)
         return fcntl.ioctl(self.fd, Interface.KBUS_IOC_UNBIND, arg);
 
     def bound_as(self):
@@ -933,9 +929,9 @@ def read_bindings(names):
 
     /proc/kbus/bindings gives us data like::
 
-            0: 10 R T $.Fred
-            0: 11 L T $.Fred.Bob
-            0: 12 R F $.William
+            0: 10 R $.Fred
+            0: 11 L $.Fred.Bob
+            0: 12 R $.William
 
     'names' is a dictionary of file descriptor binding id to string (name)
     - for instance:
@@ -947,8 +943,8 @@ def read_bindings(names):
 
     Thus with the above we would return a list of the form::
 
-        [ ('f1',True,True,'$.Fred'), ('f2',False,True,'$.Fred.Bob'),
-          (12,True,False,'$.William' ]
+        [ ('f1',True,'$.Fred'), ('f2',False,'$.Fred.Bob'),
+          (12,True,'$.William' ]
     """
     f = open('/proc/kbus/bindings')
     l = f.readlines()
@@ -958,7 +954,7 @@ def read_bindings(names):
         # 'dev' is the device index (default is 0, may be 0..9 depending on how
         # many /dev/kbus<N> devices there are).
         # For the moment, we're going to ignore it.
-        dev,id,rep,all,name = line.split()
+        dev,id,rep,name = line.split()
         id = int(id)
         if id in names:
             id = names[int(id)]
@@ -968,13 +964,7 @@ def read_bindings(names):
             rep = False
         else:
             raise ValueError,"Got replier '%c' when expecting 'R' or 'L'"%rep
-        if all == 'T':          # Want ALL messages
-            all = True
-        elif all == 'F':        # Willing to miss some messages
-            all = False
-        else:
-            raise ValueError,"Got all '%c' when expecting 'T' or 'F'"%all
-        bindings.append((id,rep,all,name))
+        bindings.append((id,rep,name))
     return bindings
 
 # vim: set tabstop=8 shiftwidth=4 expandtab:

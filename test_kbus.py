@@ -110,10 +110,10 @@ class BindingsMemory(object):
     def forget_interface(self,interface):
         del self.bindings[interface]
 
-    def remember_binding(self,interface,name,replier=False,guaranteed=False):
-        self.bindings[interface].append( (replier,guaranteed,name) )
+    def remember_binding(self,interface,name,replier=False):
+        self.bindings[interface].append( (replier,name) )
 
-    def forget_binding(self,interface,name,replier=False,guaranteed=False):
+    def forget_binding(self,interface,name,replier=False):
         if_list = self.bindings[interface]
         # If there are multiple matches, we'll delete the first,
         # which is what we want (well, to delete a single instance)
@@ -128,8 +128,8 @@ class BindingsMemory(object):
         """
         expected = []
         for interface,if_list in self.bindings.items():
-            for r,a,n in if_list:
-                expected.append( (interface,r,a,n) )
+            for r,n in if_list:
+                expected.append( (interface,r,n) )
         assert bindings_match(expected)
 
 class RecordingInterface(Interface):
@@ -152,17 +152,17 @@ class RecordingInterface(Interface):
         self.bindings.forget_interface(self)
         self.bindings = None
 
-    def bind(self,name,replier=False,guaranteed=False):
+    def bind(self,name,replier=False):
         """A wrapper around the 'bind' function. to keep track of bindings.
         """
-        super(RecordingInterface,self).bind(name,replier,guaranteed)
-        self.bindings.remember_binding(self,name,replier,guaranteed)
+        super(RecordingInterface,self).bind(name,replier)
+        self.bindings.remember_binding(self,name,replier)
 
-    def unbind(self,name,replier=False,guaranteed=False):
+    def unbind(self,name,replier=False):
         """A wrapper around the 'unbind' function, to keep track of bindings.
         """
-        super(RecordingInterface,self).unbind(name,replier,guaranteed)
-        self.bindings.forget_binding(self,name,replier,guaranteed)
+        super(RecordingInterface,self).unbind(name,replier)
+        self.bindings.forget_binding(self,name,replier)
 
 def str_rep(rep):
     if rep:
@@ -170,25 +170,18 @@ def str_rep(rep):
     else:
         return 'L'
 
-def str_all(all):
-    if all:
-        return 'T'
-    else:
-        return 'F'
-
 def bindings_match(bindings):
     """Look up the current bindings and check they match the list.
 
     'bindings' is a sequence of tuples, each of the form:
 
-        ( file_descriptor, True|False, True|False, name )
+        ( file_descriptor, True|False, name )
 
     so for instance:
 
-        ( (f,True,True,'$.Fred'), (g,False,False,'$.JimBob') )
+        ( (f,True,'$.Fred'), (g,False,'$.JimBob') )
 
-    where the first True means the binding is for a replier (or not), and the
-    second means it wants to guarantee to receive all its messages (or not).
+    where the boolean means the binding is for a replier (or not).
 
     The function reads the contents of /proc/kbus/bindings. It translates each
     file descriptor to a listener id using ``bound_as``, and thus converts
@@ -199,10 +192,10 @@ def bindings_match(bindings):
     """
     testwith = []
     names = {}
-    for (fd,rep,all,name) in bindings:
+    for (fd,rep,name) in bindings:
         if fd not in names:
             names[fd] = fd.bound_as()
-        testwith.append((fd.bound_as(),rep,all,name))
+        testwith.append((fd.bound_as(),rep,name))
 
     actual = read_bindings(names)
 
@@ -220,12 +213,12 @@ def bindings_match(bindings):
     print 'The contents of /proc/kbus/bindings is not as expected'
     if len(found):
         print 'The following were expected but not found:'
-        for f,r,a,n in expected-found:
-            print '  %10u %c %c %s'%(f,str_rep(r),str_all(a),n)
+        for f,r,n in expected-found:
+            print '  %10u %c %s'%(f,str_rep(r),n)
     if len(expected):
         print 'The following were found but not expected:'
-        for f,r,a,n in found-expected:
-            print '  %10u %c %c %s'%(f,str_rep(r),str_all(a),n)
+        for f,r,n in found-expected:
+            print '  %10u %c %s'%(f,str_rep(r),n)
     return False
 
 def check_IOError(expected_errno,fn,*stuff):
@@ -480,12 +473,6 @@ class TestKernelModule:
                 # But we can still only have one replier
                 f1.bind('$.Jim.Bob',replier=True)
                 check_IOError(errno.EADDRINUSE, f2.bind, '$.Jim.Bob', True)
-
-                # Oh, and not all messages need to be received
-                # - in our interfaces, we default to allowing kbus to drop
-                # messages if necessary
-                f1.bind('$.Jim.Bob',replier=False,guaranteed=True)
-                f1.bind('$.Fred',replier=False,guaranteed=True)
             finally:
                 assert f2.close() is None
         finally:
@@ -1831,60 +1818,6 @@ class TestKernelModule:
                 assert r.equivalent(m)
 
                 assert listener.next_msg() == 0
-
-    def test_write_too_many_messages_to_guaranteed_listener(self):
-        """Writing too many messages to an ordinary listener, guaranteed.
-
-        With guaranteed delivery, the messages should not be dropped.
-        """
-        with Interface(0,'rw') as sender:
-            with Interface(0,'r') as listener:
-                listener.bind('$.Fred',guaranteed=True)
-                assert listener.set_max_messages(1) == 1
-
-                m = Message('$.Fred')
-                sender.send_msg(m)
-                sender.send_msg(m)
-
-                # Because we asked for guaranteed delivery, we should
-                # keep the message, even though it makes our queue too long
-                assert listener.max_messages() == 1
-                assert listener.num_messages() == 2
-
-                r = listener.read_next_msg()
-                assert r.equivalent(m)
-
-                r = listener.read_next_msg()
-                assert r.equivalent(m)
-
-                assert listener.next_msg() == 0
-
-    def test_write_too_many_messages_to_guaranteed_replier(self):
-        """Writing too many messages to a replier, guaranteed.
-
-        With guaranteed delivery, the messages should not be dropped.
-        """
-        with Interface(0,'rw') as sender:
-            with Interface(0,'rw') as replier:
-                replier.bind('$.Fred',replier=True,guaranteed=True)
-                assert replier.set_max_messages(1) == 1
-
-                m = Request('$.Fred')
-                sender.send_msg(m)
-                sender.send_msg(m)
-
-                # Because we asked for guaranteed delivery, we should
-                # keep the message, even though it makes our queue too long
-                assert replier.max_messages() == 1
-                assert replier.num_messages() == 2
-
-                r = replier.read_next_msg()
-                assert r.equivalent(m)
-
-                r = replier.read_next_msg()
-                assert r.equivalent(m)
-
-                assert replier.next_msg() == 0
 
     def test_write_too_many_messages_to_replier(self):
         """Writing too many messages to a replier.

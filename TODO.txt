@@ -35,36 +35,50 @@ In no particular order (well, except for the first):
     allows one to identify the message being named in an exception message
     (a synthetic message from KBUS itself).
 
+* REQ *Remove* GUARANTEED message delivery -- a listener is not allowed to say
+  "I shall receive all messages with that name", because that could cause its
+  queue to grow forever, and use up all memory, and we should be very sad, and
+  all die, and that would be bad.
+  
+  NB: Affects other stuff below us in this text -- rationalise as necessary.
+
+* REQ Allow an Interface to say "I am a network bridge", which means that
+  messages going over it might be hard to follow -- one might not be sure if
+  they've been delivered or not, and so it may be sensible to be able to tell
+  that a message has "gone fuzzy" -- sending to such an interface should maybe
+  set some status on the "retval+status" from a send.
+
+  Thus "send" should tell the caller as much as it can about how successful
+  it has been (including, if it can tell, that delivery has definitely worked
+  or failed).
+
+* Probably keep a spare slot in the receiver queue, to allow for receiving
+  asynchronous error messages.
+
 * DONE (see below) Implement maximum message queue length per interface -- so
   that if one keeps adding messages, and no-one is reading them, one doesn't
   fill up the world.
 
-* DONE Implement GUARANTEED message delivery (a listener *shall* receive all
-  messages it is bound to, irrespective of the above point).
-
-  - If a replier is not guaranteed to receive a request with a particular
-    name, and its queue is full, then an attempt to send a new request with
-    that name will fail, and KBUS will send a synthetic message to the sender
-    to let it know this has occurred (an exception).
-
-  - If a listener is not guaranteed to receive a message with a particular
-    name, and its queue is full, then an attempt to send a new message with
-    that name will just not add the message to its queue.
-
 * REQ Implement sender ALL/WAIT flags:
 
-  - ALL_OR_WAIT -- add the message to all listener queues (subject to the
-    above guarantee flags), and if that can't be done because some queues are
-    full, the sender should block on its SEND until it can be done.
+  - ALL_OR_WAIT -- add the message to all listener queues, and if that can't
+    be done because some queues are full, the sender should block on its SEND
+    until it can be done.
 
   - ALL_OR_FAIL -- add the message to all listener queues, and if that can't
     be done, fail (the message is not sent).
 
-  - GUARANTEED -- add the message to all listener queues that guarantee to
-    receive the message, and any other listener queues that have room.
+  - (default) -- add the message to all listener queues that have room.
 
   Remember that, in this context, and interpreted appropriately, repliers also
-  count as listeners, and may ask for GUARANTEED delivery or not.
+  count as listeners.
+
+* REQ Make all the errors after the "this message is valid" step in 'send'
+  produce KBUS messages, instead of returning an error code.
+
+* REQ Police reply messages -- there may be one, and only one, reply for each
+  request. It shall not be possible to send a reply that is not in response to
+  a request. It shall be shiny.
 
 * OPT Internally, split messages into
 
