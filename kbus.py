@@ -224,11 +224,11 @@ class Message(object):
 
     - 'data' is data for the Message, something that can be assigned to an
       array.array of unsigned 32-bit words.
-    - 'to' is the Interface id for the destination, for use in replies or in
+    - 'to' is the KSock id for the destination, for use in replies or in
       stateful messaging. Normally it should be left 0.
-    - 'from_' is the Interface id of the sender. Normally this should be left
+    - 'from_' is the KSock id of the sender. Normally this should be left
       0, as it is assigned by KBUS.
-    - if 'in_reply_to' is non-zero, then it is the Interface id to which the
+    - if 'in_reply_to' is non-zero, then it is the KSock id to which the
       reply shall go (taken from the 'from_' field in the original message).
       Setting 'in_reply_to' non-zero indicates that the Message *is* a reply.
       See also the Reply class, which makes constructing replies simpler.
@@ -618,7 +618,7 @@ class Reply(Message):
        replying to.
     3. As normal, the Reply's own message id is unset - KBUS will set this, as
        for any message.
-    4. We give a specific 'to' value, the id of the interface that sent the
+    4. We give a specific 'to' value, the id of the KSock that sent the
        original message, and thus the 'from' value in the original message.
     5. We keep the same message name, but don't copy the original message's
        data. If we want to send data in a reply message, it will be our own
@@ -640,20 +640,20 @@ class Reply(Message):
                                    flags=0)
 
 class KbusBindStruct(ctypes.Structure):
-    """The datastucture we need to describe a KBUS_IOC_BIND argument
+    """The datastucture we need to describe an IOC_BIND argument
     """
     _fields_ = [('is_replier',    ctypes.c_uint),
                 ('len',           ctypes.c_uint),
                 ('name',          ctypes.c_char_p)]
 
 class KbusListenerStruct(ctypes.Structure):
-    """The datastucture we need to describe a KBUS_IOC_REPLIER argument
+    """The datastucture we need to describe an IOC_REPLIER argument
     """
     _fields_ = [('return_id', ctypes.c_uint),
                 ('len',  ctypes.c_uint),
                 ('name', ctypes.c_char_p)]
 
-class Interface(object):
+class KSock(object):
     """A wrapper around a KBUS device, for purposes of message sending.
 
     'which' is which KBUS device to open -- so if 'which' is 3, we open
@@ -662,27 +662,27 @@ class Interface(object):
     'mode' should be 'r' or 'rw' -- i.e., whether to open the device for read or
     write (opening for write also allows reading, of course).
 
-    I'm not really very keen on the name Interface, but it's better than the
+    I'm not really very keen on the name KSock, but it's better than the
     original "File", which I think was actively misleading.
     """
 
-    KBUS_IOC_MAGIC = 'k'
-    KBUS_IOC_RESET    = _IO(KBUS_IOC_MAGIC,   1)
-    KBUS_IOC_BIND     = _IOW(KBUS_IOC_MAGIC,  2, ctypes.sizeof(ctypes.c_char_p))
-    KBUS_IOC_UNBIND   = _IOW(KBUS_IOC_MAGIC,  3, ctypes.sizeof(ctypes.c_char_p))
-    KBUS_IOC_BOUNDAS  = _IOR(KBUS_IOC_MAGIC,  4, ctypes.sizeof(ctypes.c_char_p))
-    KBUS_IOC_REPLIER  = _IOWR(KBUS_IOC_MAGIC, 5, ctypes.sizeof(ctypes.c_char_p))
-    KBUS_IOC_NEXTMSG  = _IOR(KBUS_IOC_MAGIC,  6, ctypes.sizeof(ctypes.c_char_p))
-    KBUS_IOC_LENLEFT  = _IOR(KBUS_IOC_MAGIC,  7, ctypes.sizeof(ctypes.c_char_p))
-    KBUS_IOC_SEND     = _IOR(KBUS_IOC_MAGIC,  8, ctypes.sizeof(ctypes.c_char_p))
-    KBUS_IOC_DISCARD  = _IO(KBUS_IOC_MAGIC,   9)
-    KBUS_IOC_LASTSENT = _IOR(KBUS_IOC_MAGIC, 10, ctypes.sizeof(ctypes.c_char_p))
-    KBUS_IOC_MAXMSGS  = _IOWR(KBUS_IOC_MAGIC,11, ctypes.sizeof(ctypes.c_char_p))
-    KBUS_IOC_NUMMSGS  = _IOR(KBUS_IOC_MAGIC, 12, ctypes.sizeof(ctypes.c_char_p))
+    IOC_MAGIC = 'k'
+    IOC_RESET    = _IO(IOC_MAGIC,   1)
+    IOC_BIND     = _IOW(IOC_MAGIC,  2, ctypes.sizeof(ctypes.c_char_p))
+    IOC_UNBIND   = _IOW(IOC_MAGIC,  3, ctypes.sizeof(ctypes.c_char_p))
+    IOC_BOUNDAS  = _IOR(IOC_MAGIC,  4, ctypes.sizeof(ctypes.c_char_p))
+    IOC_REPLIER  = _IOWR(IOC_MAGIC, 5, ctypes.sizeof(ctypes.c_char_p))
+    IOC_NEXTMSG  = _IOR(IOC_MAGIC,  6, ctypes.sizeof(ctypes.c_char_p))
+    IOC_LENLEFT  = _IOR(IOC_MAGIC,  7, ctypes.sizeof(ctypes.c_char_p))
+    IOC_SEND     = _IOR(IOC_MAGIC,  8, ctypes.sizeof(ctypes.c_char_p))
+    IOC_DISCARD  = _IO(IOC_MAGIC,   9)
+    IOC_LASTSENT = _IOR(IOC_MAGIC, 10, ctypes.sizeof(ctypes.c_char_p))
+    IOC_MAXMSGS  = _IOWR(IOC_MAGIC,11, ctypes.sizeof(ctypes.c_char_p))
+    IOC_NUMMSGS  = _IOR(IOC_MAGIC, 12, ctypes.sizeof(ctypes.c_char_p))
 
     def __init__(self,which=0,mode='r'):
         if mode not in ('r','rw'):
-            raise ValueError("Interface mode should be 'r' or 'rw', not '%s'"%mode)
+            raise ValueError("KSock mode should be 'r' or 'rw', not '%s'"%mode)
         self.which = which
         self.name = '/dev/kbus%d'%which
         if mode == 'r':
@@ -696,9 +696,9 @@ class Interface(object):
 
     def __repr__(self):
         if self.fd:
-            return '<Interface %s open for %s>'%(self.name,self.mode)
+            return '<KSock %s open for %s>'%(self.name,self.mode)
         else:
-            return '<Interface %s closed>'%(self.name)
+            return '<KSock %s closed>'%(self.name)
 
     def close(self):
         ret = self.fd.close()
@@ -713,7 +713,7 @@ class Interface(object):
         message name.
         """
         arg = KbusBindStruct(replier,len(name),name)
-        return fcntl.ioctl(self.fd, Interface.KBUS_IOC_BIND, arg);
+        return fcntl.ioctl(self.fd, KSock.IOC_BIND, arg);
 
     def unbind(self,name,replier=False):
         """Unbind the given name from the file descriptor.
@@ -721,7 +721,7 @@ class Interface(object):
         The arguments need to match the binding that we want to unbind.
         """
         arg = KbusBindStruct(replier,len(name),name)
-        return fcntl.ioctl(self.fd, Interface.KBUS_IOC_UNBIND, arg);
+        return fcntl.ioctl(self.fd, KSock.IOC_UNBIND, arg);
 
     def bound_as(self):
         """Return the 'bind number' for this file descriptor.
@@ -729,7 +729,7 @@ class Interface(object):
         # Instead of using a ctypes.Structure, we can retrieve homogenious
         # arrays of data using, well, arrays. This one is a bit minimalist.
         id = array.array('L',[0])
-        fcntl.ioctl(self.fd, Interface.KBUS_IOC_BOUNDAS, id, True)
+        fcntl.ioctl(self.fd, KSock.IOC_BOUNDAS, id, True)
         return id[0]
 
     def next_msg(self):
@@ -738,7 +738,7 @@ class Interface(object):
         Returns the length of said message, or 0 if there is no next message.
         """
         id = array.array('L',[0])
-        fcntl.ioctl(self.fd, Interface.KBUS_IOC_NEXTMSG, id, True)
+        fcntl.ioctl(self.fd, KSock.IOC_NEXTMSG, id, True)
         return id[0]
 
     def len_left(self):
@@ -748,7 +748,7 @@ class Interface(object):
         been called), or if there are no bytes left.
         """
         id = array.array('L',[0])
-        fcntl.ioctl(self.fd, Interface.KBUS_IOC_LENLEFT, id, True)
+        fcntl.ioctl(self.fd, KSock.IOC_LENLEFT, id, True)
         return id[0]
 
     def send(self):
@@ -762,7 +762,7 @@ class Interface(object):
         Raises IOError with errno ENOMSG if there was no message to send.
         """
         id = array.array('L',[0,0])
-        fcntl.ioctl(self.fd, Interface.KBUS_IOC_SEND, id, True)
+        fcntl.ioctl(self.fd, KSock.IOC_SEND, id, True)
         return MessageId(id[0],id[1])
 
     def discard(self):
@@ -773,7 +773,7 @@ class Interface(object):
         written (for instance, because 'send' has already been called).
         be sent.
         """
-        return fcntl.ioctl(self.fd, Interface.KBUS_IOC_DISCARD, 0);
+        return fcntl.ioctl(self.fd, KSock.IOC_DISCARD, 0);
 
     def last_msg_id(self):
         """Return the id of the last message written on this file descriptor.
@@ -781,7 +781,7 @@ class Interface(object):
         Returns 0 before any messages have been sent.
         """
         id = array.array('L',[0,0])
-        fcntl.ioctl(self.fd, Interface.KBUS_IOC_LASTSENT, id, True)
+        fcntl.ioctl(self.fd, KSock.IOC_LASTSENT, id, True)
         return MessageId(id[0],id[1])
 
     def find_replier(self,name):
@@ -790,40 +790,40 @@ class Interface(object):
         Returns None if there was no replier, otherwise the replier's id.
         """
         arg = KbusListenerStruct(0,len(name),name)
-        retval = fcntl.ioctl(self.fd, Interface.KBUS_IOC_REPLIER, arg);
+        retval = fcntl.ioctl(self.fd, KSock.IOC_REPLIER, arg);
         if retval:
             return arg.return_id
         else:
             return None
 
     def max_messages(self):
-        """Return the number of messages that can be queued on this Interface.
+        """Return the number of messages that can be queued on this KSock.
         """
         id = array.array('L',[0])
-        fcntl.ioctl(self.fd, Interface.KBUS_IOC_MAXMSGS, id, True)
+        fcntl.ioctl(self.fd, KSock.IOC_MAXMSGS, id, True)
         return id[0]
 
     def set_max_messages(self,count):
-        """Set the number of messages that can be queued on this Interface.
+        """Set the number of messages that can be queued on this KSock.
 
         A 'count' of 0 does not actually change the value - this may thus be
-        used to query the Interface for the current value of the maximum.
+        used to query the KSock for the current value of the maximum.
         However, the "more Pythonic" 'max_messages()' method is provided for
         use when such a query is wanted, which is just syntactic sugar around
         such a call.
 
         Returns the number of message that are allowed to be queued on this
-        Interface.
+        KSock.
         """
         id = array.array('L',[count])
-        fcntl.ioctl(self.fd, Interface.KBUS_IOC_MAXMSGS, id, True)
+        fcntl.ioctl(self.fd, KSock.IOC_MAXMSGS, id, True)
         return id[0]
 
     def num_messages(self):
-        """Return the number of messages that are queued on this Interface.
+        """Return the number of messages that are queued on this KSock.
         """
         id = array.array('L',[0])
-        fcntl.ioctl(self.fd, Interface.KBUS_IOC_NUMMSGS, id, True)
+        fcntl.ioctl(self.fd, KSock.IOC_NUMMSGS, id, True)
         return id[0]
 
     def write_msg(self,message):

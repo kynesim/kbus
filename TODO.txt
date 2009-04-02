@@ -5,16 +5,24 @@ In no particular order (well, except for the first):
 
 * REQ Always, update documentation.
 
-* REQ Come up with a new name to replace Interface, so that other things can
+* DONE Come up with a new name to replace Interface, so that other things can
   use that term without confusion.
 
         Slot, Port, Opening, Access, Talker, Bus, ...
 
-        Socket ... KSock (?)
+        Socket ... KSock (? - suggested by JC)
 
         AccessPoint, EndPoint, ...
 
         Interlocutor, Protagonist, Participant, ...
+
+  For the moment, go with KSock. It's not particularly nice, but:
+
+  a. It's better than Elephant
+  b. It's short
+  c. It's not easy to confuse with some other term from somewhere else
+  d. It does sound a bit like some sort of sockety thing, which is
+     more-or-less the right sort of paradigm.
 
 * DONE Message ids should have more "space"
 
