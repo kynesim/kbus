@@ -75,6 +75,24 @@ def _IOWR(t,nr,size):
 def _BIT(nr):
     return 1L << nr
 
+def _set_bit(value,which):
+    """Return 'value' with the bit 'which' set.
+
+    'which' should be something like _BIT(3).
+    """
+    return value | which
+
+def _clear_bit(value,which):
+    """Return 'value' with the bit 'which' cleared.
+
+    'which' should be something like _BIT(3).
+    """
+    if value & which:
+        mask = ~which
+        value = value & mask
+    return value
+
+
 class MessageId(object):
     """A wrapper around a message id.
 
@@ -420,19 +438,21 @@ class Message(object):
         """Set or unset the 'we want a reply' flag.
         """
         if value:
-            self.array[self.IDX_FLAGS] = self.array[self.IDX_FLAGS] | Message.WANT_A_REPLY
-        elif self.array[self.IDX_FLAGS] & Message.WANT_A_REPLY:
-            mask = ~Message.WANT_A_REPLY
-            self.array[self.IDX_FLAGS] = self.array[self.IDX_FLAGS] & mask
+            self.array[self.IDX_FLAGS] = _set_bit(self.array[self.IDX_FLAGS],
+                                                  Message.WANT_A_REPLY)
+        else:
+            self.array[self.IDX_FLAGS] = _clear_bit(self.array[self.IDX_FLAGS],
+                                                    Message.WANT_A_REPLY)
 
     def set_urgent(self,value=True):
         """Set or unset the 'urgent message' flag.
         """
         if value:
-            self.array[self.IDX_FLAGS] = self.array[self.IDX_FLAGS] | Message.URGENT
-        elif self.array[self.IDX_FLAGS] & Message.URGENT:
-            mask = ~Message.URGENT
-            self.array[self.IDX_FLAGS] = self.array[self.IDX_FLAGS] & mask
+            self.array[self.IDX_FLAGS] = _set_bit(self.array[self.IDX_FLAGS],
+                                                  Message.URGENT)
+        else:
+            self.array[self.IDX_FLAGS] = _clear_bit(self.array[self.IDX_FLAGS],
+                                                    Message.URGENT)
 
     def wants_us_to_reply(self):
         """Return true if we (*specifically* us) are should reply to this message.

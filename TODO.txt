@@ -10,6 +10,10 @@ In no particular order (well, except for the first):
 
         Slot, Port, Opening, Access, Talker, Bus, ...
 
+        AccessPoint, EndPoint, ...
+
+        Interlocutor, Protagonist, Participant, ...
+
 * DONE Message ids should have more "space"
 
   * Network id can be used to indicate that the message came from another
@@ -41,7 +45,7 @@ In no particular order (well, except for the first):
     that name will fail, and KBUS will send a synthetic message to the sender
     to let it know this has occurred (an exception).
 
-  - If a listener is not guaranteed to receive a message with a particula
+  - If a listener is not guaranteed to receive a message with a particular
     name, and its queue is full, then an attempt to send a new message with
     that name will just not add the message to its queue.
 
@@ -67,16 +71,6 @@ In no particular order (well, except for the first):
         be copied prefererentially
       - message data -- this should be reference counted
 
-* OPT Allow message name id to be used instead of message name in messages.
-  This would need:
-
-      - ability to look up message name and retrieve its id
-      - a way of indicating whether a message is storing message name (and
-        its length) or message name id
-      - some better terminology for "message name id"
-
-  Note that in the Python interface this is not a big deal to the user.
-
 * REQ Keep a list of all Requests that have not been replied to, and send the
   sender a synthetic message when an interface has released, or unbound, but
   has not replied to a message, even though it *has* read it.
@@ -85,9 +79,10 @@ In no particular order (well, except for the first):
   complicated and (b) the interface might well unbind and then bind again.
   Yes, that sounds a good excuse.
 
-* REQ Provide a flag on file descriptors to say:
+* REQ Provide a flag on file descriptors (hmm, perhaps better on an individual
+  message?) to say:
 
-  When I've send a message, send me back a synthesised message when that
+  When I've sent a message, send me back a synthesised message when that
   message has "left the system" -- i.e., when all listeners (that are going
   to) have read it, when all repliers (that are going to) have replied to it,
   and (if that isn't going to happen) when any exceptions regarding it have
@@ -100,6 +95,16 @@ In no particular order (well, except for the first):
 * REQ Large message support -- allow message data to be large, held as a list
   of data split properly over pages. Really requires reference counting of
   message data.
+
+* OPT Allow message name id to be used instead of message name in messages.
+  This would need:
+
+      - ability to look up message name and retrieve its id
+      - a way of indicating whether a message is storing message name (and
+        its length) or message name id
+      - some better terminology for "message name id"
+
+  Note that in the Python interface this is not a big deal to the user.
 
 * OPT Support for poll/select.
 
