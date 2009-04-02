@@ -5,52 +5,7 @@ In no particular order (well, except for the first):
 
 * REQ Always, update documentation.
 
-* DONE Come up with a new name to replace Interface, so that other things can
-  use that term without confusion.
-
-        Slot, Port, Opening, Access, Talker, Bus, ...
-
-        Socket ... KSock (? - suggested by JC)
-
-        AccessPoint, EndPoint, ...
-
-        Interlocutor, Protagonist, Participant, ...
-
-  For the moment, go with KSock. It's not particularly nice, but:
-
-  a. It's better than Elephant
-  b. It's short
-  c. It's not easy to confuse with some other term from somewhere else
-  d. It does sound a bit like some sort of sockety thing, which is
-     more-or-less the right sort of paradigm.
-
-* DONE Message ids should have more "space"
-
-  * Network id can be used to indicate that the message came from another
-    namespace (e.g., through a bridge). Our local namespace has network id
-    set to 0.
-
-    Interface such as bridges, which pipe through messages from another
-    namespace, can use the network id to (a) indicate that the local KBUS
-    should not change the message id serial number, and (b) store whatever
-    information is deemed useful in translating the message id back to the
-    equivalent in the other namespace.
-
-  * Message id is unique within a network/namespace. If network id is 0, then
-    KBUS will assign a new message id to a message, on "send", when it has
-    determined that the message is (basically) well formed. This means that
-    after "send" one can always do "sender.get_last_msg_id()", and *that*
-    allows one to identify the message being named in an exception message
-    (a synthetic message from KBUS itself).
-
-* REQ *Remove* GUARANTEED message delivery -- a listener is not allowed to say
-  "I shall receive all messages with that name", because that could cause its
-  queue to grow forever, and use up all memory, and we should be very sad, and
-  all die, and that would be bad.
-  
-  NB: Affects other stuff below us in this text -- rationalise as necessary.
-
-* REQ Allow an Interface to say "I am a network bridge", which means that
+* REQ Allow a KSock to say "I am a network bridge", which means that
   messages going over it might be hard to follow -- one might not be sure if
   they've been delivered or not, and so it may be sensible to be able to tell
   that a message has "gone fuzzy" -- sending to such an interface should maybe
@@ -63,9 +18,29 @@ In no particular order (well, except for the first):
 * Probably keep a spare slot in the receiver queue, to allow for receiving
   asynchronous error messages.
 
-* DONE (see below) Implement maximum message queue length per interface -- so
-  that if one keeps adding messages, and no-one is reading them, one doesn't
-  fill up the world.
+* "send" should return:
+
+  1. (as return code):
+
+        * 0 if all has gone well
+        * negative value if the message was invalid in some way, or for any
+          other error that we can *guarantee* can be caught by "send", even
+          if sending to a remote destination -- so basically, any error
+          detectable before the actual delivery stage.
+        * positive (non-zero) value if something has gone wrong which has
+          triggered an error message, and (because we're kbus.c and everything
+          is internal to us) we just happen to know about.
+
+     That last is intended to allow the caller of "send" to be aware that they
+     have an error message waiting for them to read - it is an optimisation.
+     Clearly it will not be available for message sent over a bridge or some
+     other abstraction mechanism.
+
+  2. (as ioctl argument) last message id (DONE) to save the caller having to
+     look it up after the fact. Since an error message relating to the sent
+     message uses its 'in_reply_to' field to indicate which message it is an
+     error message about, this makes the caller's life a lot simpler (having
+     to always do <send>;<get_last_msg_id> is messy).
 
 * REQ Implement sender ALL/WAIT flags:
 
@@ -76,7 +51,7 @@ In no particular order (well, except for the first):
   - ALL_OR_FAIL -- add the message to all listener queues, and if that can't
     be done, fail (the message is not sent).
 
-  - (default) -- add the message to all listener queues that have room.
+  - DONE: (default) -- add the message to all listener queues that have room.
 
   Remember that, in this context, and interpreted appropriately, repliers also
   count as listeners.
@@ -132,8 +107,6 @@ In no particular order (well, except for the first):
 
 * OPT Support for poll/select.
 
-* DONE Reserve message names in '$.KBUS.*' for use by KBUS for synthetic messages.
-
 * OPT Consider adding RESET functionality (the ioctl already exists):
 
   1. Sends exactly one '$.KBUS.Reset.Start' message to each open interface
@@ -154,3 +127,57 @@ In no particular order (well, except for the first):
 
 * OPT Remove lots of the debugging 'printk's in ``kbus.c`` - there are way too
   many.
+
+-------------------------------------------------------------------------------
+
+* DONE Come up with a new name to replace KSock, so that other things can
+  use that term without confusion.
+
+        Slot, Port, Opening, Access, Talker, Bus, ...
+
+        Socket ... KSock (? - suggested by JC)
+
+        AccessPoint, EndPoint, ...
+
+        Interlocutor, Protagonist, Participant, ...
+
+  For the moment, go with KSock. It's not particularly nice, but:
+
+  a. It's better than Elephant
+  b. It's short
+  c. It's not easy to confuse with some other term from somewhere else
+  d. It does sound a bit like some sort of sockety thing, which is
+     more-or-less the right sort of paradigm.
+
+* DONE Message ids should have more "space"
+
+  * Network id can be used to indicate that the message came from another
+    namespace (e.g., through a bridge). Our local namespace has network id
+    set to 0.
+
+    KSock such as bridges, which pipe through messages from another
+    namespace, can use the network id to (a) indicate that the local KBUS
+    should not change the message id serial number, and (b) store whatever
+    information is deemed useful in translating the message id back to the
+    equivalent in the other namespace.
+
+  * Message id is unique within a network/namespace. If network id is 0, then
+    KBUS will assign a new message id to a message, on "send", when it has
+    determined that the message is (basically) well formed. This means that
+    after "send" one can always do "sender.get_last_msg_id()", and *that*
+    allows one to identify the message being named in an exception message
+    (a synthetic message from KBUS itself).
+
+* DONE Implement maximum message queue length per interface -- so that if one
+  keeps adding messages, and no-one is reading them, one doesn't fill up the
+  world.
+
+* DONE Reserve message names in '$.KBUS.*' for use by KBUS for synthetic messages.
+
+  Only done "implicitly" - there is no intent to enforce this.
+
+* DONE *Remove* GUARANTEED message delivery -- a listener is not allowed to
+  say "I shall receive all messages with that name", because that could cause
+  its queue to grow forever, and use up all memory, and we should be very sad,
+  and all die, and that would be bad.
+
