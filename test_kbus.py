@@ -571,13 +571,12 @@ class TestKernelModule:
 
                 # Writing to $.Fred on f1 - writes message id N
                 msgF = Message('$.Fred','data')
-                f1.send_msg(msgF)
-                n0 = f1.last_msg_id()
+                n0 = f1.send_msg(msgF)
 
                 # Writing to $.Jim on f1 - writes message N+1
                 msgJ = Message('$.Jim','moredata')
-                f1.send_msg(msgJ)
-                assert f1.last_msg_id() == n0+1
+                n1 = f1.send_msg(msgJ)
+                assert n1 == n0+1
 
                 # Reading f1 - message N
                 length = f1.next_msg()

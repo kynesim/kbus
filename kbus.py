@@ -757,13 +757,13 @@ class Interface(object):
         Indicates that we have finished writing a message, and it should
         be sent.
 
-        Returns the length (in bytes) of the message sent.
+        Returns the message id of the message sent.
 
         Raises IOError with errno ENOMSG if there was no message to send.
         """
         msg_len = array.array('L',[0])
         fcntl.ioctl(self.fd, Interface.KBUS_IOC_SEND, msg_len, True)
-        return msg_len[0]
+        return self.last_msg_id()
 
     def discard(self):
         """Discard the message being written.
@@ -837,9 +837,11 @@ class Interface(object):
 
     def send_msg(self,message):
         """Write a Message, and then send it.
+
+        Returns the message id of the message sent.
         """
         self.write_msg(message)
-        self.send()
+        return self.send()
 
     def write_data(self,data):
         """Write out (and flush) some data.

@@ -1654,11 +1654,8 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 	 */
 
 	/*
-	 * If this is a reply message, then we need to send it to the
-	 * original sender, irrespective of whether they are a listener or not.
-	 *
-	 * XXX We should handle message queue limits here just as we do for
-	 * XXX all other circumstances
+	 * If this is a reply message, then we need to send it to the original
+	 * sender, irrespective of whether they are a listener or not.
 	 */
 	if (msg->in_reply_to.network_id != 0 ||
 	    msg->in_reply_to.serial_num != 0) {
