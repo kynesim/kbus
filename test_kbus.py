@@ -1946,4 +1946,21 @@ class TestKernelModule:
 
                     assert listener.next_msg() == 0
 
+    def test_send_ALL_OR_XX_flag_logic(self):
+        """Check the logic of the ALL_OR_xxx flags
+        """
+
+        with Interface(0,'rw') as sender:
+            with Interface(0,'rw') as listener:
+                listener.bind('$.Fred')
+                m1 = Message('$.Fred',flags=Message.ALL_OR_WAIT)
+                sender.send_msg(m1)
+
+                m2 = Message('$.Fred',flags=Message.ALL_OR_FAIL)
+                sender.send_msg(m2)
+
+                # But we can't send a message with both flags set
+                m3 = Message('$.Fred',flags=Message.ALL_OR_WAIT|Message.ALL_OR_FAIL)
+                check_IOError(errno.EINVAL,sender.send_msg,m3)
+
 # vim: set tabstop=8 shiftwidth=4 expandtab:

@@ -243,11 +243,44 @@ struct kbus_message_struct {
  * The KBUS_BIT_URGENT bit is set by the sender if this message is to be
  * treated as urgent - i.e., it should be added to the *front* of the
  * recipient's message queue, not the back.
+ *
+ * Send flags
+ * ==========
+ * There are two "send" flags, KBUS_BIT_ALL_OR_WAIT and KBUS_BIT_ALL_OR_FAIL.
+ * Either one may be set, or both may be unset.
+ *
+ *    If both bits are set, the message will be rejected as invalid.
+ *
+ * If both are unset, then a send will behave in the default manner. That is,
+ * the message will be added to a listener's queue if there is room or if the
+ * listener is GUARANTEED to receive that message, but otherwise the listener
+ * will (silently) not receive the message.
+ *
+ *     (Obviously, if the listener is a replier, and the message is a request,
+ *     then a KBUS message will be synthesised in the normal manner when a
+ *     request is lost.)
+ *
+ * If the KBUS_BIT_ALL_OR_WAIT bit is set, then a send should block until
+ * all recipients can be sent the message. Specifically, before the message is
+ * sent, all recipients must either be GUARANTEED recipients, or must have room
+ * on their message queues for this message, and if they do not, the send will
+ * block until there is room for the message on all the non-GUARANTEED queues.
+ *
+ * If the KBUS_BIT_ALL_OR_FAIL bit is set, then a send should fail if all
+ * recipients cannot be sent the message. Specifically, before the message is
+ * sent, all recipients must either be GUARANTEED recipients, or must have room
+ * on their message queues for this message, and if they do not, the send will
+ * fail.
+ *
+ * When a message reaches its destination, these flags will always be unset.
  */
 #define	KBUS_BIT_WANT_A_REPLY		BIT(0)
 #define KBUS_BIT_WANT_YOU_TO_REPLY	BIT(1)
 #define KBUS_BIT_SYNTHETIC		BIT(2)
 #define KBUS_BIT_URGENT			BIT(3)
+
+#define KBUS_BIT_ALL_OR_WAIT		BIT(8)
+#define KBUS_BIT_ALL_OR_FAIL		BIT(9)
 
 /*
  * Given name_len (in bytes) and data_len (in 32-bit words), return the
@@ -2166,6 +2199,14 @@ static int kbus_send(struct kbus_private_data	*priv,
 		retval = -EBADMSG;
 		goto done;
 	}
+
+	/* It's not legal to set both ALL_OR_WAIT and ALL_OR_FAIL */
+	if ((msg->flags & KBUS_BIT_ALL_OR_WAIT) &&
+	    (msg->flags & KBUS_BIT_ALL_OR_FAIL)) {
+		printk(KERN_ERR "kbus/send: Message cannot have both ALL_OR_WAIT and ALL_OR_FAIL set\n");
+		retval = -EINVAL;
+		goto done;
+	}	
 
 	/* The message needs to say it is from us */
 	msg->from = priv->id;

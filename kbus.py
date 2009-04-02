@@ -254,6 +254,9 @@ class Message(object):
     SYNTHETIC           = _BIT(2)
     URGENT              = _BIT(3)
 
+    ALL_OR_WAIT         = _BIT(8)
+    ALL_OR_FAIL         = _BIT(9)
+
     # Header offsets (in case I change them again)
     IDX_START_GUARD            = 0
     IDX_ID_NETWORK_ID          = 1
