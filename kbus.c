@@ -225,19 +225,38 @@ struct kbus_message_struct {
 #define KBUS_MSG_END_GUARD	0x6B627573
 
 /*
- * Flags for the message 'flags' word
+ * Things KBUS changes in a message
+ * --------------------------------
+ * In general, KBUS leaves the content of a message alone. However, it does
+ * change:
  *
+ * - the message id (if id.network_id is unset)
+ * - the from id (to indicate the KSock this message was sent from)
+ * - the KBUS_BIT_WANT_YOU_TO_REPLY bit in the flags (set or cleared
+ *   as appropriate)
+ */
+
+/*
+ * Flags for the message 'flags' word
+ * ----------------------------------
  * The KBUS_BIT_WANT_A_REPLY bit is set by the sender to indicate that a
- * reply is wanted.
+ * reply is wanted. This makes the message into a request.
+ *
+ *     Note that setting the WANT_A_REPLY bit (i.e., a request) and
+ *     setting 'in_reply_to' (i.e., a reply) is bound to lead to
+ *     confusion, and the results are undefined (i.e., don't do it).
  *
  * The KBUS_BIT_WANT_YOU_TO_REPLY bit is set by KBUS on a particular message
  * to indicate that the particular recipient is responsible for replying
- * to (this instance of the) message.
+ * to (this instance of the) message. Otherwise, KBUS clears it.
  *
  * The KBUS_BIT_SYNTHETIC bit is set by KBUS when it generates a synthetic
  * message (an exception, if you will), for instance when a replier has
  * gone away and therefore a reply will never be generated for a request
  * that has already been queued.
+ *
+ *     Note that KBUS does not check that a sender has not set this
+ *     on a message, but doing so may lead to confusion.
  *
  * The KBUS_BIT_URGENT bit is set by the sender if this message is to be
  * treated as urgent - i.e., it should be added to the *front* of the
@@ -1612,7 +1631,8 @@ static int kbus_queue_is_full(struct kbus_private_data	*priv,
  * Remember that the caller is going to free the message data after
  * calling us, on the assumption that we're taking a copy...
  *
- * Returns 0 if all goes well, or a negative number on error.
+ * Returns a negative number on error, 0 for "general success", and 1 for
+ * "there's a success or failure message in the works".
  */
 static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 					struct kbus_dev		   *dev,
@@ -1691,7 +1711,7 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 							   replier->bound_to_id,
 							   msg->from,
 							   msg->id,
-							   "$.KBUS.Sender.QueueFull");
+							   "$.KBUS.SenderOfRequest.QueueFull");
 
 			/* We've not sent it, so no listeners get it either */
 			goto done_sending;
@@ -2150,6 +2170,10 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 		return 1;	/* We had a message */
 }
 
+/*
+ * Return: negative for bad message, etc., 0 for "general success",
+ * and 1 for "there's a success or failure message on its way."
+ */
 static int kbus_send(struct kbus_private_data	*priv,
 		     struct kbus_dev		*dev,
 		     unsigned long		 arg)
@@ -2250,7 +2274,7 @@ done:
 	/* We've now finished with our copy of the message */
 	kbus_empty_write_msg(priv);
 
-	if (retval == 0) {
+	if (retval >= 0) {
 		if (copy_to_user((void *)arg,
 				 &priv->last_msg_id, sizeof(priv->last_msg_id)))
 			retval = -EFAULT;
@@ -2395,7 +2419,11 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 	case KBUS_IOC_SEND:
 		/*
 		 * Send the curent message, we've finished writing it.
-		 * Return the message id of said message.
+		 *
+		 * arg in: <ignored>
+		 * arg out: the message id of said message.
+		 * retval: negative for bad message, etc., 0 for "general success",
+		 * and 1 for "there's a success or failure message on its way".
 		 */
 		printk(KERN_DEBUG "kbus: SEND\n");
 		retval = kbus_send(priv,dev, arg);

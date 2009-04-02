@@ -642,16 +642,16 @@ class Reply(Message):
 class KbusBindStruct(ctypes.Structure):
     """The datastucture we need to describe an IOC_BIND argument
     """
-    _fields_ = [('is_replier',    ctypes.c_uint),
-                ('len',           ctypes.c_uint),
-                ('name',          ctypes.c_char_p)]
+    _fields_ = [('is_replier', ctypes.c_uint),
+                ('len',        ctypes.c_uint),
+                ('name',       ctypes.c_char_p)]
 
 class KbusListenerStruct(ctypes.Structure):
     """The datastucture we need to describe an IOC_REPLIER argument
     """
     _fields_ = [('return_id', ctypes.c_uint),
-                ('len',  ctypes.c_uint),
-                ('name', ctypes.c_char_p)]
+                ('len',       ctypes.c_uint),
+                ('name',      ctypes.c_char_p)]
 
 class KSock(object):
     """A wrapper around a KBUS device, for purposes of message sending.
