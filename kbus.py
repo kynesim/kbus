@@ -629,8 +629,11 @@ class Reply(Message):
         (id,in_reply_to,to,from_,flags,name,data_array) = original.extract()
         # We reply to the original sender (to), indicating which message we're
         # responding to (in_reply_to).
+        #
         # The fact that in_reply_to is set means that we *are* a reply.
-        # We don't need to set any flags.
+        #
+        # We don't need to set any flags. We definitely *don't* want to copy
+        # any flags from the original message.
         super(Reply,self).__init__(name, data=data,
                                    in_reply_to=id,
                                    to=from_,

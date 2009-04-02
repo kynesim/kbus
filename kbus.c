@@ -271,8 +271,6 @@ struct kbus_message_struct {
  * sent, all recipients must either be GUARANTEED recipients, or must have room
  * on their message queues for this message, and if they do not, the send will
  * fail.
- *
- * When a message reaches its destination, these flags will always be unset.
  */
 #define	KBUS_BIT_WANT_A_REPLY		BIT(0)
 #define KBUS_BIT_WANT_YOU_TO_REPLY	BIT(1)
