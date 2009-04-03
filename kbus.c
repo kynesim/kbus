@@ -75,20 +75,6 @@ static int  kbus_minor = 0;             /* We're happy to start with device 0 */
 static struct class      *kbus_class_p;
 static struct device    **kbus_class_devices;
 
-/* When the user asks to bind a message name to an interface, they use: */
-struct kbus_m_bind_struct {
-	uint32_t	 is_replier;	/* are we a replier? */
-	uint32_t	 name_len;
-	char		*name;
-};
-
-/* When the user requests the id of the replier to a message, they use: */
-struct kbus_m_bind_query_struct {
-	uint32_t	 return_id;
-	uint32_t	 name_len;
-	char		*name;
-};
-
 /* A message id is made up of two fields.
  *
  * If the network id is 0, then it is up to us (KBUS) to assign the
@@ -103,6 +89,42 @@ struct kbus_m_bind_query_struct {
 struct kbus_msg_id {
 	uint32_t		network_id;
 	uint32_t		serial_num;
+};
+
+/* When the user asks to bind a message name to an interface, they use: */
+struct kbus_m_bind_struct {
+	uint32_t	 is_replier;	/* are we a replier? */
+	uint32_t	 name_len;
+	char		*name;
+};
+
+/* When the user requests the id of the replier to a message, they use: */
+struct kbus_m_bind_query_struct {
+	uint32_t	 return_id;
+	uint32_t	 name_len;
+	char		*name;
+};
+
+/*
+ * When the user has done a SEND, they get a response
+ *
+ * In the particular case of KBUS mediating the sending of a message from a
+ * KBUS interface to another KBUS interface (i.e., when all of the message
+ * sending is done inside the kernel module), it is possible for us to know
+ * "extra" information about how well the sending has gone.
+ *
+ * Compare this to the case of sending (using equivalent protocols) over a bridge,
+ * where we can know that the message got sent over the bridge, but not if it was
+ * successfully added to the listener queues on the other side of the bridge.
+ *
+ * In either case, failing to add the message to the target queues (the latter
+ * part of a "send") will generate an appropriate failure message (if necessary),
+ * but in the first (internal KBUS) case, we can know that this has happened,
+ * and can pass that information back to the sender.
+ */
+struct kbus_m_send_result_struct {
+	uint32_t	 	retval;	/* Discretionary information */
+	struct kbus_msg_id	msg_id;	/* The id of the message we sent */
 };
 
 /* When the user writes/reads a message, they use: */
@@ -1845,6 +1867,9 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 
 done_sending:
 
+	/* XXX What to do if we get retval < 0 by here - send a message? XXX */
+	/* XXX (since it means "some of the messages couldn't be sent"?) XXX */
+
 	if (listeners)
 		kfree(listeners);
 	return retval;
@@ -2203,7 +2228,7 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 
 /*
  * Return: negative for bad message, etc., 0 for "general success",
- * and 1 for "there's a success or failure message on its way."
+ * and 1 for "we happen to know it got added to the target KSock queues"
  */
 static int kbus_send(struct kbus_private_data	*priv,
 		     struct kbus_dev		*dev,
@@ -2306,8 +2331,11 @@ done:
 	kbus_empty_write_msg(priv);
 
 	if (retval >= 0) {
-		if (copy_to_user((void *)arg,
-				 &priv->last_msg_id, sizeof(priv->last_msg_id)))
+		struct kbus_m_send_result_struct result;
+		result.msg_id = priv->last_msg_id;
+		result.retval = 0;
+
+		if (copy_to_user((void *)arg, &result, sizeof(result)))
 			retval = -EFAULT;
 	}
 	return retval;
@@ -2452,9 +2480,18 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 		 * Send the curent message, we've finished writing it.
 		 *
 		 * arg in: <ignored>
-		 * arg out: the message id of said message.
-		 * retval: negative for bad message, etc., 0 for "general success",
-		 * and 1 for "there's a success or failure message on its way".
+		 * arg out: the message id of said message, and an additional
+		 *          return value, containing:
+		 *
+		 *          * 0 for we know nothing extra
+		 *          * 1 for we know it got sent (i.e., we know it got
+		 *            added to the target message queues)
+		 *          * 2 for we know it didn't get sent (i.e., we know
+		 *            something went wrong, probably adding it to the
+		 *            target message queues). There will be an error
+		 *            message waiting to be read.
+		 *          * <other values to be determined>
+		 * retval: negative for bad message, etc., 0 otherwise
 		 */
 		printk(KERN_DEBUG "kbus: SEND\n");
 		retval = kbus_send(priv,dev, arg);
