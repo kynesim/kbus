@@ -1912,4 +1912,39 @@ class TestKernelModule:
                 thingy = sender.read_next_msg()
                 assert thingy.equivalent(r)
 
+    def test_all_or_fail_1(self):
+        """Writing with all_or_fail should fail if someone cannot receive
+        """
+        with KSock(0,'rw') as sender:
+            with KSock(0,'r') as listener1:
+                with KSock(0,'r') as listener2:
+                    listener1.bind('$.Fred')
+                    listener2.bind('$.Fred')
+
+                    assert listener1.set_max_messages(1) == 1
+
+                    m = Message('$.Fred')
+                    (ret,id0) = sender.send_msg(m)
+                    assert ret == 1                     # sent OK
+
+                    # So listener1 now has a full queue
+
+                    m = Message('$.Fred',flags=Message.ALL_OR_FAIL)
+                    (ret,id) = sender.send_msg(m)
+                    assert ret == 2                     # there's an error message
+
+                    e = sender.read_next_msg()
+                    assert e.from_ == listener1.bound_as()
+                    assert e.in_reply_to == id
+
+                    # So listener1 should have one message outstanding
+                    r = listener1.read_next_msg()
+                    assert r.id == id0
+                    assert listener1.next_msg() == 0
+
+                    # And listener2 should have (only) the same message
+                    r = listener2.read_next_msg()
+                    assert r.id == id0
+                    assert listener2.next_msg() == 0
+
 # vim: set tabstop=8 shiftwidth=4 expandtab:

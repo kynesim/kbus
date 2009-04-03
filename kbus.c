@@ -838,11 +838,11 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
  * Doesn't return anything since I can't think of anything useful to do if it
  * goes wrong.
  */
-static void kbus_push_synthetic_message(struct kbus_dev	  *dev,
+static void kbus_push_synthetic_message(struct kbus_dev		  *dev,
 					uint32_t		   from,
 					uint32_t		   to,
-					struct kbus_msg_id  in_reply_to,
-					const char	  *name)
+					struct kbus_msg_id	  in_reply_to,
+					const char		  *name)
 {
 	struct kbus_private_data	*priv = NULL;
 	struct list_head		*queue = NULL;
@@ -1771,7 +1771,7 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 				kbus_push_synthetic_message(dev,
 							    reply_to->id,
 							    msg->from,
-							    msg->id,
+						    msg->id,
 							    "$.KBUS.SenderOfRequest.QueueFull");
 			}
 			retval = KBUS_SEND_RETVAL_ERROR;
