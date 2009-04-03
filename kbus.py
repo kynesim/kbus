@@ -737,6 +737,9 @@ class KSock(object):
 
     def bound_as(self):
         """Return the 'bind number' for this file descriptor.
+
+        XXX Maybe this should instead be considered the KSock "id",
+        XXX and this method thus called as much
         """
         # Instead of using a ctypes.Structure, we can retrieve homogenious
         # arrays of data using, well, arrays. This one is a bit minimalist.

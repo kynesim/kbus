@@ -53,7 +53,7 @@ import array
 import errno
 import nose
 
-from kbus import KSock, Message, Request, Reply
+from kbus import KSock, Message, MessageId, Request, Reply
 from kbus import read_bindings, KbusBindStruct
 
 NUM_DEVICES = 3
@@ -1894,5 +1894,22 @@ class TestKernelModule:
                 # But we can't send a message with both flags set
                 m3 = Message('$.Fred',flags=Message.ALL_OR_WAIT|Message.ALL_OR_FAIL)
                 check_IOError(errno.EINVAL,sender.send_msg,m3)
+
+    def test_send_retcode_1(self):
+        """Test the returns from send, etc. 1
+        """
+        with KSock(0,'rw') as sender:
+            with KSock(0,'rw') as listener:
+
+                # Let's fake an unwanted Reply, to a Request from our sender
+                r = Reply(Message('$.Fred',id=MessageId(0,9999),from_=sender.bound_as()))
+                # And try to send it
+                (rc,msg_id) = listener.send_msg(r)
+                assert rc == 1          # at the moment, that succeeeds...
+
+                # And also, at the moment, the "pretend" original sender will
+                # get it
+                thingy = sender.read_next_msg()
+                assert thingy.equivalent(r)
 
 # vim: set tabstop=8 shiftwidth=4 expandtab:

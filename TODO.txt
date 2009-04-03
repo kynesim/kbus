@@ -15,10 +15,10 @@ In no particular order (well, except for the first):
   it has been (including, if it can tell, that delivery has definitely worked
   or failed).
 
-* Probably keep a spare slot in the receiver queue, to allow for receiving
+* REQ Probably keep a spare slot in the receiver queue, to allow for receiving
   asynchronous error messages.
 
-* "send" should return:
+* REQ "send" should return:
 
   1. (as return code):
 
@@ -27,20 +27,44 @@ In no particular order (well, except for the first):
           other error that we can *guarantee* can be caught by "send", even
           if sending to a remote destination -- so basically, any error
           detectable before the actual delivery stage.
-        * positive (non-zero) value if something has gone wrong which has
-          triggered an error message, and (because we're kbus.c and everything
-          is internal to us) we just happen to know about.
+
+  2. (as ioctl argument)
+     
+        * last message id
+          to save the caller having to look it up after the fact. Since an
+          error message relating to the sent message uses its 'in_reply_to'
+          field to indicate which message it is an error message about, this
+          makes the caller's life a lot simpler (having to always do
+          <send>;<get_last_msg_id> is messy).
+
+        * a "hint" when we know more information about what has been sent.
+          Specifically:
+
+            * 0 if we have no more information
+            * 1 if we know that the send has successfully placed the messages
+              in the queues for the appropriate receivers (for an internal
+              KBUS send, this will be the normal "success" case)
+            * 2 if we know that some problem occurred during the send, which
+              has resulted in an error message being synthesised and sent
 
      That last is intended to allow the caller of "send" to be aware that they
      have an error message waiting for them to read - it is an optimisation.
      Clearly it will not be available for message sent over a bridge or some
      other abstraction mechanism.
 
-  2. (as ioctl argument) last message id (DONE) to save the caller having to
-     look it up after the fact. Since an error message relating to the sent
-     message uses its 'in_reply_to' field to indicate which message it is an
-     error message about, this makes the caller's life a lot simpler (having
-     to always do <send>;<get_last_msg_id> is messy).
+     Decisions then need to be made about what can return a "straight" return
+     code, and what needs to be mediated by an error message.
+
+* QUESTION: If a user generates a Reply, with no antecedent Request, is that
+  still a legitimate message? 
+
+  In particular, if an apparent Reply is created, and sent, but the intended
+  recipient has no reason to expect this message, is that an error, or just
+  something odd one should generally avoid doing?
+
+  It is is an error, then the (notional) sender needs to have a list of the
+  Requests that it has sent. so that it can reject this message as not
+  belonging.
 
 * REQ Implement sender ALL/WAIT flags:
 

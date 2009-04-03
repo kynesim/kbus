@@ -1739,6 +1739,14 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 	 * Are we replying to a sender's request?
 	 * Replies are unusual in that the recipient will not normally have
 	 * bound to the appropriate message name.
+	 *
+	 * XXX At *some* stage, the recipient should also be able to check to
+	 * XXX see if they're *expecting* a reply (to this message, and
+	 * XXX possibly from that replier), since otherwise there's nothing to
+	 * XXX stop a random person from synthesising a reply to a non-existant
+	 * XXX request...
+	 * XXX
+	 * XXX ...or is that allowed? Do we care? Should we care?
 	 */
 	if (kbus_message_is_reply(msg)) {
 		printk(KERN_DEBUG "kbus/write: Considering sender-of-request %u\n",
