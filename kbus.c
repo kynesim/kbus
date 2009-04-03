@@ -121,11 +121,25 @@ struct kbus_m_bind_query_struct {
  * part of a "send") will generate an appropriate failure message (if necessary),
  * but in the first (internal KBUS) case, we can know that this has happened,
  * and can pass that information back to the sender.
+ *
+ * 'retval' may be:
+ *
+ *  * 0 for we know nothing extra
+ *  * 1 for we know it got sent (i.e., we know it got added to the target
+ *    message queues)
+ *  * 2 for we know it didn't get sent (i.e., we know something went wrong,
+ *    probably adding it to the target message queues). There will be an error
+ *    message waiting to be read.
+ *  * <other values to be determined>
  */
 struct kbus_m_send_result_struct {
-	uint32_t	 	retval;	/* Discretionary information */
+	int32_t		 	retval;	/* Discretionary information */
 	struct kbus_msg_id	msg_id;	/* The id of the message we sent */
 };
+
+#define KBUS_SEND_RETVAL_NONE	0
+#define KBUS_SEND_RETVAL_OK	1
+#define KBUS_SEND_RETVAL_ERROR	2
 
 /* When the user writes/reads a message, they use: */
 struct kbus_message_struct {
@@ -731,7 +745,7 @@ static void kbus_report_message(char				*kern_prefix,
  *
  * Note that 'msg_len' is the number of *bytes* there are in the message.
  *
- * Returns 0 if all goes well, or a negative error.
+ * Returns 0 if all goes well, or -EFAULT if we can't allocate datastructures.
  */
 static int kbus_push_message(struct kbus_private_data	  *priv,
 			     uint32_t			   msg_len,
@@ -1652,10 +1666,10 @@ static int kbus_queue_is_full(struct kbus_private_data	*priv,
  * Remember that the caller is going to free the message data after
  * calling us, on the assumption that we're taking a copy...
  *
- * Returns a negative number on error, 0 for "general success", and 1 for
- * "there's a success or failure message in the works".
+ * Returns a negative number on error, or one of the KBUS_SEND_RETVAL_xxx
+ * values.
  */
-static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
+static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 					struct kbus_dev		   *dev,
 					struct kbus_message_struct *msg,
 					uint32_t		    msg_len,
@@ -1684,6 +1698,10 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 	if (num_listeners < 0) {
 		printk(KERN_DEBUG "kbus/write: Error %d finding listeners\n",
 		       num_listeners);
+		/*
+		 * XXX Should this actually be a message return plus
+		 * XXX KBUS_SEND_RETVAL_ERROR ?
+		 */
 		retval = num_listeners;
 		goto done_sending;
 	}
@@ -1701,6 +1719,10 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 
 	if (msg->flags & KBUS_BIT_WANT_A_REPLY && replier == NULL) {
 		printk(KERN_DEBUG "kbus/write: Message wants a reply, but no replier\n");
+		/*
+		 * XXX Should this actually be a message return plus
+		 * XXX KBUS_SEND_RETVAL_ERROR ?
+		 */
 		retval = -EADDRNOTAVAIL;
 		goto done_sending;
 	}
@@ -1725,24 +1747,26 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 		reply_to = kbus_find_private_data(priv,dev,msg->to);
 		if (reply_to == NULL) {
 			printk(KERN_DEBUG "kbus/write: Can't find sender %u\n",msg->to);
-			/* Which sounds fairly nasty */
+			/* Which really means something nasty has gone wrong */
+			retval = -EFAULT;	/* XXX What *should* we say? */
 			goto done_sending;
 		}
 
 		if (kbus_queue_is_full(reply_to,"sender-of-request")) {
-			if (all_or_wait)
+			if (all_or_wait) {
 				kbus_push_synthetic_message(dev,
 							    reply_to->id,
 							    msg->from,
 							    msg->id,
 							    "$.KBUS.BlockingNotImplemented");
-			else
+			} else {
 				kbus_push_synthetic_message(dev,
 							    reply_to->id,
 							    msg->from,
 							    msg->id,
 							    "$.KBUS.SenderOfRequest.QueueFull");
-			retval = 1;
+			}
+			retval = KBUS_SEND_RETVAL_ERROR;
 			goto done_sending;
 		}
 	}
@@ -1763,6 +1787,10 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 		if (msg->to && (replier->bound_to_id != msg->to)) {
 			printk(KERN_DEBUG "kbus/write: Request to %u,"
 			       " but replier is %u\n",msg->to,replier->bound_to_id);
+			/*
+			 * XXX Should this actually be a message return plus
+			 * XXX KBUS_SEND_RETVAL_ERROR ?
+			 */
 			retval = -EPIPE;	/* Well, sort of */
 			goto done_sending;
 		}
@@ -1780,7 +1808,7 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 							    msg->from,
 							    msg->id,
 							    "$.KBUS.Replier.QueueFull");
-			retval = 1;
+			retval = KBUS_SEND_RETVAL_ERROR;
 			goto done_sending;
 		}
 	}
@@ -1796,7 +1824,7 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 							    msg->from,
 							    msg->id,
 							    "$.KBUS.BlockingNotImplemented");
-				retval = 1;
+				retval = KBUS_SEND_RETVAL_ERROR;
 				goto done_sending;
 			} else if (all_or_fail) {
 				kbus_push_synthetic_message(dev,
@@ -1804,7 +1832,7 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 							    msg->from,
 							    msg->id,
 							    "$.KBUS.Listener.QueueFull");
-				retval = 1;
+				retval = KBUS_SEND_RETVAL_ERROR;
 				goto done_sending;
 			} else {
 				/* For now, just ignore *this* listener */
@@ -1833,6 +1861,13 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 	 * listeners...
 	 *
 	 * Be careful if altering this...
+	 */
+
+	/*
+	 * We know that kbus_push_message() can return 0 or -EFAULT.
+	 * It seems sensible to treat that latter as a "local" error, as it
+	 * means that our internals have gone wrong. Thus we don't need to
+	 * generate a message for it.
 	 */
 
 	/* If it's a reply message and we've got someone to reply to, send it */
@@ -1865,11 +1900,9 @@ static ssize_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 		}
 	}
 
+	retval = KBUS_SEND_RETVAL_OK;
+
 done_sending:
-
-	/* XXX What to do if we get retval < 0 by here - send a message? XXX */
-	/* XXX (since it means "some of the messages couldn't be sent"?) XXX */
-
 	if (listeners)
 		kfree(listeners);
 	return retval;
@@ -2331,11 +2364,11 @@ done:
 	kbus_empty_write_msg(priv);
 
 	if (retval >= 0) {
-		struct kbus_m_send_result_struct result;
-		result.msg_id = priv->last_msg_id;
-		result.retval = 0;
+		struct kbus_m_send_result_struct result_arg;
+		result_arg.msg_id = priv->last_msg_id;
+		result_arg.retval = retval;
 
-		if (copy_to_user((void *)arg, &result, sizeof(result)))
+		if (copy_to_user((void *)arg, &result_arg, sizeof(result_arg)))
 			retval = -EFAULT;
 	}
 	return retval;

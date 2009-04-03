@@ -653,6 +653,18 @@ class KbusListenerStruct(ctypes.Structure):
                 ('len',       ctypes.c_uint),
                 ('name',      ctypes.c_char_p)]
 
+class KbusMsgIdStruct(ctypes.Structure):
+    """The datastucture we need to describe a KBUS message id
+    """
+    _fields_ = [('network_id', ctypes.c_uint),
+                ('serial_num', ctypes.c_uint)]
+
+class KbusSendResultStruct(ctypes.Structure):
+    """The datastucture we need to describe an IOC_SEND argument/return
+    """
+    _fields_ = [('retval',  ctypes.c_int),
+                ('msg_id',  KbusMsgIdStruct)]
+
 class KSock(object):
     """A wrapper around a KBUS device, for purposes of message sending.
 
@@ -762,9 +774,10 @@ class KSock(object):
 
         Raises IOError with errno ENOMSG if there was no message to send.
         """
-        id = array.array('L',[0,0,0])
-        fcntl.ioctl(self.fd, KSock.IOC_SEND, id, True)
-        return (id[0], MessageId(id[1],id[2]))
+        arg = KbusSendResultStruct()
+        fcntl.ioctl(self.fd, KSock.IOC_SEND, arg);
+        return (arg.retval,
+                MessageId(arg.msg_id.network_id, arg.msg_id.serial_num))
 
     def discard(self):
         """Discard the message being written.
