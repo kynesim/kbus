@@ -1933,6 +1933,7 @@ class TestKernelModule:
                     (ret,id) = sender.send_msg(m)
                     assert ret == 2                     # there's an error message
 
+                    # So read this apparent error message
                     e = sender.read_next_msg()
                     assert e.from_ == listener1.bound_as()
                     assert e.in_reply_to == id
