@@ -184,7 +184,7 @@ def bindings_match(bindings):
     where the boolean means the binding is for a replier (or not).
 
     The function reads the contents of /proc/kbus/bindings. It translates each
-    file descriptor to a listener id using ``bound_as``, and thus converts
+    file descriptor to a listener id using ``ksock_id``, and thus converts
     'bindings' to an equivalent list.
 
     Silently returns True if the bindings in /proc/kbus/bindings match
@@ -194,8 +194,8 @@ def bindings_match(bindings):
     names = {}
     for (fd,rep,name) in bindings:
         if fd not in names:
-            names[fd] = fd.bound_as()
-        testwith.append((fd.bound_as(),rep,name))
+            names[fd] = fd.ksock_id()
+        testwith.append((fd.ksock_id(),rep,name))
 
     actual = read_bindings(names)
 
@@ -1341,9 +1341,9 @@ class TestKernelModule:
             with KSock(0,'rw') as f2:
                 with KSock(0,'rw') as f3:
 
-                    print 'f1 is',f1.bound_as()
-                    print 'f2 is',f2.bound_as()
-                    print 'f3 is',f3.bound_as()
+                    print 'f1 is',f1.ksock_id()
+                    print 'f2 is',f2.ksock_id()
+                    print 'f3 is',f3.ksock_id()
 
                     # f2 is listening for someone to say 'Hello'
                     f2.bind('$.Hello')
@@ -1389,14 +1389,14 @@ class TestKernelModule:
         """Send a request to replier/listener (same ksock)
         """
         with KSock(0,'rw') as f1:
-            f1_id = f1.bound_as()
+            f1_id = f1.ksock_id()
             f2_id = 0
 
             m = Request('$.Fred','data')
             print m
 
             with KSock(0,'rw') as f2:
-                f2_id = f2.bound_as()
+                f2_id = f2.ksock_id()
                 f2.bind('$.Fred',replier=True)
                 f2.bind('$.Fred',replier=False)
 
@@ -1420,13 +1420,13 @@ class TestKernelModule:
         """Send a request, but the replier goes away.
         """
         with KSock(0,'rw') as f1:
-            f1_id = f1.bound_as()
+            f1_id = f1.ksock_id()
             f2_id = 0
 
             m = Request('$.Fred','data')
 
             with KSock(0,'rw') as f2:
-                f2_id = f2.bound_as()
+                f2_id = f2.ksock_id()
                 f2.bind('$.Fred',replier=True)
 
                 f1.send_msg(m)
@@ -1452,13 +1452,13 @@ class TestKernelModule:
         """Send a request, but the replier (who is also a listener) goes away.
         """
         with KSock(0,'rw') as f1:
-            f1_id = f1.bound_as()
+            f1_id = f1.ksock_id()
             f2_id = 0
 
             m = Request('$.Fred','data')
 
             with KSock(0,'rw') as f2:
-                f2_id = f2.bound_as()
+                f2_id = f2.ksock_id()
                 f2.bind('$.Fred',replier=True)
                 f2.bind('$.Fred',replier=False)
 
@@ -1483,7 +1483,7 @@ class TestKernelModule:
         """Send a request, but the replier (who is also a listener) goes away.
         """
         with KSock(0,'rw') as f1:
-            f1_id = f1.bound_as()
+            f1_id = f1.ksock_id()
             f2_id = 0
 
             r1 = Request('$.Fred','data')
@@ -1492,7 +1492,7 @@ class TestKernelModule:
             m2 = Message('$.Fred','more')
 
             with KSock(0,'rw') as f2:
-                f2_id = f2.bound_as()
+                f2_id = f2.ksock_id()
                 f2.bind('$.Fred',replier=True)
                 f2.bind('$.Fred',replier=False)
 
@@ -1531,13 +1531,13 @@ class TestKernelModule:
         """Send a request, but the replier goes unbinds.
         """
         with KSock(0,'rw') as f1:
-            f1_id = f1.bound_as()
+            f1_id = f1.ksock_id()
             f2_id = 0
 
             m = Request('$.Fred','data')
 
             with KSock(0,'rw') as f2:
-                f2_id = f2.bound_as()
+                f2_id = f2.ksock_id()
                 f2.bind('$.Fred',replier=True)
 
                 f1.send_msg(m)
@@ -1567,13 +1567,13 @@ class TestKernelModule:
         """Send a request, but the replier (who is also a listener) unbinds.
         """
         with KSock(0,'rw') as f1:
-            f1_id = f1.bound_as()
+            f1_id = f1.ksock_id()
             f2_id = 0
 
             m = Request('$.Fred','data')
 
             with KSock(0,'rw') as f2:
-                f2_id = f2.bound_as()
+                f2_id = f2.ksock_id()
                 f2.bind('$.Fred',replier=True)
                 f2.bind('$.Fred',replier=False)
 
@@ -1606,7 +1606,7 @@ class TestKernelModule:
         """Send a request, but the replier (who is also a listener) unbinds.
         """
         with KSock(0,'rw') as f1:
-            f1_id = f1.bound_as()
+            f1_id = f1.ksock_id()
             f2_id = 0
 
             r1 = Request('$.Fred','data')
@@ -1618,7 +1618,7 @@ class TestKernelModule:
             m3 = Message('$.Jim','what')
 
             with KSock(0,'rw') as f2:
-                f2_id = f2.bound_as()
+                f2_id = f2.ksock_id()
                 f2.bind('$.Fred',replier=True)
                 f2.bind('$.Fred',replier=False)
                 f2.bind('$.Jim',replier=True)
@@ -1933,7 +1933,7 @@ class TestKernelModule:
             with KSock(0,'rw') as listener:
 
                 # Let's fake an unwanted Reply, to a Request from our sender
-                r = Reply(Message('$.Fred',id=MessageId(0,9999),from_=sender.bound_as()))
+                r = Reply(Message('$.Fred',id=MessageId(0,9999),from_=sender.ksock_id()))
                 # And try to send it
                 (rc,msg_id) = listener.send_msg(r)
                 assert rc == 1          # at the moment, that succeeeds...
@@ -1966,7 +1966,7 @@ class TestKernelModule:
 
                     # So read this apparent error message
                     e = sender.read_next_msg()
-                    assert e.from_ == listener1.bound_as()
+                    assert e.from_ == listener1.ksock_id()
                     assert e.in_reply_to == id
 
                     # So listener1 should have one message outstanding

@@ -908,7 +908,7 @@ class KSock(object):
     IOC_RESET    = _IO(IOC_MAGIC,   1)
     IOC_BIND     = _IOW(IOC_MAGIC,  2, ctypes.sizeof(ctypes.c_char_p))
     IOC_UNBIND   = _IOW(IOC_MAGIC,  3, ctypes.sizeof(ctypes.c_char_p))
-    IOC_BOUNDAS  = _IOR(IOC_MAGIC,  4, ctypes.sizeof(ctypes.c_char_p))
+    IOC_KSOCKID  = _IOR(IOC_MAGIC,  4, ctypes.sizeof(ctypes.c_char_p))
     IOC_REPLIER  = _IOWR(IOC_MAGIC, 5, ctypes.sizeof(ctypes.c_char_p))
     IOC_NEXTMSG  = _IOR(IOC_MAGIC,  6, ctypes.sizeof(ctypes.c_char_p))
     IOC_LENLEFT  = _IOR(IOC_MAGIC,  7, ctypes.sizeof(ctypes.c_char_p))
@@ -961,16 +961,13 @@ class KSock(object):
         arg = KbusBindStruct(replier,len(name),name)
         return fcntl.ioctl(self.fd, KSock.IOC_UNBIND, arg);
 
-    def bound_as(self):
-        """Return the 'bind number' for this file descriptor.
-
-        XXX Maybe this should instead be considered the KSock "id",
-        XXX and this method thus called as much
+    def ksock_id(self):
+        """Return the internal 'KSock id' for this file descriptor.
         """
         # Instead of using a ctypes.Structure, we can retrieve homogenious
         # arrays of data using, well, arrays. This one is a bit minimalist.
         id = array.array('L',[0])
-        fcntl.ioctl(self.fd, KSock.IOC_BOUNDAS, id, True)
+        fcntl.ioctl(self.fd, KSock.IOC_KSOCKID, id, True)
         return id[0]
 
     def next_msg(self):

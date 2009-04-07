@@ -373,6 +373,20 @@ the device is opened. The value 0 is reserved for KBUS itself.
     The terms "listener id", "sender id", "replier id", etc., thus all refer
     to the a KSock id, depending on what it is being used for.
 
+Read, write and blocking
+------------------------
+Note that, at the moment
+
+.. warning:: ``read`` and ``write`` are always non-blocking.
+
+``read`` returns more of the currently selected message, or EOF if there is no
+more of that message to read (and thus also if there is no currently selected
+message). The NEXTMSG ioctl is used to select the next message.
+
+``write`` writes to the end of the currently-being-written message. The
+DISCARD ioctl can be used to discard the data written so far, and the SEND
+ioctl to send the (presumably completed message).
+
 Senders
 -------
 Message senders are called "senders". A sender should open a KSock for read
@@ -627,8 +641,7 @@ The KBUS ioctls are:
 :RESET:         Currently has no effect
 :BIND:          Bind to a particular message name (possibly as replier).
 :UNBIND:        Unbind from a binding - must match exactly.
-:BOUNDAS:       Determine the KSock id of the KSock used (this may need a
-                better name)
+:KSOCKID:       Determine the KSock id of the KSock used
 :REPLIER:       Determine who is bound as replier to a particular message
                 name. This returns 0 or the KSock id of the replier.
 :NEXTMSG:       Pop the next message from the KSock's message queue, ready

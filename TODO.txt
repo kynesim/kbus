@@ -113,8 +113,8 @@ In no particular order (well, except for the first):
   complicated and (b) the interface might well unbind and then bind again.
   Yes, that sounds a good excuse.
 
-* REQ Provide a flag on file descriptors (hmm, perhaps better on an individual
-  message?) to say:
+* REQ (LOW PRIORITY) Provide a flag on file descriptors (hmm, perhaps better
+  on an individual message?) to say:
 
   When I've sent a message, send me back a synthesised message when that
   message has "left the system" -- i.e., when all listeners (that are going
