@@ -18,7 +18,7 @@ In no particular order (well, except for the first):
 * REQ Probably keep a spare slot in the receiver queue, to allow for receiving
   asynchronous error messages.
 
-* DONE "send" should return:
+* DONE *(but held here as details may change)* "send" should return:
 
   1. (as return code):
 
@@ -94,6 +94,9 @@ In no particular order (well, except for the first):
 * REQ Police reply messages -- there may be one, and only one, reply for each
   request. It shall not be possible to send a reply that is not in response to
   a request. It shall be shiny.
+
+        Or not. Do I actually care? After all, an exception/synthetic message
+        also looks like a reply...
 
 * OPT Internally, split messages into
 

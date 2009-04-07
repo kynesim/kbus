@@ -53,7 +53,7 @@ import array
 import errno
 import nose
 
-from kbus import KSock, Message, MessageId, Request, Reply
+from kbus import KSock, Message, MessageId, Announcement, Request, Reply
 from kbus import read_bindings, KbusBindStruct
 
 NUM_DEVICES = 3
@@ -337,6 +337,37 @@ class TestKernelModule:
             # If we try to send a message that nobody is listening for,
             # it just disappears into the void
             msg3 = Message('$.D','fred')
+            f.send_msg(msg3)
+
+        finally:
+            assert f.close() is None
+
+    def test_readwrite_kbus0_with_Announcement(self):
+        """If we open the device read/write, we can read and write.
+        """
+        f = RecordingKSock(0,'rw',self.bindings)
+        assert f != None
+
+        try:
+            f.bind('$.B')
+            f.bind('$.C')
+
+            # We start off with no message
+            self._check_read(f,None)
+
+            # We can send a message and read it back
+            msg1 = Announcement('$.B','data')
+            f.send_msg(msg1)
+            self._check_read(f,msg1)
+
+            # We can send a message and read it back, again
+            msg2 = Announcement('$.C','fred')
+            f.send_msg(msg2)
+            self._check_read(f,msg2)
+
+            # If we try to send a message that nobody is listening for,
+            # it just disappears into the void
+            msg3 = Announcement('$.D','fred')
             f.send_msg(msg3)
 
         finally:

@@ -546,28 +546,176 @@ class Message(object):
         return (self.id, self.in_reply_to, self.to, self.from_,
                 self.flags, self.name, self.data)
 
+class Announcement(Message):
+    """A "plain" message, needing no reply
+
+    This is intended to be a convenient way of constructing a message that
+    is just aimed at any listeners.
+
+    It's also a terminological convenience - all of the "message" things are
+    clearly messages, so we need a special name for "plain" messages...
+    There's an argument for just factory functions to create these things,
+    but a class feels a little cleaner to me.
+
+    An Announcement can be created in a variety of ways. Perhaps most obviously:
+
+        >>> ann1 = Announcement('$.Fred',data='1234')
+        >>> ann1
+        Announcement('$.Fred', data=array('L', [875770417L]), to=0L, from_=0L, flags=0x00000000, id=None)
+
+    Note that if the 'data' is specified as a string, there must be a multiple
+    of 4 characters -- i.e., it must "fill out" an array of unsigned int-32
+    words.
+
+    Since Announcement is a "plain" Message, we expect to be able to use the
+    normal ways of instantiating a Message for an Announcement.
+
+    So, an Announcement can be constructed from another message directly:
+
+        >>> ann2 = Announcement(ann1)
+        >>> ann2 == ann1
+        True
+
+        >>> msg = Announcement(ann1)
+        >>> ann2a = Announcement(msg)
+        >>> ann2 == ann2a
+        True
+
+    Since it's an Announcement, there's no 'in_reply_to' argument
+
+        >>> fail = Announcement('$.Fred',in_reply_to=None)
+        Traceback (most recent call last):
+        ...
+        TypeError: __init__() got an unexpected keyword argument 'in_reply_to'
+
+    and the 'in_reply_to' value in Message objects is ignored:
+
+        >>> msg = Message('$.Fred',data='1234',in_reply_to=MessageId(1,2))
+        >>> ann = Announcement(msg)
+        >>> ann
+        Announcement('$.Fred', data=array('L', [875770417L]), to=0L, from_=0L, flags=0x00000000, id=None)
+        >>> print ann.in_reply_to
+        None
+
+    or from the '.extract()' tuple - again, 'reply_to' will be ignored:
+
+        >>> ann3 = Announcement(ann1.extract())
+        >>> ann3 == ann1
+        True
+
+    or from an equivalent list (and as above for 'reply_to'):
+
+        >>> ann3 = Announcement(list(ann1.extract()))
+        >>> ann3 == ann1
+        True
+
+    Or one can use an array (of unsigned 32-bit words - again, as above):
+
+        >>> ann1.array
+        array('L', [1937072747L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 6L, 1L, 1917201956L, 25701L, 875770417L, 1801614707L])
+        >>> ann3 = Announcement(ann1.array)
+        >>> ann3 == ann1
+        True
+
+    or the same thing represented as a string:
+
+        >>> ann_as_string = ann1.array.tostring()
+        >>> ann4 = Announcement(ann_as_string)
+        >>> ann4 == ann1
+        True
+
+    For convenience, the parts of an Announcement may be retrieved as properties:
+
+        >>> print ann1.id
+        None
+        >>> ann1.name
+        '$.Fred'
+        >>> ann1.to
+        0L
+        >>> ann1.from_
+        0L
+        >>> print ann1.in_reply_to # always expected to be None
+        None
+        >>> ann1.flags
+        0L
+        >>> ann1.data
+        array('L', [875770417L])
+
+    Note that:
+
+    1. An Announcement message is such because it is not a message of another
+       type. There is nothing else special about it.
+    """
+
+    # I would quite like to do::
+    #
+    #   def __init__(self, arg, **kwargs):
+    #
+    # and then::
+    #
+    #   super(Announcement,self).__init__(arg, **kwargs)
+    #
+    # but then I wouldn't be able to do::
+    #
+    #   r = Announcement('$.Fred','data')
+    #
+    # which I *can* do (and want to be able to do) with Message
+
+    def __init__(self, arg, data=None, to=0, from_=0, flags=0, id=0):
+        """Arguments are the same as for Message itself, absent 'in_reply_to'.
+        """
+        # Just do what the caller asked for directly
+        super(Announcement,self).__init__(arg, data=data, to=to,
+                                          from_=from_, flags=flags, id=id)
+        # And, in case 'in_reply_to' got set by that
+        self.array[Message.IDX_IN_REPLY_TO_NETWORK_ID] = 0
+        self.array[Message.IDX_IN_REPLY_TO_SERIAL_NUM] = 0
+
+    def set_want_reply(self,value=True):
+        """Announcements are not Requests.
+        """
+        raise TypeError("Announcements are not Requests")
+
+    def __repr__(self):
+        (id,in_reply_to,to,from_,flags,name,data_array) = self.extract()
+        args = [repr(name),
+                'data='+repr(data_array),
+                'to='+repr(to),
+                'from_='+repr(from_),
+                'flags=0x%08x'%flags,
+                'id='+repr(id)]
+        return 'Announcement(%s)'%(', '.join(args))
+
 class Request(Message):
     """A message that wants a reply.
 
     This is intended to be a convenient way of constructing a message that
     wants a reply.
 
-    For instance:
+    It doesn't take an 'in_reply_to' initialisation argument:
+
+        >>> fail = Request('$.Fred',in_reply_to=None)
+        Traceback (most recent call last):
+        ...
+        TypeError: __init__() got an unexpected keyword argument 'in_reply_to'
+
+    And it automatically sets the 'wants a reply' flag, but otherwise it
+    behaves just like a Message.
+
+    For instance, consider:
 
         >>> msg = Message('$.Fred',data='abcd',flags=Message.WANT_A_REPLY)
         >>> msg
         Message('$.Fred', data=array('L', [1684234849L]), to=0L, from_=0L, in_reply_to=None, flags=0x00000001, id=None)
         >>> req = Request('$.Fred',data='abcd')
         >>> req
-        Message('$.Fred', data=array('L', [1684234849L]), to=0L, from_=0L, in_reply_to=None, flags=0x00000001, id=None)
+        Request('$.Fred', data=array('L', [1684234849L]), to=0L, from_=0L, flags=0x00000001, id=None)
         >>> req == msg
         True
 
     Note that:
 
-    1. A Request instance still represents itself as a Message. This is
-       perhaps not ideal, but is consistent with how Reply instances work.
-    2. A request message is a request just because it has the
+    1. A request message is a request just because it has the
        Message.WANT_A_REPLY flag set. There is nothing else special about it.
     """
 
@@ -585,13 +733,27 @@ class Request(Message):
     #
     # which I *can* do (and want to be able to do) with Message
 
-    def __init__(self, arg, data=None, to=0, from_=0, in_reply_to=0, flags=0, id=0):
+    def __init__(self, arg, data=None, to=0, from_=0, flags=0, id=0):
         """Arguments are exactly the same as for Message itself.
         """
         # First, just do what the caller asked for directly
-        super(Request,self).__init__(arg,data,to,from_,in_reply_to,flags,id)
-        # But then make sure that the "wants a reply" flags is set
-        self.set_want_reply()
+        # but with 'in_reply_to' as 0
+        super(Request,self).__init__(arg,data,to,from_,0,flags,id)
+        # But then make sure that the "wants a reply" flag is set
+        super(Request,self).set_want_reply(True)
+
+    def __repr__(self):
+        (id,in_reply_to,to,from_,flags,name,data_array) = self.extract()
+        args = [repr(name),
+                'data='+repr(data_array),
+                'to='+repr(to),
+                'from_='+repr(from_),
+                'flags=0x%08x'%flags,
+                'id='+repr(id)]
+        return 'Request(%s)'%(', '.join(args))
+
+    def set_want_reply(self):
+        raise TypeError('Request always has "want a reply" set')
 
 class Reply(Message):
     """A reply message.
@@ -605,39 +767,103 @@ class Reply(Message):
         Message('$.Fred', data=array('L', [1684234849L]), to=99L, from_=27L, in_reply_to=None, flags=0x00000001, id=MessageId(0,132))
         >>> reply = Reply(msg)
         >>> reply
-        Message('$.Fred', data=array('L'), to=27L, from_=0L, in_reply_to=MessageId(0,132), flags=0x00000000, id=None)
+        Reply('$.Fred', data=array('L'), to=27L, from_=0L, in_reply_to=MessageId(0,132), flags=0x00000000, id=None)
 
     Note that:
 
-    1. A Reply instance still represents itself as a Message. This is mostly
-       because the representation can be used to construct an identical
-       Message -- doing this with a Reply() would mean including the
-       representation of the original Message as well.
-    2. A reply message is a reply because it has the 'in_reply_to' field set.
+    1. A reply message is a reply because it has the 'in_reply_to' field set.
        This indicates the message id of the original message, the one we're
        replying to.
-    3. As normal, the Reply's own message id is unset - KBUS will set this, as
+    2. As normal, the Reply's own message id is unset - KBUS will set this, as
        for any message.
-    4. We give a specific 'to' value, the id of the KSock that sent the
+    3. We give a specific 'to' value, the id of the KSock that sent the
        original message, and thus the 'from' value in the original message.
-    5. We keep the same message name, but don't copy the original message's
+    4. We keep the same message name, but don't copy the original message's
        data. If we want to send data in a reply message, it will be our own
        data.
+
+    It's also possible to construct a Reply in most of the other ways a Message
+    can be constructed, although these always act as if they were::
+
+                m = Message(first_arg)
+                r = Reply(m)
+
+    which means that the automatic swapping of from/to, etc., will happen.
+    For instance:
+
+        >>> rep2 = Reply(msg.array)
+        >>> rep2 == reply
+        True
+        >>> rep3 = Reply(msg.array.tostring())
+        >>> rep3 == reply
+        True
+        >>> rep4 = Reply(msg.extract())
+        >>> rep4 == reply
+        True
+
+    Or a reply can be constructed directly (in which case, of course, there's
+    no swapping around):
+
+        >>> direct = Reply('$.Fred', to=27, in_reply_to=MessageId(0,132))
+        >>> direct
+        Reply('$.Fred', data=array('L'), to=27L, from_=0L, in_reply_to=MessageId(0,132), flags=0x00000000, id=None)
+        >>> direct == reply
+        True
     """
 
-    def __init__(self, original, data=None):
-        (id,in_reply_to,to,from_,flags,name,data_array) = original.extract()
-        # We reply to the original sender (to), indicating which message we're
-        # responding to (in_reply_to).
-        #
-        # The fact that in_reply_to is set means that we *are* a reply.
-        #
-        # We don't need to set any flags. We definitely *don't* want to copy
-        # any flags from the original message.
-        super(Reply,self).__init__(name, data=data,
-                                   in_reply_to=id,
-                                   to=from_,
-                                   flags=0)
+    def __init__(self, original, data=None, to=None, in_reply_to=None, flags=0):
+        """Try to support sensible ways of setting ourselves up.
+        """
+        if isinstance(original,array.array) or \
+                (isinstance(original,str) and not original.startswith('$.')):
+            # The lazy way of handling this case
+            original = Message(original)
+            # and then fall through into...
+
+        if isinstance(original,Message):
+            (id,in_reply_to,to,from_,flags,name,data_array) = original.extract()
+            # We reply to the original sender (to), indicating which message we're
+            # responding to (in_reply_to).
+            #
+            # The fact that in_reply_to is set means that we *are* a reply.
+            #
+            # We don't need to set any flags. We definitely *don't* want to copy
+            # any flags from the original message.
+            super(Reply,self).__init__(name, data=data,
+                                       in_reply_to=id,
+                                       to=from_,
+                                       flags=0)
+        elif isinstance(original,tuple) or isinstance(original,list):
+            # A tuple from .extract(), or an equivalent tuple/list
+            if len(original) != 7:
+                raise ValueError("Tuple original to Reply() must have"
+                        " 7 values, not %d"%len(original))
+            else:
+                # See the extract() method for the order of values
+                super(Reply,self).__init__(original[-2],
+                                           data=data,
+                                           in_reply_to=original[0], # id
+                                           to=original[3],          # from_
+                                           flags=0)
+        elif isinstance(original,str) and original.startswith('$.'):
+            # It looks like a message name
+            super(Reply,self).__init__(original, data=data,
+                                       to=to,
+                                       in_reply_to=in_reply_to,
+                                       flags=flags)
+        else:
+            raise ValueError,'Argument %s does not seem to make sense'%repr(arg)
+
+    def __repr__(self):
+        (id,in_reply_to,to,from_,flags,name,data_array) = self.extract()
+        args = [repr(name),
+                'data='+repr(data_array),
+                'to='+repr(to),
+                'from_='+repr(from_),
+                'in_reply_to='+repr(in_reply_to),
+                'flags=0x%08x'%flags,
+                'id='+repr(id)]
+        return 'Reply(%s)'%(', '.join(args))
 
 class KbusBindStruct(ctypes.Structure):
     """The datastucture we need to describe an IOC_BIND argument
