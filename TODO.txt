@@ -1,6 +1,10 @@
 A crude to-do list
 ==================
 
+.. note:: This TODO list is kept as a reStructuredText document.
+          If you are looking at an HTML file, then it is provided for your
+          convenience, and may not be up-to-date.
+
 In no particular order (well, except for the first):
 
 * REQ Always, update documentation.
@@ -97,6 +101,11 @@ In no particular order (well, except for the first):
 
         Or not. Do I actually care? After all, an exception/synthetic message
         also looks like a reply...
+
+* REQ Improve the output in /proc/kbus/bindings so it is not limited to a
+  single page.
+
+* OPT Provide other useful information via /proc/kbus.
 
 * OPT Internally, split messages into
 

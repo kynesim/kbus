@@ -1,0 +1,537 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.4.1: http://docutils.sourceforge.net/" />
+<title>A crude to-do list</title>
+<style type="text/css">
+
+/*
+:Author: David Goodger
+:Contact: goodger@users.sourceforge.net
+:Date: $Date: 2005-12-18 01:56:14 +0100 (Sun, 18 Dec 2005) $
+:Revision: $Revision: 4224 $
+:Copyright: This stylesheet has been placed in the public domain.
+
+Default cascading style sheet for the HTML output of Docutils.
+
+See http://docutils.sf.net/docs/howto/html-stylesheets.html for how to
+customize this style sheet.
+*/
+
+/* used to remove borders from tables and images */
+.borderless, table.borderless td, table.borderless th {
+  border: 0 }
+
+table.borderless td, table.borderless th {
+  /* Override padding for "table.docutils td" with "! important".
+     The right padding separates the table cells. */
+  padding: 0 0.5em 0 0 ! important }
+
+.first {
+  /* Override more specific margin styles with "! important". */
+  margin-top: 0 ! important }
+
+.last, .with-subtitle {
+  margin-bottom: 0 ! important }
+
+.hidden {
+  display: none }
+
+a.toc-backref {
+  text-decoration: none ;
+  color: black }
+
+blockquote.epigraph {
+  margin: 2em 5em ; }
+
+dl.docutils dd {
+  margin-bottom: 0.5em }
+
+/* Uncomment (and remove this text!) to get bold-faced definition list terms
+dl.docutils dt {
+  font-weight: bold }
+*/
+
+div.abstract {
+  margin: 2em 5em }
+
+div.abstract p.topic-title {
+  font-weight: bold ;
+  text-align: center }
+
+div.admonition, div.attention, div.caution, div.danger, div.error,
+div.hint, div.important, div.note, div.tip, div.warning {
+  margin: 2em ;
+  border: medium outset ;
+  padding: 1em }
+
+div.admonition p.admonition-title, div.hint p.admonition-title,
+div.important p.admonition-title, div.note p.admonition-title,
+div.tip p.admonition-title {
+  font-weight: bold ;
+  font-family: sans-serif }
+
+div.attention p.admonition-title, div.caution p.admonition-title,
+div.danger p.admonition-title, div.error p.admonition-title,
+div.warning p.admonition-title {
+  color: red ;
+  font-weight: bold ;
+  font-family: sans-serif }
+
+/* Uncomment (and remove this text!) to get reduced vertical space in
+   compound paragraphs.
+div.compound .compound-first, div.compound .compound-middle {
+  margin-bottom: 0.5em }
+
+div.compound .compound-last, div.compound .compound-middle {
+  margin-top: 0.5em }
+*/
+
+div.dedication {
+  margin: 2em 5em ;
+  text-align: center ;
+  font-style: italic }
+
+div.dedication p.topic-title {
+  font-weight: bold ;
+  font-style: normal }
+
+div.figure {
+  margin-left: 2em ;
+  margin-right: 2em }
+
+div.footer, div.header {
+  clear: both;
+  font-size: smaller }
+
+div.line-block {
+  display: block ;
+  margin-top: 1em ;
+  margin-bottom: 1em }
+
+div.line-block div.line-block {
+  margin-top: 0 ;
+  margin-bottom: 0 ;
+  margin-left: 1.5em }
+
+div.sidebar {
+  margin-left: 1em ;
+  border: medium outset ;
+  padding: 1em ;
+  background-color: #ffffee ;
+  width: 40% ;
+  float: right ;
+  clear: right }
+
+div.sidebar p.rubric {
+  font-family: sans-serif ;
+  font-size: medium }
+
+div.system-messages {
+  margin: 5em }
+
+div.system-messages h1 {
+  color: red }
+
+div.system-message {
+  border: medium outset ;
+  padding: 1em }
+
+div.system-message p.system-message-title {
+  color: red ;
+  font-weight: bold }
+
+div.topic {
+  margin: 2em }
+
+h1.section-subtitle, h2.section-subtitle, h3.section-subtitle,
+h4.section-subtitle, h5.section-subtitle, h6.section-subtitle {
+  margin-top: 0.4em }
+
+h1.title {
+  text-align: center }
+
+h2.subtitle {
+  text-align: center }
+
+hr.docutils {
+  width: 75% }
+
+img.align-left {
+  clear: left }
+
+img.align-right {
+  clear: right }
+
+ol.simple, ul.simple {
+  margin-bottom: 1em }
+
+ol.arabic {
+  list-style: decimal }
+
+ol.loweralpha {
+  list-style: lower-alpha }
+
+ol.upperalpha {
+  list-style: upper-alpha }
+
+ol.lowerroman {
+  list-style: lower-roman }
+
+ol.upperroman {
+  list-style: upper-roman }
+
+p.attribution {
+  text-align: right ;
+  margin-left: 50% }
+
+p.caption {
+  font-style: italic }
+
+p.credits {
+  font-style: italic ;
+  font-size: smaller }
+
+p.label {
+  white-space: nowrap }
+
+p.rubric {
+  font-weight: bold ;
+  font-size: larger ;
+  color: maroon ;
+  text-align: center }
+
+p.sidebar-title {
+  font-family: sans-serif ;
+  font-weight: bold ;
+  font-size: larger }
+
+p.sidebar-subtitle {
+  font-family: sans-serif ;
+  font-weight: bold }
+
+p.topic-title {
+  font-weight: bold }
+
+pre.address {
+  margin-bottom: 0 ;
+  margin-top: 0 ;
+  font-family: serif ;
+  font-size: 100% }
+
+pre.literal-block, pre.doctest-block {
+  margin-left: 2em ;
+  margin-right: 2em ;
+  background-color: #eeeeee }
+
+span.classifier {
+  font-family: sans-serif ;
+  font-style: oblique }
+
+span.classifier-delimiter {
+  font-family: sans-serif ;
+  font-weight: bold }
+
+span.interpreted {
+  font-family: sans-serif }
+
+span.option {
+  white-space: nowrap }
+
+span.pre {
+  white-space: pre }
+
+span.problematic {
+  color: red }
+
+span.section-subtitle {
+  /* font-size relative to parent (h1..h6 element) */
+  font-size: 80% }
+
+table.citation {
+  border-left: solid 1px gray;
+  margin-left: 1px }
+
+table.docinfo {
+  margin: 2em 4em }
+
+table.docutils {
+  margin-top: 0.5em ;
+  margin-bottom: 0.5em }
+
+table.footnote {
+  border-left: solid 1px black;
+  margin-left: 1px }
+
+table.docutils td, table.docutils th,
+table.docinfo td, table.docinfo th {
+  padding-left: 0.5em ;
+  padding-right: 0.5em ;
+  vertical-align: top }
+
+table.docutils th.field-name, table.docinfo th.docinfo-name {
+  font-weight: bold ;
+  text-align: left ;
+  white-space: nowrap ;
+  padding-left: 0 }
+
+h1 tt.docutils, h2 tt.docutils, h3 tt.docutils,
+h4 tt.docutils, h5 tt.docutils, h6 tt.docutils {
+  font-size: 100% }
+
+tt.docutils {
+  background-color: #eeeeee }
+
+ul.auto-toc {
+  list-style-type: none }
+
+</style>
+</head>
+<body>
+<div class="document" id="a-crude-to-do-list">
+<h1 class="title">A crude to-do list</h1>
+<div class="note">
+<p class="first admonition-title">Note</p>
+<p class="last">This TODO list is kept as a reStructuredText document.
+If you are looking at an HTML file, then it is provided for your
+convenience, and may not be up-to-date.</p>
+</div>
+<p>In no particular order (well, except for the first):</p>
+<ul>
+<li><p class="first">REQ Always, update documentation.</p>
+</li>
+<li><p class="first">REQ Allow a KSock to say &quot;I am a network bridge&quot;, which means that
+messages going over it might be hard to follow -- one might not be sure if
+they've been delivered or not, and so it may be sensible to be able to tell
+that a message has &quot;gone fuzzy&quot; -- sending to such an interface should maybe
+set some status on the &quot;retval+status&quot; from a send.</p>
+<p>Thus &quot;send&quot; should tell the caller as much as it can about how successful
+it has been (including, if it can tell, that delivery has definitely worked
+or failed).</p>
+</li>
+<li><p class="first">REQ Probably keep a spare slot in the receiver queue, to allow for receiving
+asynchronous error messages.</p>
+</li>
+<li><p class="first">DONE <em>(but held here as details may change)</em> &quot;send&quot; should return:</p>
+<ol class="arabic">
+<li><p class="first">(as return code):</p>
+<blockquote>
+<ul class="simple">
+<li>0 if all has gone well</li>
+<li>negative value if the message was invalid in some way, or for any
+other error that we can <em>guarantee</em> can be caught by &quot;send&quot;, even
+if sending to a remote destination -- so basically, any error
+detectable before the actual delivery stage.</li>
+</ul>
+</blockquote>
+</li>
+<li><p class="first">(as ioctl argument)</p>
+<blockquote>
+<ul>
+<li><p class="first">last message id
+to save the caller having to look it up after the fact. Since an
+error message relating to the sent message uses its 'in_reply_to'
+field to indicate which message it is an error message about, this
+makes the caller's life a lot simpler (having to always do
+&lt;send&gt;;&lt;get_last_msg_id&gt; is messy).</p>
+</li>
+<li><p class="first">a &quot;hint&quot; when we know more information about what has been sent.
+Specifically:</p>
+<blockquote>
+<ul class="simple">
+<li>0 if we have no more information</li>
+<li>1 if we know that the send has successfully placed the messages
+in the queues for the appropriate receivers (for an internal
+KBUS send, this will be the normal &quot;success&quot; case)</li>
+<li>2 if we know that some problem occurred during the send, which
+has resulted in an error message being synthesised and sent</li>
+</ul>
+</blockquote>
+</li>
+</ul>
+</blockquote>
+<p>That last is intended to allow the caller of &quot;send&quot; to be aware that they
+have an error message waiting for them to read - it is an optimisation.
+Clearly it will not be available for message sent over a bridge or some
+other abstraction mechanism.</p>
+<p>Decisions then need to be made about what can return a &quot;straight&quot; return
+code, and what needs to be mediated by an error message.</p>
+</li>
+</ol>
+</li>
+<li><p class="first">QUESTION: If a user generates a Reply, with no antecedent Request, is that
+still a legitimate message?</p>
+<p>In particular, if an apparent Reply is created, and sent, but the intended
+recipient has no reason to expect this message, is that an error, or just
+something odd one should generally avoid doing?</p>
+<p>It is is an error, then the (notional) sender needs to have a list of the
+Requests that it has sent. so that it can reject this message as not
+belonging.</p>
+<blockquote>
+<p>NB: When an error message is generated, it's &quot;in_reply_to&quot; field is used
+to hold the id of the message that caused the error. Thus an error
+message (a message synthetically generated by KBUS) is normally
+(always?) an unsolicited Reply (of course, sometimes it is instead of a
+requested reply, as well).</p>
+<p>So does that alter my opinion?</p>
+</blockquote>
+</li>
+<li><p class="first">REQ Implement sender ALL/WAIT flags:</p>
+<ul class="simple">
+<li>ALL_OR_WAIT -- add the message to all listener queues, and if that can't
+be done because some queues are full, the sender should block on its SEND
+until it can be done.</li>
+<li>ALL_OR_FAIL -- add the message to all listener queues, and if that can't
+be done, fail (the message is not sent).</li>
+<li>DONE: (default) -- add the message to all listener queues that have room.</li>
+</ul>
+<p>Remember that, in this context, and interpreted appropriately, repliers also
+count as listeners.</p>
+</li>
+<li><p class="first">REQ Make all the errors after the &quot;this message is valid&quot; step in 'send'
+produce KBUS messages, instead of returning an error code.</p>
+</li>
+<li><p class="first">REQ Police reply messages -- there may be one, and only one, reply for each
+request. It shall not be possible to send a reply that is not in response to
+a request. It shall be shiny.</p>
+<blockquote>
+<p>Or not. Do I actually care? After all, an exception/synthetic message
+also looks like a reply...</p>
+</blockquote>
+</li>
+<li><p class="first">REQ Improve the output in /proc/kbus/bindings so it is not limited to a
+single page.</p>
+</li>
+<li><p class="first">OPT Provide other useful information via /proc/kbus.</p>
+</li>
+<li><p class="first">OPT Internally, split messages into</p>
+<blockquote>
+<ul class="simple">
+<li>header -- copy this between lists</li>
+<li>message name/id -- if we're doing message name ids, then those should
+be copied prefererentially</li>
+<li>message data -- this should be reference counted</li>
+</ul>
+</blockquote>
+</li>
+<li><p class="first">REQ Keep a list of all Requests that have not been replied to, and send the
+sender a synthetic message when an interface has released, or unbound, but
+has not replied to a message, even though it <em>has</em> read it.</p>
+<p>I might consider not doing this for the &quot;unbind&quot; case, since (a) it would be
+complicated and (b) the interface might well unbind and then bind again.
+Yes, that sounds a good excuse.</p>
+</li>
+<li><p class="first">REQ (LOW PRIORITY) Provide a flag on file descriptors (hmm, perhaps better
+on an individual message?) to say:</p>
+<p>When I've sent a message, send me back a synthesised message when that
+message has &quot;left the system&quot; -- i.e., when all listeners (that are going
+to) have read it, when all repliers (that are going to) have replied to it,
+and (if that isn't going to happen) when any exceptions regarding it have
+been sent.</p>
+<p>In other words, if the sender is remembering information about messages that
+have been sent, this allows the sender to know that it can forget about the
+message.</p>
+</li>
+<li><p class="first">REQ Large message support -- allow message data to be large, held as a list
+of data split properly over pages. Really requires reference counting of
+message data.</p>
+</li>
+<li><p class="first">OPT Allow message name id to be used instead of message name in messages.
+This would need:</p>
+<blockquote>
+<ul class="simple">
+<li>ability to look up message name and retrieve its id</li>
+<li>a way of indicating whether a message is storing message name (and
+its length) or message name id</li>
+<li>some better terminology for &quot;message name id&quot;</li>
+</ul>
+</blockquote>
+<p>Note that in the Python interface this is not a big deal to the user.</p>
+</li>
+<li><p class="first">OPT Support for poll/select.</p>
+</li>
+<li><p class="first">OPT Consider adding RESET functionality (the ioctl already exists):</p>
+<ol class="arabic simple">
+<li>Sends exactly one '$.KBUS.Reset.Start' message to each open interface
+(so if one is listening and replying on an interface, one still only gets
+a single such message on it).</li>
+<li>Empties all of the queues -- this will generate any necessary synthetic
+messages/exceptions relating to dropped requests/replies.</li>
+<li>Resets all the internal ids (to start from 0 or 1 again).</li>
+<li>Sends exactly one '$.KBUS.Reset.End' message to each open interface.</li>
+</ol>
+<p>Consideration: this would mean that all interfaces were automatically bound
+to '$.KBUS.Reset.*'.</p>
+<p>Use case: This would be useful for testing, and if we have multiple
+interacting internal lists (for instance, message queues on each interface,
+but also a list of outstanding requests), then it allows for a &quot;soft
+restart&quot; other than removing and reinstalling the module.</p>
+</li>
+<li><p class="first">OPT Remove lots of the debugging 'printk's in <tt class="docutils literal"><span class="pre">kbus.c</span></tt> - there are way too
+many.</p>
+</li>
+</ul>
+<hr class="docutils" />
+<ul>
+<li><p class="first">DONE Come up with a new name to replace KSock, so that other things can
+use that term without confusion.</p>
+<blockquote>
+<p>Slot, Port, Opening, Access, Talker, Bus, ...</p>
+<p>Socket ... KSock (? - suggested by JC)</p>
+<p>AccessPoint, EndPoint, ...</p>
+<p>Interlocutor, Protagonist, Participant, ...</p>
+</blockquote>
+<p>For the moment, go with KSock. It's not particularly nice, but:</p>
+<ol class="loweralpha simple">
+<li>It's better than Elephant</li>
+<li>It's short</li>
+<li>It's not easy to confuse with some other term from somewhere else</li>
+<li>It does sound a bit like some sort of sockety thing, which is
+more-or-less the right sort of paradigm.</li>
+</ol>
+</li>
+<li><p class="first">DONE Message ids should have more &quot;space&quot;</p>
+<ul>
+<li><p class="first">Network id can be used to indicate that the message came from another
+namespace (e.g., through a bridge). Our local namespace has network id
+set to 0.</p>
+<p>KSock such as bridges, which pipe through messages from another
+namespace, can use the network id to (a) indicate that the local KBUS
+should not change the message id serial number, and (b) store whatever
+information is deemed useful in translating the message id back to the
+equivalent in the other namespace.</p>
+</li>
+<li><p class="first">Message id is unique within a network/namespace. If network id is 0, then
+KBUS will assign a new message id to a message, on &quot;send&quot;, when it has
+determined that the message is (basically) well formed. This means that
+after &quot;send&quot; one can always do &quot;sender.get_last_msg_id()&quot;, and <em>that</em>
+allows one to identify the message being named in an exception message
+(a synthetic message from KBUS itself).</p>
+</li>
+</ul>
+</li>
+<li><p class="first">DONE Implement maximum message queue length per interface -- so that if one
+keeps adding messages, and no-one is reading them, one doesn't fill up the
+world.</p>
+</li>
+<li><p class="first">DONE Reserve message names in '$.KBUS.*' for use by KBUS for synthetic messages.</p>
+<p>Only done &quot;implicitly&quot; - there is no intent to enforce this.</p>
+</li>
+<li><p class="first">DONE <em>Remove</em> GUARANTEED message delivery -- a listener is not allowed to
+say &quot;I shall receive all messages with that name&quot;, because that could cause
+its queue to grow forever, and use up all memory, and we should be very sad,
+and all die, and that would be bad.</p>
+</li>
+</ul>
+</div>
+<div class="footer">
+<hr class="footer" />
+<a class="reference" href="TODO.txt">View document source</a>.
+Generated on: 2009-04-07 17:52 UTC.
+Generated by <a class="reference" href="http://docutils.sourceforge.net/">Docutils</a> from <a class="reference" href="http://docutils.sourceforge.net/rst.html">reStructuredText</a> source.
+
+</div>
+</body>
+</html>

@@ -1,7 +1,14 @@
+=============================================
 KBUS -- Lightweight kernel-mediated messaging
 =============================================
 
 This is emergent documentation for the KBUS kernel module.
+
+.. note:: This documentation is kept as a reStructuredText document.
+          If you are looking at an HTML file, then it is provided for your
+          convenience, and may not be up-to-date.
+
+.. contents::
 
 Intention
 =========
@@ -218,7 +225,7 @@ Either one may be set, or both may be unset.
    'in_reply_to' field set).
 
 .. note:: ALL_OR_FAIL is implemented, attempts to use ALL_OR_WAIT will return
-          an error.
+   a -EINVAL error (as it is not yet implemented).
 
     *Documentation on this topic is still to be written.*
 
@@ -281,7 +288,9 @@ When creating a new request message, it has:
                        should fail if that KSock is (no longer) the replier
                        for this message name
         :from:         unset (KBUS will set it)
-        :flags:        typically unset, see `Message flags`_ 
+        :flags:        the "needs a reply" flags should be set.
+                       KBUS will set the "you need to reply" flag in the
+                       copy of the message delivered to its replier.
         :message name: as appropriate
         :message data: as appropriate
 
@@ -291,15 +300,33 @@ is this recipient's responsibility to reply.
 The Python interface provides a ``Request`` class to help in creating a
 request message.
 
+When a request message is sent, it is an error if there is no replier bound.
+
+The message will, as normal, be delivered to all listeners, and will have the
+"needs a reply" flag set wherever it is received. However, the copy of the
+message received by the replier will be marked with the WANT_YOU_TO_REPLY
+flag.
+
+    So, if a particular file descriptor is bound as listener and replier
+    for '$.Fred', it will receive two copies of the original message (one
+    marked as needing reply from that file descriptor). However, when the
+    reply is sent, only the "plain" listener will receive a copy of the reply
+    message.
+
 Reply message
 -------------
 A reply message is the expected response after reading a response message.
+
+A reply message is distinguished by having a non-zero 'in reply to' value.
 
 Each reply message is in response to a specific request, as indicated by the
 'in reply to' field in the message.
 
 The replier is helped to remember that it needs to reply to a request, because
 the request has the WANT_YOU_TO_REPLY flag set.
+
+When a reply is sent, all listeners for that message name will receive it.
+However, the original replier will not.
 
 When creating a new reply message, it has:
 
@@ -311,7 +338,7 @@ When creating a new reply message, it has:
         :message name: the request message's 'message name'
         :message data: as appropriate
 
-The Python interface provides a ``Reply`` class that formulates a default
+The Python interface provides a ``Reply`` class that helps in creating a
 reply Message from the original Request.
 
 Status message
@@ -422,7 +449,6 @@ It is not possible to send a message with a wildcard message name.
 
 The sender does not need to bind to any message names in order to receive
 error and status messages from KBUS.
-
 
 .. note:: What order do we describe things in? Don't forget:
 
@@ -550,25 +576,23 @@ for a message name.
 
 Queues filling up
 -----------------
-
-.. note:: This section still awaiting clarification.
-
 Messages are sent by a mechanism which:
 
-1. Takes the message
-2. Finds the listener ids of all the listeners and repliers bound to that
+1. Checks the message is plausible (it has a plausible message name,
+   and the right sort of "shape")
+2. Finds the KSock ids of all the listeners and repliers bound to that
    messages name
-3. Adds the message to the queue for each listener
+3. Adds the message to the queue for each such listener/replier
 
 This can cause problems if one of the queues is already full (allowing
 infinite expansion of queues would also cause problems, of couse).
 
 If a *replier* cannot receive a particular message, because its queue is full,
-then the message will not be added to its queue, and the sender will be sent a
-synthetic message (an exception) to let it know that this has happened.
+then the message will not be sent, and the send will fail with an error.
 
-    The synthetic message may only indicate that N messages have been lost,
-    rather than having a message for each lost message.
+.. note:: Even though a send fails, if the message appeared valid,
+          then its (possibly new) message id will be the new "last message id"
+          for that KSock.
 
 However, a sender can indicate if it wants a message to be:
 
@@ -578,39 +602,7 @@ However, a sender can indicate if it wants a message to be:
    (ALL_or_FAIL)
 3. Added to all the listener queues that have room (the default)
 
-Replying
---------
-
-.. note:: Most of this is covered elsewhere, merge the rest in as appropriate
-          and lose this section.
-
-A sender can mark a message as needing a reply.
-
-Sending such a message will fail if there is no replier bound for that
-message.
-
-The message will, as normal, be delivered to all listeners, and will have the
-"needs a reply" flag set wherever it is received. However, the copy of the
-message received by the replier will be marked as "you need to reply".
-
-The replier should create a reply message with:
-
-1. The same message name.
-2. The "to" field set to the original message's "from" field (i.e., the
-   reply message is specifically for the sender).
-3. The "in_reply_to" field set to the original message's "id" field (i.e., it
-   is a reply to that specific message). This field being non-zero is what
-   distinguishes a reply message from an ordinary message.
-4. The message data set to whatever is appropriate.
-
-When a reply is sent, all listeners for that message name will receive it.
-However, the original replier will not.
-
-    So, if a particular file descriptor is bound as listener and replier
-    for '.Fred', it will receive two copies of the original message (one
-    marked as needing reply from that file descriptor). However, when the
-    reply is sent, only the "plain" listener will receive a copy of the reply
-    message.
+See `Message flags`_ for more details.
 
 Urgent messages
 ---------------
@@ -675,10 +667,36 @@ The KBUS ioctls are:
 ``/proc/kbus/bindings`` is a debugging aid for reporting the listener id,
 exclusive flag and message name for each binding, for each kbus device.
 
+An example might be::
+
+    1: 1 R $.Sensors.*
+    1: 2 R $.Sensors.Kitchen.Temperature
+    1: 3 L $.Sensors.*
+   13: 4 L $.Jim.*
+   13: 1 R $.Fred
+   13: 1 L $.Jim
+   13: 14 L $.Jim.*
+
+This describes two KBUS devices (``/dev/kbus1`` and ``/dev/kbus13``).
+
+The first has bindings on KSock ids 1, 2 and 3, for the given message names. The
+"R" indicates a replier binding, the "L" indicates a listener (non-replier)
+binding.
+
+The second has bindings on KSock ids 4, 1 and 14. The order of the bindings
+reported is *not* particularly significant.
+
+Note that there is no communication between the two devices, so KSock id 1 on
+device 1 is not related to (and has no commonality with) KSock id 1 on device
+13.
+
+The current implementation of the ``/proc/kbus/bindings`` interface is very
+simplistic. If the data approaches the size of a kernel page, then the data
+output will be truncated, and the last line will be ``...``. This may be
+improved (one can hope) in a future version of KBUS.
+
 Error numbers
 -------------
-.. note:: This section is under review
-
 The following error numbers get special use. In Python, they are all returned
 as values inside the IOError exception.
 
@@ -689,6 +707,13 @@ as values inside the IOError exception.
 :EBADMSG:       On attempting to bind, unbind or send a message: The message
                 name is not valid. On sending, this can also be because the
                 message name is a wildcard.
+:EBUSY:         On attempting to send, then:
+
+                1. For a reply, the original sender's message queue is full.
+                2. For a request, the replier's message queue is full.
+                3. For any message, with ALL_OR_FAIL set, one of the
+                   targetted listener/replier queues was full.
+
 :EINVAL:        Something went wrong (generic error).
 :EMSGSIZE:      On attempting to write or send a message: The message data is
                 too long.

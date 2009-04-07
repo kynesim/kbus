@@ -83,19 +83,6 @@ struct kbus_m_bind_query_struct {
 	char		*name;
 };
 
-/*
- * When the user sends a message, they get back its message id.
- *
- * Specifically, if the message appears well-formed, and it has a message id
- * with a zero network id, then it is assigned a message id by KBUS. The
- * message id (newly minted or as given) is returned by KBUS, if the SEND
- * completes successfully.
- */
-struct kbus_m_send_result_struct {
-	int32_t		 	retval;	/* Discretionary information */
-	struct kbus_msg_id	msg_id;	/* The id of the message we sent */
-};
-
 /* When the user writes/reads a message, they use: */
 struct kbus_message_struct {
 	/*
@@ -372,10 +359,8 @@ struct kbus_message_struct {
 #define KBUS_IOC_LENLEFT  _IOR( KBUS_IOC_MAGIC,  7, char *)
 /*
  * SEND - send the current message
- * arg (out): struct kbus_m_send_result (which see for details)
+ * arg (out): struct kbus_msg_id, the message id of the sent message
  * retval: 0 for success, negative for failure
- *
- * XXX NOTE that this ioctl is subject to change what it returns
  */
 #define KBUS_IOC_SEND	  _IOR( KBUS_IOC_MAGIC,  8, char *)
 /*
