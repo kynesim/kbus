@@ -212,13 +212,17 @@ Send flags
 There are two "send" flags, ALL_OR_WAIT and ALL_OR_FAIL.
 Either one may be set, or both may be unset.
 
-   If both bits are set, the message will be rejected as invalid.
+   If both are set, the message will be rejected as invalid.
 
    Both flags are ignored in reply messages (i.e., messages with the
    'in_reply_to' field set).
 
-*Documentation on this topic is still to be written, when the behaviour is
-finalised.*
+.. note:: ALL_OR_FAIL is implemented, attempts to use ALL_OR_WAIT will return
+          an error.
+
+    *Documentation on this topic is still to be written.*
+
+These are primarily intended for use in debugging systems.
 
 Things KBUS changes in a message
 --------------------------------
@@ -673,8 +677,7 @@ exclusive flag and message name for each binding, for each kbus device.
 
 Error numbers
 -------------
-.. note:: This section is under review, depending on how message SEND is
-          handled internally.
+.. note:: This section is under review
 
 The following error numbers get special use. In Python, they are all returned
 as values inside the IOError exception.

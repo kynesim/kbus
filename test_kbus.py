@@ -602,11 +602,11 @@ class TestKernelModule:
 
                 # Writing to $.Fred on f1 - writes message id N
                 msgF = Message('$.Fred','data')
-                (ret,n0) = f1.send_msg(msgF)
+                n0 = f1.send_msg(msgF)
 
                 # Writing to $.Jim on f1 - writes message N+1
                 msgJ = Message('$.Jim','moredata')
-                (ret,n1) = f1.send_msg(msgJ)
+                n1 = f1.send_msg(msgJ)
                 assert n1 == n0+1
 
                 # Reading f1 - message N
@@ -1861,16 +1861,14 @@ class TestKernelModule:
 
                 m = Request('$.Fred')
                 sender.send_msg(m)
-                sender.send_msg(m)
+
+                # So our second send should fail
+                check_IOError(errno.EBUSY, sender.send_msg, m)
 
                 r = replier.read_next_msg()
                 assert r.equivalent(m)
 
                 assert replier.next_msg() == 0
-
-                e = sender.read_next_msg()
-                assert e.name == '$.KBUS.Replier.QueueFull'
-                assert e.is_synthetic()
 
     def test_write_too_many_messages_to_replier_with_listener(self):
         """Writing too many messages to a replier (with listener)
@@ -1888,19 +1886,19 @@ class TestKernelModule:
                     m = Request('$.Fred')
                     sender.send_msg(m)
                     ok_msg_id = sender.last_msg_id()
-                    sender.send_msg(m)
+                    # There isn't any room on the target queue for another
+                    check_IOError(errno.EBUSY, sender.send_msg, m)
+
+                    # Although the send failed, it has still assigned a message
+                    # id to the new message, since it wasn't actively invalid
                     failed_msg_id = sender.last_msg_id()
+                    assert failed_msg_id != ok_msg_id
 
                     r = replier.read_next_msg()
                     assert r.equivalent(m)
                     assert r.id == ok_msg_id
 
                     assert replier.next_msg() == 0
-
-                    e = sender.read_next_msg()
-                    assert e.name == '$.KBUS.Replier.QueueFull'
-                    assert e.is_synthetic()
-                    assert e.in_reply_to == failed_msg_id
 
                     # And the listener should only see the message that succeeded
                     a = listener.read_next_msg()
@@ -1935,8 +1933,7 @@ class TestKernelModule:
                 # Let's fake an unwanted Reply, to a Request from our sender
                 r = Reply(Message('$.Fred',id=MessageId(0,9999),from_=sender.ksock_id()))
                 # And try to send it
-                (rc,msg_id) = listener.send_msg(r)
-                assert rc == 1          # at the moment, that succeeeds...
+                msg_id = listener.send_msg(r)
 
                 # And also, at the moment, the "pretend" original sender will
                 # get it
@@ -1955,19 +1952,12 @@ class TestKernelModule:
                     assert listener1.set_max_messages(1) == 1
 
                     m = Message('$.Fred')
-                    (ret,id0) = sender.send_msg(m)
-                    assert ret == 1                     # sent OK
+                    id0 = sender.send_msg(m)
 
                     # So listener1 now has a full queue
-
+                    # Sending will fail
                     m = Message('$.Fred',flags=Message.ALL_OR_FAIL)
-                    (ret,id) = sender.send_msg(m)
-                    assert ret == 2                     # there's an error message
-
-                    # So read this apparent error message
-                    e = sender.read_next_msg()
-                    assert e.from_ == listener1.ksock_id()
-                    assert e.in_reply_to == id
+                    check_IOError(errno.EBUSY, sender.send_msg, m)
 
                     # So listener1 should have one message outstanding
                     r = listener1.read_next_msg()

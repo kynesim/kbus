@@ -995,15 +995,13 @@ class KSock(object):
         Indicates that we have finished writing a message, and it should
         be sent.
 
-        Returns a tuple of the extended return status and the message id of the
-        message sent.
+        Returns the message id of the send message.
 
         Raises IOError with errno ENOMSG if there was no message to send.
         """
-        arg = KbusSendResultStruct()
+        arg = array.array('L',[0,0])
         fcntl.ioctl(self.fd, KSock.IOC_SEND, arg);
-        return (arg.retval,
-                MessageId(arg.msg_id.network_id, arg.msg_id.serial_num))
+        return MessageId(arg[0],arg[1])
 
     def discard(self):
         """Discard the message being written.
@@ -1079,7 +1077,7 @@ class KSock(object):
         """Write a Message, and then send it.
 
         Entirely equivalent to calling 'write_msg' and then 'send',
-        and returns the same as 'send'.
+        and returns the MessageId of the sent message, as 'send' does.
         """
         self.write_msg(message)
         return self.send()

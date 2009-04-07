@@ -84,40 +84,17 @@ struct kbus_m_bind_query_struct {
 };
 
 /*
- * When the user has done a SEND, they get a response
+ * When the user sends a message, they get back its message id.
  *
- * In the particular case of KBUS mediating the sending of a message from a
- * KBUS interface to another KBUS interface (i.e., when all of the message
- * sending is done inside the kernel module), it is possible for us to know
- * "extra" information about how well the sending has gone.
- *
- * Compare this to the case of sending (using equivalent protocols) over a bridge,
- * where we can know that the message got sent over the bridge, but not if it was
- * successfully added to the listener queues on the other side of the bridge.
- *
- * In either case, failing to add the message to the target queues (the latter
- * part of a "send") will generate an appropriate failure message (if necessary),
- * but in the first (internal KBUS) case, we can know that this has happened,
- * and can pass that information back to the sender.
- *
- * 'retval' may be:
- *
- *  * 0 for we know nothing extra
- *  * 1 for we know it got sent (i.e., we know it got added to the target
- *    message queues)
- *  * 2 for we know it didn't get sent (i.e., we know something went wrong,
- *    probably adding it to the target message queues). There will be an error
- *    message waiting to be read.
- *  * <other values to be determined>
+ * Specifically, if the message appears well-formed, and it has a message id
+ * with a zero network id, then it is assigned a message id by KBUS. The
+ * message id (newly minted or as given) is returned by KBUS, if the SEND
+ * completes successfully.
  */
 struct kbus_m_send_result_struct {
 	int32_t		 	retval;	/* Discretionary information */
 	struct kbus_msg_id	msg_id;	/* The id of the message we sent */
 };
-
-#define KBUS_SEND_RETVAL_NONE	0
-#define KBUS_SEND_RETVAL_OK	1
-#define KBUS_SEND_RETVAL_ERROR	2
 
 /* When the user writes/reads a message, they use: */
 struct kbus_message_struct {

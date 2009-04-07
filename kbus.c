@@ -1379,8 +1379,7 @@ static int kbus_queue_is_full(struct kbus_private_data	*priv,
  * Remember that the caller is going to free the message data after
  * calling us, on the assumption that we're taking a copy...
  *
- * Returns a negative number on error, or one of the KBUS_SEND_RETVAL_xxx
- * values.
+ * Returns a negative number on error, 0 on success.
  */
 static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 					struct kbus_dev		   *dev,
@@ -1411,10 +1410,6 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 	if (num_listeners < 0) {
 		printk(KERN_DEBUG "kbus/write: Error %d finding listeners\n",
 		       num_listeners);
-		/*
-		 * XXX Should this actually be a message return plus
-		 * XXX KBUS_SEND_RETVAL_ERROR ?
-		 */
 		retval = num_listeners;
 		goto done_sending;
 	}
@@ -1432,10 +1427,6 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 
 	if (msg->flags & KBUS_BIT_WANT_A_REPLY && replier == NULL) {
 		printk(KERN_DEBUG "kbus/write: Message wants a reply, but no replier\n");
-		/*
-		 * XXX Should this actually be a message return plus
-		 * XXX KBUS_SEND_RETVAL_ERROR ?
-		 */
 		retval = -EADDRNOTAVAIL;
 		goto done_sending;
 	}
@@ -1452,14 +1443,6 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 	 * Are we replying to a sender's request?
 	 * Replies are unusual in that the recipient will not normally have
 	 * bound to the appropriate message name.
-	 *
-	 * XXX At *some* stage, the recipient should also be able to check to
-	 * XXX see if they're *expecting* a reply (to this message, and
-	 * XXX possibly from that replier), since otherwise there's nothing to
-	 * XXX stop a random person from synthesising a reply to a non-existant
-	 * XXX request...
-	 * XXX
-	 * XXX ...or is that allowed? Do we care? Should we care?
 	 */
 	if (kbus_message_is_reply(msg)) {
 		printk(KERN_DEBUG "kbus/write: Considering sender-of-request %u\n",
@@ -1474,20 +1457,10 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 		}
 
 		if (kbus_queue_is_full(reply_to,"sender-of-request")) {
-			if (all_or_wait) {
-				kbus_push_synthetic_message(dev,
-							    reply_to->id,
-							    msg->from,
-							    msg->id,
-							    "$.KBUS.BlockingNotImplemented");
-			} else {
-				kbus_push_synthetic_message(dev,
-							    reply_to->id,
-							    msg->from,
-						    msg->id,
-							    "$.KBUS.SenderOfRequest.QueueFull");
-			}
-			retval = KBUS_SEND_RETVAL_ERROR;
+			if (all_or_wait)
+				retval = -EINVAL;    /* Not implemented yet */
+			else
+				retval = -EBUSY;
 			goto done_sending;
 		}
 	}
@@ -1508,28 +1481,15 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 		if (msg->to && (replier->bound_to_id != msg->to)) {
 			printk(KERN_DEBUG "kbus/write: Request to %u,"
 			       " but replier is %u\n",msg->to,replier->bound_to_id);
-			/*
-			 * XXX Should this actually be a message return plus
-			 * XXX KBUS_SEND_RETVAL_ERROR ?
-			 */
 			retval = -EPIPE;	/* Well, sort of */
 			goto done_sending;
 		}
 
 		if (kbus_queue_is_full(replier->bound_to,"replier")) {
 			if (all_or_wait)
-				kbus_push_synthetic_message(dev,
-							    replier->bound_to_id,
-							    msg->from,
-							    msg->id,
-							    "$.KBUS.BlockingNotImplemented");
+				retval = -EINVAL;    /* Not implemented yet */
 			else
-				kbus_push_synthetic_message(dev,
-							    replier->bound_to_id,
-							    msg->from,
-							    msg->id,
-							    "$.KBUS.Replier.QueueFull");
-			retval = KBUS_SEND_RETVAL_ERROR;
+				retval = -EBUSY;
 			goto done_sending;
 		}
 	}
@@ -1540,20 +1500,10 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 
 		if (kbus_queue_is_full(listeners[ii]->bound_to,"listener")) {
 			if (all_or_wait) {
-				kbus_push_synthetic_message(dev,
-							    listeners[ii]->bound_to_id,
-							    msg->from,
-							    msg->id,
-							    "$.KBUS.BlockingNotImplemented");
-				retval = KBUS_SEND_RETVAL_ERROR;
+				retval = -EINVAL;    /* Not implemented yet */
 				goto done_sending;
 			} else if (all_or_fail) {
-				kbus_push_synthetic_message(dev,
-							    listeners[ii]->bound_to_id,
-							    msg->from,
-							    msg->id,
-							    "$.KBUS.Listener.QueueFull");
-				retval = KBUS_SEND_RETVAL_ERROR;
+				retval = -EBUSY;
 				goto done_sending;
 			} else {
 				/* For now, just ignore *this* listener */
@@ -1621,7 +1571,7 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 		}
 	}
 
-	retval = KBUS_SEND_RETVAL_OK;
+	retval = 0;
 
 done_sending:
 	if (listeners)
@@ -2084,12 +2034,9 @@ done:
 	/* We've now finished with our copy of the message */
 	kbus_empty_write_msg(priv);
 
-	if (retval >= 0) {
-		struct kbus_m_send_result_struct result_arg;
-		result_arg.msg_id = priv->last_msg_id;
-		result_arg.retval = retval;
-
-		if (copy_to_user((void *)arg, &result_arg, sizeof(result_arg)))
+	if (retval == 0) {
+		if (copy_to_user((void *)arg, &priv->last_msg_id,
+				 sizeof(priv->last_msg_id)))
 			retval = -EFAULT;
 	}
 	return retval;
@@ -2432,8 +2379,8 @@ static int __init kbus_init(void)
 	/* +++ NB: before kernel 2.6.13, the functions below were
 	 * +++ "simple_class_create" and "simple_class_device_add". They are
 	 * +++ documented as such in Linux Device Drivers, 3rd edition. When it
-	 * +++ became clear that everyone was using the "simple" API, the kernel code
-	 * +++ was refactored to make that the norm.
+	 * +++ became clear that everyone was using the "simple" API, the
+	 * +++ kernel code was refactored to make that the norm.
 	 */
 
 	/*
