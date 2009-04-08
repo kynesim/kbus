@@ -2257,17 +2257,28 @@ static unsigned int kbus_poll(struct file *filp, poll_table *wait)
 	/* Wait for something to happen */
 	poll_wait(filp, &priv->read_wait, wait);
 #if 0
-	poll_wait(filp, &dev->outq, wait);
+	poll_wait(filp, &priv->write_wait, wait);
 #endif
 
 	/* Was that "something" the availability of messages to read? */
 	if (priv->message_count != 0)
 		mask |= POLLIN | POLLRDNORM; /* readable */
 
+	/*
+	 * At the moment, (if we're *allowed* to write) we're always ready
+	 * to write, because SEND is always available to be called.
+	 *
+	 * If (in the future) we say that we can't SEND unless
+	 * we've got room in our (incoming) message queue for a
+	 * message coming back (i.e., a failure message of some sort),
+	 * then we may want to block SENDing until such a space is
+	 * available.
+	 */
 #if 0
 	if (theres_room_to_write)
-		mask |= POLLOUT | POLLWRNORM; /* writable */
 #endif
+	if (filp->f_mode & FMODE_WRITE)
+		mask |= POLLOUT | POLLWRNORM; /* writable */
 
 	up(&dev->sem);
 	return mask;

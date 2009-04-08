@@ -2030,4 +2030,60 @@ class TestKernelModule:
                     assert w == []
                     assert x == []
 
+    def test_select_on_sending_1(self):
+        """Test the ability to do select.select for message sending.
+        """
+        with KSock(0,'rw') as sender:
+            # Initially, sender is allowed to send
+
+            write_list = [sender]
+
+            (r,w,x) = select.select([],write_list,[],0)
+            assert r == []
+            assert w == [sender]
+            assert x == []
+
+            # Indeed, at the moment, the sender is *always* ready to send
+
+            with KSock(0,'r') as listener1:
+
+                # Our listener should *not* be ready to send, as it is not
+                # opened for write
+
+                write_list.append(listener1)
+                read_list = [listener1]
+
+                (r,w,x) = select.select(read_list,write_list,[],0)
+                assert r == []
+                assert w == [sender]
+                assert x == []
+
+                with KSock(0,'rw') as listener2:
+
+                    # But listener2 is available...
+                    write_list.append(listener2)
+                    read_list.append(listener2)
+
+                    (r,w,x) = select.select(read_list,write_list,[],0)
+                    assert r == []
+                    assert len(w) == 2
+                    assert sender in w
+                    assert listener2 in w
+                    assert x == []
+
+                    listener1.bind('$.Fred')
+                    listener2.bind('$.Fred')
+                    msg = Message('$.Fred','data')
+                    msg_id = sender.send_msg(msg)
+
+                    (r,w,x) = select.select(read_list,write_list,[],0)
+                    assert len(r) == 2
+                    assert listener1 in r
+                    assert listener2 in r
+                    assert len(w) == 2
+                    assert sender in w
+                    assert listener2 in w
+                    assert x == []
+
+
 # vim: set tabstop=8 shiftwidth=4 expandtab:
