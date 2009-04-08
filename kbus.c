@@ -50,6 +50,7 @@
 #include <linux/cdev.h>         /* registering character devices */
 #include <linux/list.h>
 #include <linux/ctype.h>	/* for isalnum */
+#include <linux/poll.h>
 #include <asm/uaccess.h>	/* copy_*_user() functions */
 
 #include "kbus.h"
@@ -91,6 +92,8 @@ struct kbus_message_binding {
 #define KBUS_MAX_DATA_LEN	1000	/* Maximum message data length (32-bit words) */
 
 /*
+ * This is the data for an individual KSock
+ *
  * Each time we open /dev/kbus0, we need to remember a unique id for
  * our file-instance. Using 'filp' might work, but it's not something
  * we have control over, and in particular, if the file is closed and
@@ -119,6 +122,9 @@ struct kbus_private_data {
 	uint32_t		 message_count;	/* How many messages for us */
 	uint32_t		 max_messages;	/* How many messages allowed */
 	struct list_head	 message_queue;	/* Messages for us */
+
+	/* Wait for something to appear in the message_queue */
+	wait_queue_head_t	 read_wait;
 
 	/* The message currently being read by the user */
 	char		*read_msg;
@@ -451,6 +457,8 @@ static void kbus_report_message(char				*kern_prefix,
 /*
  * Copy the given message, and add it to the end of the queue
  *
+ * This is the *only* way of adding a message to a queue. It shall remain so.
+ *
  * We assume the message has been checked for sanity.
  *
  * 'for_replier' is true if this particular message is being pushed to the
@@ -531,6 +539,9 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 	}
 
 	priv->message_count ++;
+
+	/* And indicate that there is something available to read */
+	wake_up_interruptible(&priv->read_wait);
 
 	printk(KERN_DEBUG "kbus: Leaving %d messages in queue\n",
 	       priv->message_count);
@@ -1031,7 +1042,6 @@ static int kbus_forget_matching_messages(struct kbus_private_data  *priv,
 						     (char *)msg->rest))
 			continue;
 
-		/* XXX Let the user know */
 		printk(KERN_DEBUG "kbus: Deleting message from queue\n");
 		(void) kbus_report_message(KERN_DEBUG, msg);
 
@@ -1293,6 +1303,8 @@ static int kbus_open(struct inode *inode, struct file *filp)
 	priv->max_messages = DEF_MAX_MESSAGES;
 	INIT_LIST_HEAD(&priv->message_queue);
 
+	init_waitqueue_head(&priv->read_wait);
+
 	(void) kbus_remember_open_file(dev,priv);
 
 	filp->private_data = priv;
@@ -1469,7 +1481,12 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 	if (replier && !(msg->flags & KBUS_BIT_WANT_A_REPLY))
 		replier = NULL;
 
-	/* And even then, only if they have room in their queue */
+	/*
+	 * And even then, only if they have room in their queue
+	 * Note that it is *always* fatal (to this send) if we can't
+	 * add a Request to a Replier's queue -- we just need to figure
+	 * out what sort of error to return
+	 */
 	if (replier) {
 		printk(KERN_DEBUG "kbus/write: Considering replier %u\n",
 		       replier->bound_to_id);
@@ -2229,14 +2246,42 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 	return retval;
 }
 
-/* File operations for /dev/kbus0 */
+static unsigned int kbus_poll(struct file *filp, poll_table *wait)
+{
+	struct kbus_private_data	*priv = filp->private_data;
+	struct kbus_dev			*dev = priv->dev;
+	unsigned int mask = 0;
+
+	down(&dev->sem);
+
+	/* Wait for something to happen */
+	poll_wait(filp, &priv->read_wait, wait);
+#if 0
+	poll_wait(filp, &dev->outq, wait);
+#endif
+
+	/* Was that "something" the availability of messages to read? */
+	if (priv->message_count != 0)
+		mask |= POLLIN | POLLRDNORM; /* readable */
+
+#if 0
+	if (theres_room_to_write)
+		mask |= POLLOUT | POLLWRNORM; /* writable */
+#endif
+
+	up(&dev->sem);
+	return mask;
+}
+
+/* File operations for /dev/kbus<n> */
 struct file_operations kbus_fops = {
-	.owner =    THIS_MODULE,
-	.read =     kbus_read,
-	.write =    kbus_write,
-	.ioctl =    kbus_ioctl,
-	.open =     kbus_open,
-	.release =  kbus_release,
+	.owner   = THIS_MODULE,
+	.read    = kbus_read,
+	.write   = kbus_write,
+	.ioctl   = kbus_ioctl,
+	.poll    = kbus_poll,
+	.open    = kbus_open,
+	.release = kbus_release,
 };
 
 static void kbus_setup_cdev(struct kbus_dev *dev, int devno)

@@ -51,6 +51,7 @@ import fcntl
 import time
 import array
 import errno
+import select
 import nose
 
 from kbus import KSock, Message, MessageId, Announcement, Request, Reply
@@ -1968,5 +1969,65 @@ class TestKernelModule:
                     r = listener2.read_next_msg()
                     assert r.id == id0
                     assert listener2.next_msg() == 0
+
+    def test_select_on_reading_1(self):
+        """Test the ability to do select.select for message reading.
+        """
+        with KSock(0,'rw') as sender:
+            with KSock(0,'r') as listener1:
+                # Initially, listener has nothing to read
+                # Let's check - timeout of 0 means "come back immediately"
+                (r,w,x) = select.select([listener1],[],[],0)
+                assert r == []
+                assert w == []
+                assert x == []
+
+                # Conversely
+                listener1.bind('$.Fred')
+                msg = Announcement('$.Fred','data')
+                sender.send_msg(msg)
+
+                assert listener1.num_messages() == 1
+
+                (r,w,x) = select.select([listener1],[],[],0)
+                assert r == [listener1]
+                assert w == []
+                assert x == []
+
+                m = listener1.read_next_msg()
+                assert m.equivalent(msg)
+
+                with KSock(0,'r') as listener2:
+                    listener2.bind('$.Fred')
+                    sender.send_msg(msg)
+
+                    (r,w,x) = select.select([listener1,listener2],[],[],0)
+                    assert len(r) == 2
+                    assert listener1 in r
+                    assert listener2 in r
+                    assert w == []
+                    assert x == []
+
+                    assert listener1.num_messages() == 1
+                    assert listener2.num_messages() == 1
+
+                    m = listener1.read_next_msg()
+                    assert m.equivalent(msg)
+
+                    assert listener1.num_messages() == 0
+                    assert listener2.num_messages() == 1
+
+                    (r,w,x) = select.select([listener1,listener2],[],[],0)
+                    assert r == [listener2]
+                    assert w == []
+                    assert x == []
+
+                    m = listener2.read_next_msg()
+                    assert m.equivalent(msg)
+
+                    (r,w,x) = select.select([listener1],[],[],0)
+                    assert r == []
+                    assert w == []
+                    assert x == []
 
 # vim: set tabstop=8 shiftwidth=4 expandtab:

@@ -1165,6 +1165,20 @@ class KSock(object):
         else:
             return msg
 
+    def fileno(self):
+        """Return the integer file descriptor from our internal fd.
+
+        This allows a KSock instance to be used in a call of select.select()
+        - so, for instance, on should be able to do::
+
+            (r,w,x) = select.select([ksock1,ksock2,ksock3],None,None)
+
+        instead of the (less friendly, but also valid)::
+
+            (r,w,x) = select.select([ksock1.fd,ksock2.fd,ksock3.fd],None,None)
+        """
+        return self.fd.fileno()
+
 def read_bindings(names):
     """Read the bindings from /proc/kbus/bindings, and return a list
 

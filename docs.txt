@@ -558,6 +558,17 @@ same wildcarded name.
       replier 2.
     - A message named '$.Sensors.LivingRoom.Temperature' will go to replier 1.
 
+When a Replier is closed (technically, when its ``release`` function is
+called by the kernel) KBUS traverses its outstanding message queue, and for
+each Request that has not been answered, generates a Status message saying
+that the Replier has "GoneAway".
+
+Similarly, if a Replier unbinds from replying to a mesage, KBUS traverses its
+outstanding message queue, and for each Request that has not been answered, it
+generates a Status message saying that it has "Unbound" from being a replier
+for that message name. It also forgets the message, which it is now not going
+to reply to.
+
 More information
 ================
 Stateful transactions
@@ -629,6 +640,24 @@ separately -- this is still to be described.
     read after the message-whose-length-has-been-found has been read.
 
     Of course, if the message lengths match, then this need not be done...
+
+Select
+------
+A KSock supports use of "select" to determine if there are any messages
+waiting to be read. So, for instance (in Python)::
+
+        with KSock(0,'rw') as sender:
+            with KSock(0,'r') as listener:
+                (r,w,x) = select.select([listener],[],[],0)
+                assert r == []
+
+                listener.bind('$.Fred')
+                msg = Announcement('$.Fred','data')
+                sender.send_msg(msg)
+
+                (r,w,x) = select.select([listener],[],[],0)
+                assert r == [listener]
+
 
 IOCTLS
 ------

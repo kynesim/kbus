@@ -9,7 +9,7 @@ In no particular order (well, except for the first):
 
 * REQ Always, update documentation.
 
-* REQ Probably keep a spare slot in the receiver queue, to allow for receiving
+* REQ Keep a spare slot in the receiver queue, to allow for receiving
   asynchronous error messages.
 
 * REQ Implement sender ALL/WAIT flags:
