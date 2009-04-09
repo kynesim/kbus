@@ -848,7 +848,9 @@ class Reply(Message):
             # and then fall through into...
 
         if isinstance(original,Message):
-            (id,in_reply_to,to,from_,flags,name,data_array) = original.extract()
+            if to or in_reply_to:
+                raise ValueError("Cannot give 'to' or 'in_reply_to' with Reply(Message)")
+            (id,in_reply_to,to,from_,original_flags,name,data_array) = original.extract()
             # We reply to the original sender (to), indicating which message we're
             # responding to (in_reply_to).
             #
@@ -859,7 +861,7 @@ class Reply(Message):
             super(Reply,self).__init__(name, data=data,
                                        in_reply_to=id,
                                        to=from_,
-                                       flags=0)
+                                       flags=flags)
         elif isinstance(original,tuple) or isinstance(original,list):
             # A tuple from .extract(), or an equivalent tuple/list
             if len(original) != 7:

@@ -2014,6 +2014,40 @@ class TestKernelModule:
                     assert r.id == id0
                     assert listener2.next_msg() == 0
 
+    def test_cant_write_while_sending(self):
+        """Test that SEND stops WRITE.
+        """
+        with KSock(0,'rw') as sender:
+            with KSock(0,'rw') as listener:
+
+                # Make the sender as unfriendly as possible
+                sender.set_max_messages(1)
+
+                listener.bind('$.Fred',True)
+                req = Request('$.Fred')
+                sender.send_msg(req)
+
+                # That's one for an answer - we should have room for that.
+                # So...
+                sender.send_msg(req)
+
+                m = listener.read_next_msg()
+                r = Reply(m)
+                listener.send_msg(r)
+
+                # That should be OK, but there shouldn't be room to reply to
+                # this next...
+                m = listener.read_next_msg()
+                r = Reply(m)
+                check_IOError(errno.EBUSY, listener.send_msg, r)
+
+                # Or...
+                r = Reply(m,flags=Message.ALL_OR_WAIT)
+                check_IOError(errno.EAGAIN, listener.send_msg, r)
+
+                # And because we're "in" send, we can't write
+                check_IOError(errno.EALREADY, listener.write_data, 'fred')
+
     def test_select_on_reading_1(self):
         """Test the ability to do select.select for message reading.
         """
@@ -2074,7 +2108,7 @@ class TestKernelModule:
                     assert w == []
                     assert x == []
 
-    def tesXt_select_on_sending_1(self):
+    def test_select_on_sending_1(self):
         """Test the ability to do select.select for message sending.
         """
         with KSock(0,'rw') as sender:

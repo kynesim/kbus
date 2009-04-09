@@ -1335,25 +1335,16 @@ static int kbus_release(struct inode *inode, struct file *filp)
 	printk(KERN_DEBUG "kbus: Releasing /dev/kbus0 from %u@%p\n",
 	       priv->id,filp);
 
-	printk(KERN_DEBUG "kbus: sending %d write_msg %p len %u\n",priv->sending,priv->write_msg,priv->write_msg_len);
-
 	if (down_interruptible(&dev->sem))
 		return -ERESTARTSYS;
 
-	printk(KERN_DEBUG "kbus: XXX about to empty read message\n");
 	kbus_empty_read_msg(priv);
-	printk(KERN_DEBUG "kbus: XXX about to empty write message\n");
 	kbus_empty_write_msg(priv);
 
-	printk(KERN_DEBUG "kbus: XXX about to empty queue\n");
 	retval1 = kbus_empty_message_queue(priv);
-	printk(KERN_DEBUG "kbus: XXX about to forget bindings\n");
 	kbus_forget_my_bindings(dev,priv->id);
-	printk(KERN_DEBUG "kbus: XXX about to forget open file\n");
 	retval2 = kbus_forget_open_file(dev,priv->id);
-	printk(KERN_DEBUG "kbus: XXX about to free priv\n");
 	kfree(priv);
-	printk(KERN_DEBUG "kbus: XXX done\n");
 
 	up(&dev->sem);
 
@@ -1439,6 +1430,9 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 	int	all_or_wait = msg->flags & KBUS_BIT_ALL_OR_WAIT;
 
 	(void) kbus_dissect_message(msg, &name_p, &data_p);
+
+	printk(KERN_DEBUG "kbus/write_to_recipients: all_or_fail %d, all_or_wait %d\n",
+	       all_or_fail,all_or_wait);
 
 	/*
 	 * Remember that
