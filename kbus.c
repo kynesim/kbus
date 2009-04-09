@@ -135,6 +135,9 @@ struct kbus_private_data {
 	char		*write_msg;
 	size_t		 write_msg_size;	/* The buffer size */
 	size_t		 write_msg_len;		/* How much they've written */
+
+	/* Are we currently sending that message? */
+	int		 sending;
 };
 
 /* What is a sensible number for the default maximum number of messages? */
@@ -171,6 +174,9 @@ struct kbus_dev
 	 */
 	struct list_head	open_files_list;
 
+	/* Has one of our KSocks made space available in its message queue? */
+	wait_queue_head_t	 write_wait;
+
 	/*
 	 * Each open file descriptor needs an internal id - this is used
 	 * when binding messages to listeners, but is also needed when we
@@ -195,14 +201,15 @@ struct kbus_message_queue_item {
 	struct kbus_message_struct	*msg;
 };
 
-/*
- * ===========================================================================
- * This is to allow *me* to see where the definitions end and code starts
- */
+/* ========================================================================= */
+/* This is to allow *me* to see where the definitions end and code starts    */
 
 /* As few foreshadowings as I can get away with */
 static struct kbus_private_data *kbus_find_open_file(struct kbus_dev	*dev,
 						     uint32_t		 id);
+
+static void kbus_discard(struct kbus_private_data	*priv);
+/* ========================================================================= */
 
 static int kbus_same_message_id(struct kbus_msg_id 	*msg_id,
 				uint32_t		 network_id,
@@ -359,16 +366,15 @@ static int kbus_message_name_matches(char *name, size_t name_len, char *other)
 }
 
 /*
- * Extract useful information from a message.
+ * Check if a message is well structured.
  *
- * Return 0 if the message is well strutured, -EINVAL if it is not.
+ * Return 0 if a message is well-formed, negative otherwise.
  */
-static int kbus_dissect_message(struct kbus_message_struct	 *msg,
-				uint32_t			 *msg_len,
-				char				**name_p,
-				uint32_t			**data_p)
+static int kbus_check_message(struct kbus_message_struct	*msg)
 {
 	int   		 data_idx, end_guard_idx;
+	uint32_t	 msg_len;
+	char		*name_p;
 
 	/*
 	 * Check the guards match, and that lengths are "plausible"
@@ -393,7 +399,7 @@ static int kbus_dissect_message(struct kbus_message_struct	 *msg,
 		return -EMSGSIZE;
 	}
 
-	*msg_len = KBUS_MSG_LEN(msg->name_len,msg->data_len);
+	msg_len = KBUS_MSG_LEN(msg->name_len,msg->data_len);
 
 	data_idx = KBUS_MSG_DATA_INDEX(msg->name_len);
 	end_guard_idx = KBUS_MSG_END_GUARD_INDEX(msg->name_len,
@@ -404,54 +410,62 @@ static int kbus_dissect_message(struct kbus_message_struct	 *msg,
 		       KBUS_MSG_END_GUARD);
 		return -EINVAL;
 	}
-	*name_p = (char *)&msg->rest[0];
-	*data_p = &msg->rest[data_idx];
+	name_p = (char *)&msg->rest[0];
 
-	if (kbus_bad_message_name(*name_p,msg->name_len)) {
+	if (kbus_bad_message_name(name_p,msg->name_len)) {
 		printk(KERN_DEBUG "kbus: message name '%.*s' is not allowed\n",
-		       msg->name_len,*name_p);
+		       msg->name_len,name_p);
 		return -EBADMSG;
 	}
 	return 0;
 }
 
 /*
- * Return 0 if a message is well-formed, negative otherwise.
+ * Extract useful information from a message.
+ *
+ * Assumes the message is well structured - i.e., that kbus_check_message()
+ * has already been used on it.
+ *
+ * Returns the (calculated) message length.
  */
-static int kbus_check_message(struct kbus_message_struct	*msg)
+static uint32_t kbus_dissect_message(struct kbus_message_struct	 *msg,
+				     char			**name_p,
+				     uint32_t			**data_p)
 {
-	/* This is the simplest way to do this... */
-	uint32_t	 msg_len;
-	char		*name_p;
-	uint32_t	*data_p;
-	return kbus_dissect_message(msg,&msg_len,&name_p,&data_p);
+	int data_idx = KBUS_MSG_DATA_INDEX(msg->name_len);
+
+	*name_p  = (char *)&msg->rest[0];
+	*data_p  = &msg->rest[data_idx];
+
+	return KBUS_MSG_LEN(msg->name_len,msg->data_len);
 }
 
 /*
  * Output a description of the message
+ *
+ * Assumes the message is well structured - i.e., that kbus_check_message()
+ * has already been used on it.
  */
 static void kbus_report_message(char				*kern_prefix,
 				struct kbus_message_struct	*msg)
 {
-	uint32_t	 msg_len;
 	char		*name_p;
 	uint32_t	*data_p;
-	if (!kbus_dissect_message(msg,&msg_len,&name_p,&data_p)) {
-		if (msg->data_len)
-			printk("%skbus: message id %u:%u to %u from %u"
-			       " flags %08x name '%.*s' data/%u %08x\n",
-			       kern_prefix,
-			       msg->id.network_id,msg->id.serial_num,
-			       msg->to,msg->from,msg->flags,msg->name_len,
-			       name_p,msg->data_len,data_p[0]);
-		else
-			printk("%skbus: message id %u:%u to %u from %u"
-			       " flags %08x name '%.*s'\n",
-			       kern_prefix,
-			       msg->id.network_id,msg->id.serial_num,
-			       msg->to,msg->from,msg->flags,msg->name_len,
-			       name_p);
-	}
+	(void) kbus_dissect_message(msg,&name_p,&data_p);
+	if (msg->data_len)
+		printk("%skbus: message id %u:%u to %u from %u"
+		       " flags %08x name '%.*s' data/%u %08x\n",
+		       kern_prefix,
+		       msg->id.network_id,msg->id.serial_num,
+		       msg->to,msg->from,msg->flags,msg->name_len,
+		       name_p,msg->data_len,data_p[0]);
+	else
+		printk("%skbus: message id %u:%u to %u from %u"
+		       " flags %08x name '%.*s'\n",
+		       kern_prefix,
+		       msg->id.network_id,msg->id.serial_num,
+		       msg->to,msg->from,msg->flags,msg->name_len,
+		       name_p);
 }
 
 /*
@@ -641,10 +655,13 @@ static struct kbus_message_struct *kbus_pop_message(struct kbus_private_data *pr
 	msg = item->msg;
 	kfree(item);
 
+	/* If doing that made us go from no-room to some-room, wake up */
+	if (priv->message_count == (priv->max_messages - 1))
+		wake_up_interruptible(&priv->dev->write_wait);
+
 	/* XXX Report just in case */
 	printk(KERN_DEBUG "kbus: Message popped from queue\n");
 	kbus_report_message(KERN_DEBUG, msg);
-
 
 	printk(KERN_DEBUG "kbus: Leaving %d messages in queue\n",
 	       priv->message_count);
@@ -1059,6 +1076,10 @@ static int kbus_forget_matching_messages(struct kbus_private_data  *priv,
 		kfree(ptr);
 
 		priv->message_count --;
+
+		/* If doing that made us go from no-room to some-room, wake up */
+		if (priv->message_count == (priv->max_messages - 1))
+			wake_up_interruptible(&priv->dev->write_wait);
 	}
 	printk(KERN_DEBUG "kbus: Leaving %d messages in queue\n",
 	       priv->message_count);
@@ -1301,9 +1322,13 @@ static int kbus_open(struct inode *inode, struct file *filp)
 	priv->dev = dev;
 	priv->id  = dev->next_file_id ++;
 	priv->max_messages = DEF_MAX_MESSAGES;
+	priv->sending = false;
 	INIT_LIST_HEAD(&priv->message_queue);
 
 	init_waitqueue_head(&priv->read_wait);
+
+	/* Note that we immediately have a space available for a message */
+	wake_up_interruptible(&dev->write_wait);
 
 	(void) kbus_remember_open_file(dev,priv);
 
@@ -1327,16 +1352,25 @@ static int kbus_release(struct inode *inode, struct file *filp)
 	printk(KERN_DEBUG "kbus: Releasing /dev/kbus0 from %u@%p\n",
 	       priv->id,filp);
 
+	printk(KERN_DEBUG "kbus: sending %d write_msg %p len %u\n",priv->sending,priv->write_msg,priv->write_msg_len);
+
 	if (down_interruptible(&dev->sem))
 		return -ERESTARTSYS;
 
+	printk(KERN_DEBUG "kbus: XXX about to empty read message\n");
 	kbus_empty_read_msg(priv);
+	printk(KERN_DEBUG "kbus: XXX about to empty write message\n");
 	kbus_empty_write_msg(priv);
 
+	printk(KERN_DEBUG "kbus: XXX about to empty queue\n");
 	retval1 = kbus_empty_message_queue(priv);
+	printk(KERN_DEBUG "kbus: XXX about to forget bindings\n");
 	kbus_forget_my_bindings(dev,priv->id);
+	printk(KERN_DEBUG "kbus: XXX about to forget open file\n");
 	retval2 = kbus_forget_open_file(dev,priv->id);
+	printk(KERN_DEBUG "kbus: XXX about to free priv\n");
 	kfree(priv);
+	printk(KERN_DEBUG "kbus: XXX done\n");
 
 	up(&dev->sem);
 
@@ -1391,18 +1425,28 @@ static int kbus_queue_is_full(struct kbus_private_data	*priv,
  * Remember that the caller is going to free the message data after
  * calling us, on the assumption that we're taking a copy...
  *
- * Returns a negative number on error, 0 on success.
+ * Returns 0 on success.
+ *
+ * If the message is a Request, and there is no replier for it, then we return
+ * -EADDRNOTAVAIL.
+ *
+ * If the message couldn't be sent because some of the targets (those that we
+ * *have* to deliver to) had full queues, then it will return -EAGAIN or
+ * -EBUSY. If -EAGAIN is returned, then the caller should try again later, if
+ * -EBUSY then it should not.
+ *
+ * Otherwise, it returns a negative value for error.
  */
 static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 					struct kbus_dev		   *dev,
 					struct kbus_message_struct *msg,
-					uint32_t		    msg_len,
-					char			   *name_p,
-					uint32_t		   *data_p)
+					size_t			    msg_len)
 {
 	struct kbus_message_binding	**listeners = NULL;
 	struct kbus_message_binding	 *replier = NULL;
 	struct kbus_private_data	 *reply_to = NULL;
+	char		*name_p;
+	uint32_t	*data_p;
 	ssize_t		 retval = 0;
 	int		 num_listeners;
 	int		 ii;
@@ -1410,6 +1454,8 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 
 	int	all_or_fail = msg->flags & KBUS_BIT_ALL_OR_FAIL;
 	int	all_or_wait = msg->flags & KBUS_BIT_ALL_OR_WAIT;
+
+	(void) kbus_dissect_message(msg, &name_p, &data_p);
 
 	/*
 	 * Remember that
@@ -1470,7 +1516,7 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 
 		if (kbus_queue_is_full(reply_to,"sender-of-request")) {
 			if (all_or_wait)
-				retval = -EINVAL;    /* Not implemented yet */
+				retval = -EAGAIN;	/* try again later */
 			else
 				retval = -EBUSY;
 			goto done_sending;
@@ -1504,7 +1550,7 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 
 		if (kbus_queue_is_full(replier->bound_to,"replier")) {
 			if (all_or_wait)
-				retval = -EINVAL;    /* Not implemented yet */
+				retval = -EAGAIN;	/* try again later */
 			else
 				retval = -EBUSY;
 			goto done_sending;
@@ -1517,7 +1563,7 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 
 		if (kbus_queue_is_full(listeners[ii]->bound_to,"listener")) {
 			if (all_or_wait) {
-				retval = -EINVAL;    /* Not implemented yet */
+				retval = -EAGAIN;	/* try again later */
 				goto done_sending;
 			} else if (all_or_fail) {
 				retval = -EBUSY;
@@ -1605,6 +1651,18 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 
 	printk(KERN_DEBUG "kbus/write: WRITE count %d, pos %d\n",count,(int)*f_pos);
 
+	if (down_interruptible(&dev->sem))
+		return -EAGAIN;
+
+	/*
+	 * If we've already started to try sending a message, we don't
+	 * want to continue appending to it
+	 */
+	if (priv->sending) {
+		retval = -EALREADY;
+		goto done;
+	}
+
 	/*
 	 * XXX Note for the future
 	 * XXX ===================
@@ -1633,15 +1691,14 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 	if ( (count + priv->write_msg_len) >
 	     KBUS_MSG_LEN(KBUS_MAX_NAME_LEN,KBUS_MAX_DATA_LEN) ) {
 		printk(KERN_ERR "kbus/write: Message appears to be too long\n");
-		return -EMSGSIZE;
+		kbus_empty_write_msg(priv);
+		retval = -EMSGSIZE;
+		goto done;
 	}
 
 // XXX Stupidly small values so I can watch it make more space
 #define INIT_WRITE_SIZE		10
 #define INCR_WRITE_SIZE		10
-
-	if (down_interruptible(&dev->sem))
-		return -EAGAIN;
 
 	if (priv->write_msg == NULL) {
 		priv->write_msg_size = max((size_t)INIT_WRITE_SIZE,count);
@@ -1983,13 +2040,15 @@ static int kbus_send(struct kbus_private_data	*priv,
 	msg = (struct kbus_message_struct *)priv->write_msg;
 
 	/* Check the message makes sense */
-	retval = kbus_dissect_message(msg, &msg_len, &name_p, &data_p);
+	retval = kbus_check_message(msg);
 	if (retval) goto done;
 
 	/*
 	 * It would be nice if the calculated message length matched the length
 	 * of the data we've been given to write...
 	 */
+	msg_len = kbus_dissect_message(msg, &name_p, &data_p);
+
 	if (msg_len > priv->write_msg_len) {
 		printk(KERN_ERR "kbus/send: Error: message data is %u bytes,"
 		       " calculated message length is %u\n",
@@ -2021,21 +2080,17 @@ static int kbus_send(struct kbus_private_data	*priv,
 	msg->from = priv->id;
 
 	/*
-	 * After this point, we're fairly happy that the message is
-	 * well-formed, and any problem will end up sending back an
-	 * exception/synthetic message.
-	 *
-	 * XXX Or at least that's the intention XXX
-	 *
-	 * So if it's in the local network, assign our message its serial
-	 * number
-	 *
-	 * (Note that we reserve id 0, just in case)
+	 * If we've already tried to send this message earlier (and
+	 * presumably failed with -EAGAIN), then we don't need to give
+	 * it a message id, because it already has one...
 	 */
-	if (msg->id.network_id == 0) {
-		if (dev->next_msg_serial_num == 0)
-			dev->next_msg_serial_num ++;
-		msg->id.serial_num = dev->next_msg_serial_num ++;
+	if (!priv->sending) {
+		/* The message seems well formed, give it an id if necessary */
+		if (msg->id.network_id == 0) {
+			if (dev->next_msg_serial_num == 0)
+				dev->next_msg_serial_num ++;
+			msg->id.serial_num = dev->next_msg_serial_num ++;
+		}
 	}
 
 	/* Also, remember this as the "message we last (tried to) send" */
@@ -2044,19 +2099,33 @@ static int kbus_send(struct kbus_private_data	*priv,
 	/*
 	 * Figure out who should receive this message, and write it to them
 	 */
-	retval = kbus_write_to_recipients(priv, dev, msg, msg_len,
-					  name_p, data_p);
+	retval = kbus_write_to_recipients(priv, dev, msg, msg_len);
 
 done:
-	/* We've now finished with our copy of the message */
-	kbus_empty_write_msg(priv);
+	/*
+	 * -EAGAIN means we were blocked from sending, and the caller
+	 *  should try again (as one might expect).
+	 */
+	if (retval == -EAGAIN) {
+		/* Remember we're still trying to send this message */
+		priv->sending = true;
+	} else {
+		/* We've now finished with our copy of the message */
+		kbus_discard(priv);
+	}
 
-	if (retval == 0) {
+	if (retval == 0 || retval == -EAGAIN) {
 		if (copy_to_user((void *)arg, &priv->last_msg_id,
 				 sizeof(priv->last_msg_id)))
 			retval = -EFAULT;
 	}
 	return retval;
+}
+
+static void kbus_discard(struct kbus_private_data	*priv)
+{
+	kbus_empty_write_msg(priv);
+	priv->sending = false;
 }
 
 static int kbus_maxmsgs(struct kbus_private_data	*priv,
@@ -2200,7 +2269,7 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 	case KBUS_IOC_DISCARD:
 		/* Throw away the message we're currently writing. */
 		printk(KERN_DEBUG "kbus: DISCARD\n");
-		kbus_empty_write_msg(priv);
+		kbus_discard(priv);
 		break;
 
 	case KBUS_IOC_LASTSENT:
@@ -2246,39 +2315,106 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 	return retval;
 }
 
+/*
+ * Try sending the (current waiting to be sent) message
+ *
+ * Returns true if the message has either been successfully sent, or an error
+ * occcurred (which has been dealt with) and there is no longer a current
+ * message.
+ *
+ * Returns false if we hit EAGAIN (again) and we're still trying to send the
+ * current message.
+ */
+static int kbus_poll_try_send_again(struct kbus_private_data	*priv,
+				    struct kbus_dev		*dev)
+{
+	int retval;
+	struct kbus_message_struct *msg;
+
+	msg = (struct kbus_message_struct *)priv->write_msg;
+
+	retval = kbus_write_to_recipients(priv, dev, msg,
+					  priv->write_msg_len);
+
+	switch (-retval) {
+	case 0:		/* All is well, nothing to do */
+		break;
+	case EAGAIN:	/* Still blocked by *someone* - nowt to do */
+		break;
+	case EADDRNOTAVAIL:
+		/*
+		 * It's a Request and there's no Replier (presumably there was
+		 * when the initial SEND was done, but now they've gone away).
+		 * A Request *needs* a Reply...
+		 */
+		kbus_push_synthetic_message(dev, 0,
+					    msg->from, msg->id,
+					    "$.KBUS.Replier.Disappeared");
+		retval = 0;
+		break;
+	default:
+		/*
+		 * Send *failed* - what can we do?
+		 * Not much, perhaps, but we must ensure that a Request gets
+		 * (some sort of) reply
+		 */
+		if (msg->flags & KBUS_BIT_WANT_A_REPLY) {
+			kbus_push_synthetic_message(dev, 0,
+						    msg->from, msg->id,
+						    "$.KBUS.ErrorSending");
+		}
+		retval = 0;
+		break;
+	}
+
+	if (retval == 0) {
+		kbus_discard(priv);
+		return true;
+	} else {
+		return false;
+	}
+}
+
 static unsigned int kbus_poll(struct file *filp, poll_table *wait)
 {
 	struct kbus_private_data	*priv = filp->private_data;
 	struct kbus_dev			*dev = priv->dev;
-	unsigned int mask = 0;
+	unsigned mask = 0;
+
+	printk(KERN_DEBUG "kbus: POLL\n");
 
 	down(&dev->sem);
 
-	/* Wait for something to happen */
-	poll_wait(filp, &priv->read_wait, wait);
-#if 0
-	poll_wait(filp, &priv->write_wait, wait);
-#endif
-
-	/* Was that "something" the availability of messages to read? */
+	/*
+	 * Did I wake up because there's a message available to be read?
+	 */
 	if (priv->message_count != 0)
 		mask |= POLLIN | POLLRDNORM; /* readable */
 
 	/*
-	 * At the moment, (if we're *allowed* to write) we're always ready
-	 * to write, because SEND is always available to be called.
+	 * Did I wake up because someone said they had space for a message on
+	 * their message queue (where there wasn't space before)?
 	 *
-	 * If (in the future) we say that we can't SEND unless
-	 * we've got room in our (incoming) message queue for a
-	 * message coming back (i.e., a failure message of some sort),
-	 * then we may want to block SENDing until such a space is
-	 * available.
+	 * And if that is the case, if we're opened for write and have a
+	 * message waiting to be sent, can we now send it?
+	 *
+	 * The simplest way to find out is just to try again.
 	 */
-#if 0
-	if (theres_room_to_write)
-#endif
-	if (filp->f_mode & FMODE_WRITE)
-		mask |= POLLOUT | POLLWRNORM; /* writable */
+	if (filp->f_mode & FMODE_WRITE) {
+		int      writable = true;
+		if (priv->sending) {
+			writable = kbus_poll_try_send_again(priv,dev);
+		}
+		if (writable)
+			mask |= POLLOUT | POLLWRNORM;
+	}
+
+	/* Wait until someone has a message waiting to be read */
+	poll_wait(filp, &priv->read_wait, wait);
+
+	/* Wait until someone has a space into which a message can be pushed */
+	if (priv->sending)
+		poll_wait(filp, &dev->write_wait, wait);
 
 	up(&dev->sem);
 	return mask;
@@ -2311,6 +2447,8 @@ static void kbus_setup_cdev(struct kbus_dev *dev, int devno)
 	 */
 	INIT_LIST_HEAD(&dev->bound_message_list);
 	INIT_LIST_HEAD(&dev->open_files_list);
+
+	init_waitqueue_head(&dev->write_wait);
 
 	dev->next_file_id = 0;
 	dev->next_msg_serial_num = 0;

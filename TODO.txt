@@ -9,24 +9,19 @@ In no particular order (well, except for the first):
 
 * REQ Always, update documentation.
 
+* REQ Keep a list of all Requests that have not been replied to, and send the
+  sender a synthetic message when an interface has released, or unbound, but
+  has not replied to a message, even though it *has* read it.
+
+  I might consider not doing this for the "unbind" case, since (a) it would be
+  complicated and (b) the interface might well unbind and then bind again.
+  Yes, that sounds a good excuse.
+
+      This is part of the "a request must always get (some sort of) a reply",
+      which is an important guarantee.
+
 * REQ Keep a spare slot in the receiver queue, to allow for receiving
   asynchronous error messages.
-
-* REQ Implement sender ALL/WAIT flags:
-
-  - ALL_OR_WAIT -- add the message to all listener queues, and if that can't
-    be done because some queues are full, the sender should block on its SEND
-    until it can be done.
-
-  - DONE: ALL_OR_FAIL -- add the message to all listener queues, and if that
-    can't be done, fail (the message is not sent).
-
-  - DONE: (default) -- add the message to all listener queues that have room.
-
-  Remember that, in this context, and interpreted appropriately, repliers also
-  count as listeners.
-
-* REQ Support select/poll
 
 * REQ Support blocking i/o
 
@@ -45,17 +40,6 @@ In no particular order (well, except for the first):
 * REQ Large message support -- allow message data to be large, held as a list
   of data split properly over pages. Really requires reference counting of
   message data.
-
-* REQ Keep a list of all Requests that have not been replied to, and send the
-  sender a synthetic message when an interface has released, or unbound, but
-  has not replied to a message, even though it *has* read it.
-
-  I might consider not doing this for the "unbind" case, since (a) it would be
-  complicated and (b) the interface might well unbind and then bind again.
-  Yes, that sounds a good excuse.
-
-      This is part of the "a request must always get (some sort of) a reply",
-      which is an important guarantee.
 
 * REQ (LOW PRIORITY) Allow a KSock to say "I am a network bridge", which means
   that messages going over it might be hard to follow -- one might not be sure
@@ -79,6 +63,8 @@ In no particular order (well, except for the first):
   In other words, if the sender is remembering information about messages that
   have been sent, this allows the sender to know that it can forget about the
   message.
+
+-------------------------------------------------------------------------------
 
 * OPT Allow message name id to be used instead of message name in messages.
   This would need:
@@ -110,3 +96,21 @@ In no particular order (well, except for the first):
 
 * OPT Remove lots of the debugging 'printk's in ``kbus.c`` - there are way too
   many.
+
+-------------------------------------------------------------------------------
+
+* DONE Implement sender ALL/WAIT flags:
+
+  - ALL_OR_WAIT -- add the message to all listener queues, and if that can't
+    be done because some queues are full, the sender should block on its SEND
+    until it can be done.
+
+  - ALL_OR_FAIL -- add the message to all listener queues, and if that
+    can't be done, fail (the message is not sent).
+
+  - (default) -- add the message to all listener queues that have room.
+
+  Remember that, in this context, and interpreted appropriately, repliers also
+  count as listeners.
+
+* DONE Support select/poll

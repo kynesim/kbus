@@ -332,20 +332,19 @@ convenience, and may not be up-to-date.</p>
 <li><a class="reference" href="#kbus-end-points-ksocks" id="id18" name="id18">KBUS end points - KSocks</a><ul>
 <li><a class="reference" href="#the-kbus-devices" id="id19" name="id19">The KBUS devices</a></li>
 <li><a class="reference" href="#ksocks" id="id20" name="id20">KSocks</a></li>
-<li><a class="reference" href="#read-write-and-blocking" id="id21" name="id21">Read, write and blocking</a></li>
-<li><a class="reference" href="#senders" id="id22" name="id22">Senders</a></li>
-<li><a class="reference" href="#listeners" id="id23" name="id23">Listeners</a></li>
-<li><a class="reference" href="#repliers" id="id24" name="id24">Repliers</a></li>
+<li><a class="reference" href="#senders" id="id21" name="id21">Senders</a></li>
+<li><a class="reference" href="#listeners" id="id22" name="id22">Listeners</a></li>
+<li><a class="reference" href="#repliers" id="id23" name="id23">Repliers</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#more-information" id="id25" name="id25">More information</a><ul>
-<li><a class="reference" href="#stateful-transactions" id="id26" name="id26">Stateful transactions</a></li>
-<li><a class="reference" href="#queues-filling-up" id="id27" name="id27">Queues filling up</a></li>
-<li><a class="reference" href="#urgent-messages" id="id28" name="id28">Urgent messages</a></li>
-<li><a class="reference" href="#select" id="id29" name="id29">Select</a></li>
-<li><a class="reference" href="#ioctls" id="id30" name="id30">IOCTLS</a></li>
-<li><a class="reference" href="#proc-kbus-bindings" id="id31" name="id31">/proc/kbus/bindings</a></li>
-<li><a class="reference" href="#error-numbers" id="id32" name="id32">Error numbers</a></li>
+<li><a class="reference" href="#more-information" id="id24" name="id24">More information</a><ul>
+<li><a class="reference" href="#stateful-transactions" id="id25" name="id25">Stateful transactions</a></li>
+<li><a class="reference" href="#queues-filling-up" id="id26" name="id26">Queues filling up</a></li>
+<li><a class="reference" href="#urgent-messages" id="id27" name="id27">Urgent messages</a></li>
+<li><a class="reference" href="#select-write-send-and-next-message-blocking" id="id28" name="id28">Select, write/send and &quot;next message&quot;, blocking</a></li>
+<li><a class="reference" href="#ioctls" id="id29" name="id29">IOCTLS</a></li>
+<li><a class="reference" href="#proc-kbus-bindings" id="id30" name="id30">/proc/kbus/bindings</a></li>
+<li><a class="reference" href="#error-numbers" id="id31" name="id31">Error numbers</a></li>
 </ul>
 </li>
 </ul>
@@ -564,14 +563,18 @@ Either one may be set, or both may be unset.</p>
 <p>Both flags are ignored in reply messages (i.e., messages with the
 'in_reply_to' field set).</p>
 </blockquote>
-<div class="note">
-<p class="first admonition-title">Note</p>
-<p>ALL_OR_FAIL is implemented, attempts to use ALL_OR_WAIT will return
-a -EINVAL error (as it is not yet implemented).</p>
-<blockquote class="last">
-<em>Documentation on this topic is still to be written.</em></blockquote>
-</div>
-<p>These are primarily intended for use in debugging systems.</p>
+<p>If a message has ALL_OR_FAIL set, then a SEND will only succeed if the message
+could be added to all the (intended) recipient's message queues. Otherwise,
+SEND returns -EBUSY.</p>
+<p>If a message has ALL_OR_WAIT set, then a SEND will only succeed if the message
+could be added to all the (intended) recipient's message queues. Otherwise
+SEND returns -EAGAIN. In this case, the message is still being sent, and the
+caller should either call DISCARD (to drop it), or else use poll/select to
+wait for the send to finish. It will not be possible to call &quot;write&quot; until the
+send has completed or been discarded.</p>
+<p>These are primarily intended for use in debugging systems. In particular, note
+that the mechanisms dealing with ALL_OR_WAIT internally are unlikely to be
+very efficient.</p>
 </div>
 </div>
 <div class="section">
@@ -789,21 +792,7 @@ The terms &quot;listener id&quot;, &quot;sender id&quot;, &quot;replier id&quot;
 to the a KSock id, depending on what it is being used for.</blockquote>
 </div>
 <div class="section">
-<h2><a class="toc-backref" href="#id21" id="read-write-and-blocking" name="read-write-and-blocking">Read, write and blocking</a></h2>
-<p>Note that, at the moment</p>
-<div class="warning">
-<p class="first admonition-title">Warning</p>
-<p class="last"><tt class="docutils literal"><span class="pre">read</span></tt> and <tt class="docutils literal"><span class="pre">write</span></tt> are always non-blocking.</p>
-</div>
-<p><tt class="docutils literal"><span class="pre">read</span></tt> returns more of the currently selected message, or EOF if there is no
-more of that message to read (and thus also if there is no currently selected
-message). The NEXTMSG ioctl is used to select the next message.</p>
-<p><tt class="docutils literal"><span class="pre">write</span></tt> writes to the end of the currently-being-written message. The
-DISCARD ioctl can be used to discard the data written so far, and the SEND
-ioctl to send the (presumably completed message).</p>
-</div>
-<div class="section">
-<h2><a class="toc-backref" href="#id22" id="senders" name="senders">Senders</a></h2>
+<h2><a class="toc-backref" href="#id21" id="senders" name="senders">Senders</a></h2>
 <p>Message senders are called &quot;senders&quot;. A sender should open a KSock for read
 and write, as it may need to read replies and error/status messages.</p>
 <p>A message is sent by:</p>
@@ -850,7 +839,7 @@ also get (an extra) copy of the reply.</blockquote>
 </div>
 </div>
 <div class="section">
-<h2><a class="toc-backref" href="#id23" id="listeners" name="listeners">Listeners</a></h2>
+<h2><a class="toc-backref" href="#id22" id="listeners" name="listeners">Listeners</a></h2>
 <p>Message recipients are called &quot;listeners&quot;.</p>
 <p>Listeners indicate that they want to receive particular messages, by using the
 BIND ioctl on a KSock to specify the name of the message that is to be
@@ -877,7 +866,7 @@ which must also match.</blockquote>
 It does not affect message bindings made on other KSocks.</p>
 </div>
 <div class="section">
-<h2><a class="toc-backref" href="#id24" id="repliers" name="repliers">Repliers</a></h2>
+<h2><a class="toc-backref" href="#id23" id="repliers" name="repliers">Repliers</a></h2>
 <p>Repliers are a special sort of listener.</p>
 <p>For each message name, there may be a single &quot;replier&quot;. A replier binds to a
 message name in the same way as any other listener, but sets the &quot;replier&quot;
@@ -937,9 +926,9 @@ to reply to.</p>
 </div>
 </div>
 <div class="section">
-<h1><a class="toc-backref" href="#id25" id="more-information" name="more-information">More information</a></h1>
+<h1><a class="toc-backref" href="#id24" id="more-information" name="more-information">More information</a></h1>
 <div class="section">
-<h2><a class="toc-backref" href="#id26" id="stateful-transactions" name="stateful-transactions">Stateful transactions</a></h2>
+<h2><a class="toc-backref" href="#id25" id="stateful-transactions" name="stateful-transactions">Stateful transactions</a></h2>
 <p>It is possible to make stateful message transactions, by:</p>
 <ol class="arabic simple">
 <li>sending a message that requires a reply</li>
@@ -953,7 +942,7 @@ guarantee that it is communicating with a particular instance of the replier
 for a message name.</p>
 </div>
 <div class="section">
-<h2><a class="toc-backref" href="#id27" id="queues-filling-up" name="queues-filling-up">Queues filling up</a></h2>
+<h2><a class="toc-backref" href="#id26" id="queues-filling-up" name="queues-filling-up">Queues filling up</a></h2>
 <p>Messages are sent by a mechanism which:</p>
 <ol class="arabic simple">
 <li>Checks the message is plausible (it has a plausible message name,
@@ -983,7 +972,7 @@ until that can be done (ALL_or_WAIT, sender blocks)</li>
 <p>See <a class="reference" href="#message-flags">Message flags</a> for more details.</p>
 </div>
 <div class="section">
-<h2><a class="toc-backref" href="#id28" id="urgent-messages" name="urgent-messages">Urgent messages</a></h2>
+<h2><a class="toc-backref" href="#id27" id="urgent-messages" name="urgent-messages">Urgent messages</a></h2>
 <p>Messages may be flagged urgent. In this case they will be dealt with
 separately -- this is still to be described.</p>
 <blockquote>
@@ -1010,9 +999,39 @@ read after the message-whose-length-has-been-found has been read.</p>
 </blockquote>
 </div>
 <div class="section">
-<h2><a class="toc-backref" href="#id29" id="select" name="select">Select</a></h2>
-<p>A KSock supports use of &quot;select&quot; to determine if there are any messages
-waiting to be read. So, for instance (in Python):</p>
+<h2><a class="toc-backref" href="#id28" id="select-write-send-and-next-message-blocking" name="select-write-send-and-next-message-blocking">Select, write/send and &quot;next message&quot;, blocking</a></h2>
+<div class="warning">
+<p class="first admonition-title">Warning</p>
+<p class="last">At the moment, <tt class="docutils literal"><span class="pre">read</span></tt> and <tt class="docutils literal"><span class="pre">write</span></tt> are always non-blocking.</p>
+</div>
+<p><tt class="docutils literal"><span class="pre">read</span></tt> returns more of the currently selected message, or EOF if there is no
+more of that message to read (and thus also if there is no currently selected
+message). The NEXTMSG ioctl is used to select (&quot;pop&quot;) the next message.</p>
+<p><tt class="docutils literal"><span class="pre">write</span></tt> writes to the end of the currently-being-written message. The
+DISCARD ioctl can be used to discard the data written so far, and the SEND
+ioctl to send the (presumably completed message). Whilst the message is being
+sent, it is not possible to use <tt class="docutils literal"><span class="pre">write</span></tt>.</p>
+<p>Note that if SEND is used to send a Request, then KBUS ensures that there will
+always be either a Reply or a Status message in response to that request.</p>
+<p>Specifically, if:</p>
+<ol class="arabic simple">
+<li>The Replier &quot;goes away&quot; (and its &quot;release&quot; function is called)</li>
+<li>The Replier unbinds from that Request message name</li>
+<li>Select/poll attempts to send the Request, and discovers that the
+Replier has disappeared since the initial SEND</li>
+<li>Select/poll attempts to send the Request, and some other error occurs</li>
+</ol>
+<p>then KBUS will &quot;reply&quot; with an appropriate Status message.</p>
+<div class="note">
+<p class="first admonition-title">Note</p>
+<p class="last">This leaves one case missing, which is the case where the Replier
+has read the message, but has gone away without replying. This will
+be implemented in a future version of KBUS (see the TODO list).</p>
+</div>
+<hr class="docutils" />
+<p>KBUS support its own particular variation on blocking of message sending.</p>
+<p>First of all, it supports use of &quot;select&quot; to determine if there are any
+messages waiting to be read. So, for instance (in Python):</p>
 <pre class="literal-block">
 with KSock(0,'rw') as sender:
     with KSock(0,'r') as listener:
@@ -1026,9 +1045,53 @@ with KSock(0,'rw') as sender:
         (r,w,x) = select.select([listener],[],[],0)
         assert r == [listener]
 </pre>
+<p>This simply checks if there is a message in the KSock's message list, waiting
+to be &quot;popped&quot; with NEXTMSG.</p>
+<p>Secondly, <tt class="docutils literal"><span class="pre">write</span></tt>, SEND and DISCARD interact in what is hoped to be a
+sensible manner. Specifically:</p>
+<ul class="simple">
+<li>When SEND (i.e., the SEND ioctl) is called, KBUS can either:<ol class="arabic">
+<li>Succeed in sending the message. The KSock is now ready for <tt class="docutils literal"><span class="pre">write</span></tt> to
+be called on it again.</li>
+<li>Failed in sending the message (possibly, if the message was a Request,
+with EADDRNOTAVAIL, indicating that there is no Replier for that
+Request). The KSock is now ready for <tt class="docutils literal"><span class="pre">write</span></tt> to be called on it again.</li>
+<li>If the message was marked ALL_OR_WAIT, then it may fail with EAGAIN.
+In this case, the KSock is still in sending state, and an attempt to
+call <tt class="docutils literal"><span class="pre">write</span></tt> will fail (with EALREADY). The caller can either use
+DISCARD to discard the message, or use select/poll to wait for the
+message to finish sending.</li>
+</ol>
+</li>
+</ul>
+<p>Thus &quot;select&quot; for the write case checks whether it is allowed to call
+&quot;write&quot; - for instance:</p>
+<pre class="literal-block">
+with KSock(0,'rw') as sender:
+    write_list = [sender]
+    with KSock(0,'r') as listener1:
+        write_list= [sender,listener1]
+        read_list = [listener1]
+
+        (r,w,x) = select.select(read_list,write_list,[],0)
+        assert r == []
+        assert w == [sender]
+        assert x == []
+
+        with KSock(0,'rw') as listener2:
+            write_list.append(listener2)
+            read_list.append(listener2)
+
+            (r,w,x) = select.select(read_list,write_list,[],0)
+            assert r == []
+            assert len(w) == 2
+            assert sender in w
+            assert listener2 in w
+            assert x == []
+</pre>
 </div>
 <div class="section">
-<h2><a class="toc-backref" href="#id30" id="ioctls" name="ioctls">IOCTLS</a></h2>
+<h2><a class="toc-backref" href="#id29" id="ioctls" name="ioctls">IOCTLS</a></h2>
 <p>The KBUS ioctls are:</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -1076,7 +1139,7 @@ read queue.</td>
 </table>
 </div>
 <div class="section">
-<h2><a class="toc-backref" href="#id31" id="proc-kbus-bindings" name="proc-kbus-bindings">/proc/kbus/bindings</a></h2>
+<h2><a class="toc-backref" href="#id30" id="proc-kbus-bindings" name="proc-kbus-bindings">/proc/kbus/bindings</a></h2>
 <p><tt class="docutils literal"><span class="pre">/proc/kbus/bindings</span></tt> is a debugging aid for reporting the listener id,
 exclusive flag and message name for each binding, for each kbus device.</p>
 <p>An example might be:</p>
@@ -1104,7 +1167,7 @@ output will be truncated, and the last line will be <tt class="docutils literal"
 improved (one can hope) in a future version of KBUS.</p>
 </div>
 <div class="section">
-<h2><a class="toc-backref" href="#id32" id="error-numbers" name="error-numbers">Error numbers</a></h2>
+<h2><a class="toc-backref" href="#id31" id="error-numbers" name="error-numbers">Error numbers</a></h2>
 <p>The following error numbers get special use. In Python, they are all returned
 as values inside the IOError exception.</p>
 <table class="docutils field-list" frame="void" rules="none">
@@ -1115,8 +1178,14 @@ as values inside the IOError exception.</p>
 already a replier bound for this message</p>
 </td>
 </tr>
-<tr class="field"><th class="field-name">EADDRNOTAVAIL:</th><td class="field-body"><p class="first">On attempting to send a message: There is no listener bound
-for this message's name.</p>
+<tr class="field"><th class="field-name">EADDRNOTAVAIL:</th><td class="field-body"><p class="first">On attempting to send a Request message: There is no replier
+bound for this message's name.</p>
+</td>
+</tr>
+<tr class="field"><th class="field-name">EALREADY:</th><td class="field-body"><p class="first">On attempting to write to a KSock, when a previous send has
+returned EAGAIN. Either DISCARD the message, or use
+select/poll to wait for the send to complete, and write to be
+allowed.</p>
 </td>
 </tr>
 <tr class="field"><th class="field-name">EBADMSG:</th><td class="field-body"><p class="first">On attempting to bind, unbind or send a message: The message
@@ -1174,7 +1243,7 @@ with that id is no longer bound to the given message's name.</p>
 <div class="footer">
 <hr class="footer" />
 <a class="reference" href="docs.txt">View document source</a>.
-Generated on: 2009-04-08 14:49 UTC.
+Generated on: 2009-04-09 13:06 UTC.
 Generated by <a class="reference" href="http://docutils.sourceforge.net/">Docutils</a> from <a class="reference" href="http://docutils.sourceforge.net/rst.html">reStructuredText</a> source.
 
 </div>

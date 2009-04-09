@@ -2030,7 +2030,7 @@ class TestKernelModule:
                     assert w == []
                     assert x == []
 
-    def test_select_on_sending_1(self):
+    def tesXt_select_on_sending_1(self):
         """Test the ability to do select.select for message sending.
         """
         with KSock(0,'rw') as sender:

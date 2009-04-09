@@ -224,12 +224,20 @@ Either one may be set, or both may be unset.
    Both flags are ignored in reply messages (i.e., messages with the
    'in_reply_to' field set).
 
-.. note:: ALL_OR_FAIL is implemented, attempts to use ALL_OR_WAIT will return
-   a -EINVAL error (as it is not yet implemented).
+If a message has ALL_OR_FAIL set, then a SEND will only succeed if the message
+could be added to all the (intended) recipient's message queues. Otherwise,
+SEND returns -EBUSY.
 
-    *Documentation on this topic is still to be written.*
+If a message has ALL_OR_WAIT set, then a SEND will only succeed if the message
+could be added to all the (intended) recipient's message queues. Otherwise
+SEND returns -EAGAIN. In this case, the message is still being sent, and the
+caller should either call DISCARD (to drop it), or else use poll/select to
+wait for the send to finish. It will not be possible to call "write" until the
+send has completed or been discarded.
 
-These are primarily intended for use in debugging systems.
+These are primarily intended for use in debugging systems. In particular, note
+that the mechanisms dealing with ALL_OR_WAIT internally are unlikely to be
+very efficient.
 
 Things KBUS changes in a message
 --------------------------------
@@ -403,20 +411,6 @@ the device is opened. The value 0 is reserved for KBUS itself.
 
     The terms "listener id", "sender id", "replier id", etc., thus all refer
     to the a KSock id, depending on what it is being used for.
-
-Read, write and blocking
-------------------------
-Note that, at the moment
-
-.. warning:: ``read`` and ``write`` are always non-blocking.
-
-``read`` returns more of the currently selected message, or EOF if there is no
-more of that message to read (and thus also if there is no currently selected
-message). The NEXTMSG ioctl is used to select the next message.
-
-``write`` writes to the end of the currently-being-written message. The
-DISCARD ioctl can be used to discard the data written so far, and the SEND
-ioctl to send the (presumably completed message).
 
 Senders
 -------
@@ -641,10 +635,42 @@ separately -- this is still to be described.
 
     Of course, if the message lengths match, then this need not be done...
 
-Select
-------
-A KSock supports use of "select" to determine if there are any messages
-waiting to be read. So, for instance (in Python)::
+Select, write/send and "next message", blocking
+-----------------------------------------------
+.. warning:: At the moment, ``read`` and ``write`` are always non-blocking.
+
+``read`` returns more of the currently selected message, or EOF if there is no
+more of that message to read (and thus also if there is no currently selected
+message). The NEXTMSG ioctl is used to select ("pop") the next message.
+
+``write`` writes to the end of the currently-being-written message. The
+DISCARD ioctl can be used to discard the data written so far, and the SEND
+ioctl to send the (presumably completed message). Whilst the message is being
+sent, it is not possible to use ``write``.
+
+Note that if SEND is used to send a Request, then KBUS ensures that there will
+always be either a Reply or a Status message in response to that request.
+
+Specifically, if:
+
+1. The Replier "goes away" (and its "release" function is called)
+2. The Replier unbinds from that Request message name
+3. Select/poll attempts to send the Request, and discovers that the
+   Replier has disappeared since the initial SEND
+4. Select/poll attempts to send the Request, and some other error occurs
+
+then KBUS will "reply" with an appropriate Status message.
+
+.. note:: This leaves one case missing, which is the case where the Replier
+          has read the message, but has gone away without replying. This will
+          be implemented in a future version of KBUS (see the TODO list).
+
+--------------------------------------------------
+
+KBUS support its own particular variation on blocking of message sending.
+
+First of all, it supports use of "select" to determine if there are any
+messages waiting to be read. So, for instance (in Python)::
 
         with KSock(0,'rw') as sender:
             with KSock(0,'r') as listener:
@@ -658,6 +684,49 @@ waiting to be read. So, for instance (in Python)::
                 (r,w,x) = select.select([listener],[],[],0)
                 assert r == [listener]
 
+This simply checks if there is a message in the KSock's message list, waiting
+to be "popped" with NEXTMSG.
+
+Secondly, ``write``, SEND and DISCARD interact in what is hoped to be a
+sensible manner. Specifically:
+
+* When SEND (i.e., the SEND ioctl) is called, KBUS can either:
+
+  1. Succeed in sending the message. The KSock is now ready for ``write`` to
+     be called on it again.
+  2. Failed in sending the message (possibly, if the message was a Request,
+     with EADDRNOTAVAIL, indicating that there is no Replier for that
+     Request). The KSock is now ready for ``write`` to be called on it again.
+  3. If the message was marked ALL_OR_WAIT, then it may fail with EAGAIN.
+     In this case, the KSock is still in sending state, and an attempt to
+     call ``write`` will fail (with EALREADY). The caller can either use
+     DISCARD to discard the message, or use select/poll to wait for the
+     message to finish sending.
+
+Thus "select" for the write case checks whether it is allowed to call
+"write" - for instance::
+
+        with KSock(0,'rw') as sender:
+            write_list = [sender]
+            with KSock(0,'r') as listener1:
+                write_list= [sender,listener1]
+                read_list = [listener1]
+
+                (r,w,x) = select.select(read_list,write_list,[],0)
+                assert r == []
+                assert w == [sender]
+                assert x == []
+
+                with KSock(0,'rw') as listener2:
+                    write_list.append(listener2)
+                    read_list.append(listener2)
+
+                    (r,w,x) = select.select(read_list,write_list,[],0)
+                    assert r == []
+                    assert len(w) == 2
+                    assert sender in w
+                    assert listener2 in w
+                    assert x == []
 
 IOCTLS
 ------
@@ -731,8 +800,12 @@ as values inside the IOError exception.
 
 :EADDRINUSE:    On attempting to bind a message name as replier: There is
                 already a replier bound for this message
-:EADDRNOTAVAIL: On attempting to send a message: There is no listener bound
-                for this message's name.
+:EADDRNOTAVAIL: On attempting to send a Request message: There is no replier
+                bound for this message's name.
+:EALREADY:      On attempting to write to a KSock, when a previous send has
+                returned EAGAIN. Either DISCARD the message, or use
+                select/poll to wait for the send to complete, and write to be
+                allowed.
 :EBADMSG:       On attempting to bind, unbind or send a message: The message
                 name is not valid. On sending, this can also be because the
                 message name is a wildcard.
