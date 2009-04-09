@@ -54,7 +54,7 @@ import errno
 import select
 import nose
 
-from kbus import KSock, Message, MessageId, Announcement, Request, Reply
+from kbus import KSock, Message, MessageId, Announcement, Request, Reply, Status
 from kbus import read_bindings, KbusBindStruct
 
 NUM_DEVICES = 3
@@ -1201,6 +1201,50 @@ class TestKernelModule:
                         assert rJimBob.wants_us_to_reply()
                         assert rJimBob.equivalent(mJimBob)
                         assert f1.next_msg() == 0
+
+    def test_message_subclasses(self):
+        """Reading from a KSock gives an appropriate Message subclass.
+        """
+        with KSock(0,'rw') as sender:
+            with KSock(0,'rw') as listener:
+                listener.bind('$.Fred')
+                ann = Announcement('$.Fred')
+                ann_id = sender.send_msg(ann)
+
+                m = listener.read_next_msg()
+                m = m.cast()
+                assert m.id == ann_id
+                assert m.equivalent(ann)
+                assert isinstance(m,Announcement)
+
+                listener.unbind('$.Fred')
+                listener.bind('$.Fred',True)
+                req = Request('$.Fred')
+                req_id = sender.send_msg(req)
+
+                m = listener.read_next_msg()
+                m = m.cast()
+                assert m.id == req_id
+                assert m.equivalent(req)
+                assert isinstance(m,Request)
+
+                rep = Reply(m)
+                rep_id = listener.send_msg(rep)
+
+                m = sender.read_next_msg()
+                m = m.cast()
+                assert m.id == rep_id
+                assert m.equivalent(rep)
+                assert isinstance(m,Reply)
+
+                req = Request('$.Fred')
+                req_id = sender.send_msg(req)
+                listener.unbind('$.Fred',True)
+                m = sender.read_next_msg()
+                m = m.cast()
+                assert m.in_reply_to == req_id
+                assert m.name.startswith('$.KBUS.')
+                assert isinstance(m,Status)
 
     def test_reads(self):
         """Test partial reads, next_msg, etc.

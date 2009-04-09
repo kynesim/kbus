@@ -546,6 +546,33 @@ class Message(object):
         return (self.id, self.in_reply_to, self.to, self.from_,
                 self.flags, self.name, self.data)
 
+    def cast(self):
+        """Return (a copy of) ourselves as an appropriate subclass of Message
+
+        Reading from a KSock returns a Message, whatever the actual message
+        type. Normally, this is OK, but sometimes it would be nice to have
+        an actual message of the correct class.
+        """
+        # If it has in_reply_to set...
+        if self.in_reply_to:
+            # Status messages have a specific sort of name
+            if self.name.startswith('$.KBUS.'):
+                return Status(self.array)
+            else:
+                # Unfortunately, passing 'data' to Reply constructs a
+                # reply *to* data, which is not what we want...
+                rep = Reply(self.name)
+                # So we'll fake it (kids, do *not* do this at home)
+                rep.array = array.array('L',self.array)
+                return rep
+
+        # If it has the WANT_A_REPLY flag set, then it's a Request
+        if self.flags & Message.WANT_A_REPLY:
+            return Request(self)
+
+        # Otherwise, it's basically an Announcement (at least, that's a good bet)
+        return Announcement(self)
+
 class Announcement(Message):
     """A "plain" message, needing no reply
 
@@ -811,7 +838,7 @@ class Reply(Message):
         True
     """
 
-    def __init__(self, original, data=None, to=None, in_reply_to=None, flags=0):
+    def __init__(self, original, data=None, to=0, in_reply_to=None, flags=0):
         """Try to support sensible ways of setting ourselves up.
         """
         if isinstance(original,array.array) or \
@@ -864,6 +891,45 @@ class Reply(Message):
                 'flags=0x%08x'%flags,
                 'id='+repr(id)]
         return 'Reply(%s)'%(', '.join(args))
+
+class Status(Message):
+    """A status message, from KBUS.
+
+    This is provided as a sugar-coating around the messages KBUS sends us. As
+    such, it is not expected that a normal user would want to construct one,
+    and the initialisation mechanisms are correspondingly more restrictive.
+
+    For instance:
+
+        >>> msg = Message('$.KBUS.Dummy',from_=27,to=99,in_reply_to=MessageId(0,132))
+        >>> msg
+        Message('$.KBUS.Dummy', data=array('L'), to=99L, from_=27L, in_reply_to=MessageId(0,132), flags=0x00000000, id=None)
+        >>> status = Status(msg.array)
+        >>> status
+        Status('$.KBUS.Dummy', data=array('L'), to=99L, from_=27L, in_reply_to=MessageId(0,132), flags=0x00000000, id=None)
+
+    Note that:
+
+    1. A status message is such because it is a (sort of) Reply, with the
+       message name starting with '$.KBUS.'.
+    """
+
+    def __init__(self, original):
+        # Actually, this is slightly more forgiving than the docstring
+        # suggests, but conversely I'm not going to hold the user's hand
+        # if they do something that's not supported...
+        super(Status,self).__init__(original)
+
+    def __repr__(self):
+        (id,in_reply_to,to,from_,flags,name,data_array) = self.extract()
+        args = [repr(name),
+                'data='+repr(data_array),
+                'to='+repr(to),
+                'from_='+repr(from_),
+                'in_reply_to='+repr(in_reply_to),
+                'flags=0x%08x'%flags,
+                'id='+repr(id)]
+        return 'Status(%s)'%(', '.join(args))
 
 class KbusBindStruct(ctypes.Structure):
     """The datastucture we need to describe an IOC_BIND argument

@@ -583,9 +583,7 @@ static void kbus_push_synthetic_message(struct kbus_dev		  *dev,
 					const char		  *name)
 {
 	struct kbus_private_data	*priv = NULL;
-	struct list_head		*queue = NULL;
 	struct kbus_message_struct	*new_msg;
-	struct kbus_message_queue_item	*item;
 
 	/* Who *was* the original message to? */
 	priv = kbus_find_open_file(dev,to);
@@ -595,35 +593,20 @@ static void kbus_push_synthetic_message(struct kbus_dev		  *dev,
 		return;
 	}
 
-	queue = &priv->message_queue;
-
 	printk(KERN_DEBUG "kbus: ** Pushing synthetic message '%s'"
 	       " onto queue for %u\n",name,to);
 
 	new_msg = kbus_build_kbus_message(name,from,to,in_reply_to);
 	if (!new_msg) return;
 
-	item = kmalloc(sizeof(*item), GFP_KERNEL);
-	if (!item) {
-		printk(KERN_ERR "kbus: Cannot kmalloc new (synthetic) message item\n");
-		kfree(new_msg);
-	       	return;
-	}
-	item->msg = new_msg;
+	(void) kbus_push_message(priv,
+				 KBUS_MSG_LEN(new_msg->name_len,
+					      new_msg->data_len),
+				 new_msg,
+				 false);
 
-	/* XXX Just in case */
-	kbus_report_message(KERN_DEBUG,new_msg);
-
-	/*
-	 * We want a FIFO, so add to the end of the list (just before the list
-	 * head)
-	 */
-	list_add_tail(&item->list, queue);
-
-	priv->message_count ++;
-
-	printk(KERN_DEBUG "kbus: Leaving %d messages in queue\n",
-	       priv->message_count);
+	/* kbus_push_message takes a copy of our message, so... */
+	kfree(new_msg);
 
 	return;
 }
