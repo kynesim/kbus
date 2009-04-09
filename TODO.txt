@@ -15,13 +15,41 @@ In no particular order (well, except for the first):
 
   I might consider not doing this for the "unbind" case, since (a) it would be
   complicated and (b) the interface might well unbind and then bind again.
-  Yes, that sounds a good excuse.
+  Yes, that sounds a good excuse. But see the next item and rethink this in
+  that context...
 
       This is part of the "a request must always get (some sort of) a reply",
       which is an important guarantee.
 
 * REQ Keep a spare slot in the receiver queue, to allow for receiving
   asynchronous error messages.
+
+  Actually, a single slot is not enough.
+
+  One definitely needs to reserve a slot per Request sent, so that there is
+  guaranteed to be room for the Reply or (if something goes wrong) Status
+  message. It is this latter that makes the case - if KBus generates a Status
+  message (for a failed Request), then it *must* be able to add it to the
+  sender's message queue, otherwise KBus might block (we don't care if a
+  Replier blocks waiting on being able to send to the original sender, of
+  course).
+
+  So we need to keep a list of the Requests that a KSock has made, that have
+  not yet had a response, and not allow the KSock to SEND (technically, not to
+  allow it to SEND a Request, but that may be too complicated a condition)
+  until it has read enough to make that space. Of course, this does admit the
+  case where a sender can't send because it has run out of message queue,
+  absolutely, and is thus stuck pending a Reply arriving, but that's a
+  user-space hangup, so (in this sense) OK.
+
+  It's then questionable whether we also need to reserve an extra slot - I
+  think at the moment the only Status messages generated are those for failed
+  Requests.
+
+  The RESET ioctl may then come into its own, if I ever get the sums concerned
+  wrong...
+
+  This definitely depends on the previous item, if it is to work.
 
 * REQ Support blocking i/o
 
