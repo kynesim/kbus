@@ -346,8 +346,8 @@ When creating a new reply message, it has:
         :message name: the request message's 'message name'
         :message data: as appropriate
 
-The Python interface provides a ``Reply`` class that helps in creating a
-reply Message from the original Request.
+The Python interface provides a ``reply_to`` function that helps in creating a
+Reply Message from the original Request.
 
 Status message
 --------------

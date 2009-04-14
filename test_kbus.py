@@ -54,7 +54,8 @@ import errno
 import select
 import nose
 
-from kbus import KSock, Message, MessageId, Announcement, Request, Reply, Status
+from kbus import KSock, Message, MessageId, Announcement, \
+                 Request, Reply, Status, reply_to
 from kbus import read_bindings, KbusBindStruct
 
 NUM_DEVICES = 3
@@ -1017,7 +1018,7 @@ class TestKernelModule:
             reply_by_hand = Message(name, data=None, in_reply_to=id, to=from_)
 
             # But it is easier to use the pre-packaged mechanism
-            reply = Reply(m2)
+            reply = reply_to(m2)
 
             # These should, however, give the same result
             assert reply == reply_by_hand
@@ -1058,7 +1059,7 @@ class TestKernelModule:
                     assert rec2.equivalent(msg2)
 
                     # Which we can reply to
-                    rep = Reply(msg2)
+                    rep = reply_to(rec2)
                     replier.send_msg(rep)
                     assert not rep.wants_us_to_reply()       # just to check!
 
@@ -1077,6 +1078,11 @@ class TestKernelModule:
                     c = listener.read_next_msg()
                     assert c.equivalent(rep)
                     assert not c.wants_us_to_reply()
+
+                    # The writer should get the reply
+                    m = writer.read_next_msg()
+                    assert m.equivalent(rep)
+                    assert m.from_ == replier.ksock_id()
 
                     # No-one should have any more messages
                     assert listener.next_msg() == 0
@@ -1228,7 +1234,7 @@ class TestKernelModule:
                 assert m.equivalent(req)
                 assert isinstance(m,Request)
 
-                rep = Reply(m)
+                rep = reply_to(m)
                 rep_id = listener.send_msg(rep)
 
                 m = sender.read_next_msg()
@@ -1969,6 +1975,14 @@ class TestKernelModule:
                 m3 = Message('$.Fred',flags=Message.ALL_OR_WAIT|Message.ALL_OR_FAIL)
                 check_IOError(errno.EINVAL,sender.send_msg,m3)
 
+    def test_reply_to(self):
+        """Test that reply_to generates the Reply we expect (at least a bit)
+        """
+        m = Message('$.Fred',id=MessageId(0,9999),from_=23)
+        r1 = reply_to(m)
+        r2 = Reply('$.Fred',in_reply_to=MessageId(0,9999),to=23)
+        assert r1 == r2
+
     def test_send_retcode_1(self):
         """Test the returns from send, etc. 1
         """
@@ -1976,7 +1990,7 @@ class TestKernelModule:
             with KSock(0,'rw') as listener:
 
                 # Let's fake an unwanted Reply, to a Request from our sender
-                r = Reply(Message('$.Fred',id=MessageId(0,9999),from_=sender.ksock_id()))
+                r = reply_to(Message('$.Fred',id=MessageId(0,9999),from_=sender.ksock_id()))
                 # And try to send it
                 msg_id = listener.send_msg(r)
 
@@ -2032,17 +2046,17 @@ class TestKernelModule:
                 sender.send_msg(req)
 
                 m = listener.read_next_msg()
-                r = Reply(m)
+                r = reply_to(m)
                 listener.send_msg(r)
 
                 # That should be OK, but there shouldn't be room to reply to
                 # this next...
                 m = listener.read_next_msg()
-                r = Reply(m)
+                r = reply_to(m)
                 check_IOError(errno.EBUSY, listener.send_msg, r)
 
                 # Or...
-                r = Reply(m,flags=Message.ALL_OR_WAIT)
+                r = reply_to(m,flags=Message.ALL_OR_WAIT)
                 check_IOError(errno.EAGAIN, listener.send_msg, r)
 
                 # And because we're "in" send, we can't write
