@@ -140,28 +140,6 @@ class MessageId(object):
         else:
             return MessageId(self.network_id,self.serial_num+other)
 
-    def cast(self):
-        """Return (a copy of) ourselves as an appropriate subclass of Message
-
-        Reading from a KSock returns a Message, whatever the actual message
-        type. Normally, this is OK, but sometimes it would be nice to have
-        an actual message of the correct class.
-        """
-        # If it has in_reply_to set...
-        if self.in_reply_to:
-            # Status messages have a specific sort of name
-            if self.name.startswith('$.KBUS.'):
-                return Status(self.array)
-            else:
-                return Reply(self.array)
-
-        # If it has the WANT_A_REPLY flag set, then it's a Request
-        if self.flags & Message.WANT_A_REPLY:
-            return Request(self)
-
-        # Otherwise, it's basically an Announcement (at least, that's a good bet)
-        return Announcement(self)
-
 class Message(object):
     """A wrapper for a KBUS message
 
@@ -1123,7 +1101,7 @@ class KSock(object):
         message name.
         """
         arg = KbusBindStruct(replier,len(name),name)
-        return fcntl.ioctl(self.fd, KSock.IOC_BIND, arg);
+        return fcntl.ioctl(self.fd, KSock.IOC_BIND, arg)
 
     def unbind(self,name,replier=False):
         """Unbind the given name from the file descriptor.
@@ -1131,7 +1109,7 @@ class KSock(object):
         The arguments need to match the binding that we want to unbind.
         """
         arg = KbusBindStruct(replier,len(name),name)
-        return fcntl.ioctl(self.fd, KSock.IOC_UNBIND, arg);
+        return fcntl.ioctl(self.fd, KSock.IOC_UNBIND, arg)
 
     def ksock_id(self):
         """Return the internal 'KSock id' for this file descriptor.

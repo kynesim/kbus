@@ -9,6 +9,9 @@ In no particular order (well, except for the first):
 
 * REQ Always, update documentation.
 
+* REQ Make the comments in kbus.c and kbus.h follow the kernel documentation
+  rules.
+
 * REQ Keep a list of all Requests that have not been replied to, and send the
   sender a synthetic message when an interface has released, or unbound, but
   has not replied to a message, even though it *has* read it.
@@ -56,7 +59,18 @@ In no particular order (well, except for the first):
 * REQ Improve the output in /proc/kbus/bindings so it is not limited to a
   single page.
 
+* OPT Ben suggested that I should be using mutexes instead of semaphores
+  (because that's now the way to do it). Which I take to refer to
+  ``linux/Documentation/mutex-design.txt``. Look into it. It sounds sensible.
+
 * OPT Provide other useful information via /proc/kbus.
+
+  In particular, for the various counts associated with a device/KSock,
+  output at least maxima, and maybe also current values
+  (/proc/kbus/stats).
+
+* OPT Make polling take account of urgent messages, so that (for instance) the
+  "exception" list in a ``select`` can detect them.
 
 * OPT Internally, split messages into
 

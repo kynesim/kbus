@@ -444,6 +444,19 @@ It is not possible to send a message with a wildcard message name.
 The sender does not need to bind to any message names in order to receive
 error and status messages from KBUS.
 
+When a sender sends a Request, an internal note is made that it expects a
+corresponding Reply (or possible a Status message from KBUS if the Replier
+goes away or unbinds from that message name, before replying). A place for
+that Reply is reserved in the sender's message queue. If the message queue
+fills up (either with messages waiting to be read, or with reserved slots for
+Replies), then the sender will not be able to send another Request until there
+is room on the message queue again.
+
+    Hopefully, this can be resolved by the sender reading a message off its
+    queue. However, if there are no messages to be read, and the queue is all
+    reserved for replies, the only solution is for the sender to wait for a
+    replier to send it something that it can then read.
+
 .. note:: What order do we describe things in? Don't forget:
 
   If the message being sent is a request, then the replier bound to that
@@ -585,55 +598,44 @@ Messages are sent by a mechanism which:
 
 1. Checks the message is plausible (it has a plausible message name,
    and the right sort of "shape")
-2. Finds the KSock ids of all the listeners and repliers bound to that
+2. If the message is a Request, checks that the sender has room on its message
+   queue for the (eventual) Reply.
+3. Finds the KSock ids of all the listeners and repliers bound to that
    messages name
-3. Adds the message to the queue for each such listener/replier
+4. Adds the message to the queue for each such listener/replier
 
 This can cause problems if one of the queues is already full (allowing
 infinite expansion of queues would also cause problems, of couse).
 
+If a *sender* attempts to send a Request, but does not have room on its
+message queue for the (corresponding) Reply, then the message will not be
+sent, and the send will fail. Note that the message id will not be set, and
+the blocking behaviours defined below do not occur.
+
 If a *replier* cannot receive a particular message, because its queue is full,
-then the message will not be sent, and the send will fail with an error.
+then the message will not be sent, and the send will fail with an error. This
+does, however, set the message id (and thus the "last message id" on the
+sender).
 
-.. note:: Even though a send fails, if the message appeared valid,
-          then its (possibly new) message id will be the new "last message id"
-          for that KSock.
-
-However, a sender can indicate if it wants a message to be:
+Moreover, a sender can indicate if it wants a message to be:
 
 1. Added to all the listener queues, regardless, in which case it will block
-   until that can be done (ALL_or_WAIT, sender blocks)
+   until that can be done (ALL_OR_WAIT, sender blocks)
 2. Added to all the listener queues, and fail if that can't be done
-   (ALL_or_FAIL)
+   (ALL_OR_FAIL)
 3. Added to all the listener queues that have room (the default)
 
 See `Message flags`_ for more details.
 
 Urgent messages
 ---------------
-Messages may be flagged urgent. In this case they will be dealt with
-separately -- this is still to be described.
+Messages may be flagged urgent. In this case they will be added to the front
+of the destination message queue, rather than the end - in other words, they
+will be the next message to be "popped" by NEXTMSG.
 
-    Consider: Urgent messages are meant to "jump the queue" in some sense
-    (possibly just by being put to the front of the listener's queue).
-    However, what if:
-
-        a) the listener already asked for the next message length
-           (and got a non-zero answer)
-        b) that is not the message length of the newly inserted
-           urgent message.
-
-    This breaks the predictability of reading the next message. Any solution
-    that requires the listener to cope with unexpected message lengths (when
-    they think they've just dealt with that) is unacceptable - it makes the
-    code to be written a pain.
-
-    So perhaps the only solution is that, if the next message length has been
-    read and is non-zero, and the corresponding message has not been read yet,
-    then the urgent message must be "inserted" in such a way that it will be
-    read after the message-whose-length-has-been-found has been read.
-
-    Of course, if the message lengths match, then this need not be done...
+Note that this means that if two urgent messages are sent to the same target,
+and *then* a NEXTMSG/read occurs, the second urgent message will be popped and
+read first.
 
 Select, write/send and "next message", blocking
 -----------------------------------------------
@@ -798,6 +800,13 @@ Error numbers
 The following error numbers get special use. In Python, they are all returned
 as values inside the IOError exception.
 
+    Since we're trying to fit into the normal Un*x convention that negative
+    values are error numbers, and since Un*x defines many of these for us,
+    it is natural to make use of the relevant definitions. However, this also
+    means that we are often using them in an unnatural sense. I've tried to
+    make the error numbers used bear at least a vague relationship to their
+    (mis)use in KBUS.
+
 :EADDRINUSE:    On attempting to bind a message name as replier: There is
                 already a replier bound for this message
 :EADDRNOTAVAIL: On attempting to send a Request message: There is no replier
@@ -816,15 +825,36 @@ as values inside the IOError exception.
                 3. For any message, with ALL_OR_FAIL set, one of the
                    targetted listener/replier queues was full.
 
+:ECONNREFUSED:  On attempting to send a Reply, the intended recipient (the
+                notional original sender of the Request) is not expecting
+                a Reply with that message id in its 'in_reply_to'. Or, in
+                other words, this appears to be an attempt to reply to the
+                wrong message id or the wrong KSock.
 :EINVAL:        Something went wrong (generic error).
 :EMSGSIZE:      On attempting to write or send a message: The message data is
                 too long.
 :ENAMETOOLONG:  On attempting to bind, unbind or send a message: The message
                 name is too long.
-:ENOENT:        On attempting to open an Interface/open a '/dev/kbus<n>'
-                device: There is no such interface/device (normally because
-                one has tried to open, for instance, '/dev/kbus9' when there
-                are only 3 KBUS devices).
+:ENOENT:        On attempting to open a KSock: There is no such device
+                (normally because one has tried to open, for instance,
+                '/dev/kbus9' when there are only 3 KBUS devices).
+:ENOLCK:        On attempting to send a Request, when there is not enough room
+                in the sender's message queue to guarantee that it can
+                receive a reply for every Request already sent, *plus* this
+                one. If there are oustanding messages in the sender's message
+                queue, then the solution is to read some of them. Otherwise,
+                the sender will have to wait until one of the Repliers
+                replies to a previous Request (or goes away and KBUS replies
+                for it).
+
+                When this error is received, the send has failed (just as if
+                the message was invalid). The sender is not left in "sending"
+                state, nor has the message been assigned a message id.
+
+                Note that this is *not* EAGAIN, since we do not want to block
+                the sender (in the SEND) if it is up to the sender to perform
+                a read to sort things out.
+
 :ENOMSG:        On attempting to send, when there is no message waiting to be
                 sent (either because there has been no write since the last
                 send, or because the message being written has been

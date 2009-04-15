@@ -1209,7 +1209,7 @@ class TestKernelModule:
                         assert f1.next_msg() == 0
 
     def test_message_subclasses(self):
-        """Reading from a KSock gives an appropriate Message subclass.
+        """Reading from a KSock and casting gives an appropriate Message subclass.
         """
         with KSock(0,'rw') as sender:
             with KSock(0,'rw') as listener:
@@ -1984,7 +1984,7 @@ class TestKernelModule:
         assert r1 == r2
 
     def test_send_retcode_1(self):
-        """Test the returns from send, etc. 1
+        """It's not possible to send an "unsolicited" reply
         """
         with KSock(0,'rw') as sender:
             with KSock(0,'rw') as listener:
@@ -1992,12 +1992,7 @@ class TestKernelModule:
                 # Let's fake an unwanted Reply, to a Request from our sender
                 r = reply_to(Message('$.Fred',id=MessageId(0,9999),from_=sender.ksock_id()))
                 # And try to send it
-                msg_id = listener.send_msg(r)
-
-                # And also, at the moment, the "pretend" original sender will
-                # get it
-                thingy = sender.read_next_msg()
-                assert thingy.equivalent(r)
+                check_IOError(errno.ECONNREFUSED, listener.send_msg, r)
 
     def test_all_or_fail_1(self):
         """Writing with all_or_fail should fail if someone cannot receive
@@ -2034,33 +2029,74 @@ class TestKernelModule:
         with KSock(0,'rw') as sender:
             with KSock(0,'rw') as listener:
 
-                # Make the sender as unfriendly as possible
+                # With one slot in our message queue, we can't do much
+                sender.set_max_messages(1)
+
+                listener.bind('$.Fred',True)
+                req1 = Request('$.Fred')
+
+                # Sending a request reserves that single slot
+                sender.send_msg(req1)
+
+                sender.bind('$.Jim',True)
+                req2 = Request('$.Jim')
+
+                # So there's no room to send *it* a request
+                check_IOError(errno.EBUSY, listener.send_msg, req2)
+
+                # However, if we ask it to wait...
+                req2 = Request('$.Jim',flags=Message.ALL_OR_WAIT)
+                check_IOError(errno.EAGAIN, listener.send_msg, req2)
+
+                # And because it's now "in" send, we can't write to that KSock
+                check_IOError(errno.EALREADY, listener.write_data, 'fred')
+
+    def test_connection_refused(self):
+        """Test one can't fill up a sender's buffer with replies.
+        """
+        with KSock(0,'rw') as sender:
+            with KSock(0,'rw') as listener:
+                # Only allow the sender a single item in its message queue
                 sender.set_max_messages(1)
 
                 listener.bind('$.Fred',True)
                 req = Request('$.Fred')
-                sender.send_msg(req)
 
-                # That's one for an answer - we should have room for that.
-                # So...
-                sender.send_msg(req)
+                # Sending a request reserves a slot (for the eventual Reply)
+                # in said message queue - so that should now be full
+                msg_id = sender.send_msg(req)
 
+                # So trying to send another request should fail
+                check_IOError(errno.ENOLCK, sender.send_msg, req)
+
+                # Sending a non-request should work, though
+                a = Announcement('$.JimBob')
+                sender.send_msg(a)
+
+                # If the listener *reads* the request, it doesn't help the
+                # sender
                 m = listener.read_next_msg()
+                check_IOError(errno.ENOLCK, sender.send_msg, req)
+
+                # We are not allowed to send a random Reply
+                # - let's construct one with an unexpected message id
                 r = reply_to(m)
+                x = Reply(r,in_reply_to=msg_id+100)
+
+                check_IOError(errno.ECONNREFUSED, listener.send_msg, x)
+
+                # But the "proper" reply should work
                 listener.send_msg(r)
 
-                # That should be OK, but there shouldn't be room to reply to
-                # this next...
-                m = listener.read_next_msg()
-                r = reply_to(m)
-                check_IOError(errno.EBUSY, listener.send_msg, r)
+                # But only once...
+                check_IOError(errno.ECONNREFUSED, listener.send_msg, r)
 
-                # Or...
-                r = reply_to(m,flags=Message.ALL_OR_WAIT)
-                check_IOError(errno.EAGAIN, listener.send_msg, r)
+                # If the sender reads its reply:
+                l = sender.read_next_msg()
+                assert l.from_ == listener.ksock_id()
 
-                # And because we're "in" send, we can't write
-                check_IOError(errno.EALREADY, listener.write_data, 'fred')
+                # We can send a request again
+                msg_id = sender.send_msg(req)
 
     def test_select_on_reading_1(self):
         """Test the ability to do select.select for message reading.

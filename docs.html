@@ -820,6 +820,18 @@ As a restriction this makes the life of the implementor easier.
 It is not clear that it would be useful, either.</blockquote>
 <p>The sender does not need to bind to any message names in order to receive
 error and status messages from KBUS.</p>
+<p>When a sender sends a Request, an internal note is made that it expects a
+corresponding Reply (or possible a Status message from KBUS if the Replier
+goes away or unbinds from that message name, before replying). A place for
+that Reply is reserved in the sender's message queue. If the message queue
+fills up (either with messages waiting to be read, or with reserved slots for
+Replies), then the sender will not be able to send another Request until there
+is room on the message queue again.</p>
+<blockquote>
+Hopefully, this can be resolved by the sender reading a message off its
+queue. However, if there are no messages to be read, and the queue is all
+reserved for replies, the only solution is for the sender to wait for a
+replier to send it something that it can then read.</blockquote>
 <div class="note">
 <p class="first admonition-title">Note</p>
 <p>What order do we describe things in? Don't forget:</p>
@@ -947,56 +959,40 @@ for a message name.</p>
 <ol class="arabic simple">
 <li>Checks the message is plausible (it has a plausible message name,
 and the right sort of &quot;shape&quot;)</li>
+<li>If the message is a Request, checks that the sender has room on its message
+queue for the (eventual) Reply.</li>
 <li>Finds the KSock ids of all the listeners and repliers bound to that
 messages name</li>
 <li>Adds the message to the queue for each such listener/replier</li>
 </ol>
 <p>This can cause problems if one of the queues is already full (allowing
 infinite expansion of queues would also cause problems, of couse).</p>
+<p>If a <em>sender</em> attempts to send a Request, but does not have room on its
+message queue for the (corresponding) Reply, then the message will not be
+sent, and the send will fail. Note that the message id will not be set, and
+the blocking behaviours defined below do not occur.</p>
 <p>If a <em>replier</em> cannot receive a particular message, because its queue is full,
-then the message will not be sent, and the send will fail with an error.</p>
-<div class="note">
-<p class="first admonition-title">Note</p>
-<p class="last">Even though a send fails, if the message appeared valid,
-then its (possibly new) message id will be the new &quot;last message id&quot;
-for that KSock.</p>
-</div>
-<p>However, a sender can indicate if it wants a message to be:</p>
+then the message will not be sent, and the send will fail with an error. This
+does, however, set the message id (and thus the &quot;last message id&quot; on the
+sender).</p>
+<p>Moreover, a sender can indicate if it wants a message to be:</p>
 <ol class="arabic simple">
 <li>Added to all the listener queues, regardless, in which case it will block
-until that can be done (ALL_or_WAIT, sender blocks)</li>
+until that can be done (ALL_OR_WAIT, sender blocks)</li>
 <li>Added to all the listener queues, and fail if that can't be done
-(ALL_or_FAIL)</li>
+(ALL_OR_FAIL)</li>
 <li>Added to all the listener queues that have room (the default)</li>
 </ol>
 <p>See <a class="reference" href="#message-flags">Message flags</a> for more details.</p>
 </div>
 <div class="section">
 <h2><a class="toc-backref" href="#id27" id="urgent-messages" name="urgent-messages">Urgent messages</a></h2>
-<p>Messages may be flagged urgent. In this case they will be dealt with
-separately -- this is still to be described.</p>
-<blockquote>
-<p>Consider: Urgent messages are meant to &quot;jump the queue&quot; in some sense
-(possibly just by being put to the front of the listener's queue).
-However, what if:</p>
-<blockquote>
-<ol class="loweralpha simple">
-<li>the listener already asked for the next message length
-(and got a non-zero answer)</li>
-<li>that is not the message length of the newly inserted
-urgent message.</li>
-</ol>
-</blockquote>
-<p>This breaks the predictability of reading the next message. Any solution
-that requires the listener to cope with unexpected message lengths (when
-they think they've just dealt with that) is unacceptable - it makes the
-code to be written a pain.</p>
-<p>So perhaps the only solution is that, if the next message length has been
-read and is non-zero, and the corresponding message has not been read yet,
-then the urgent message must be &quot;inserted&quot; in such a way that it will be
-read after the message-whose-length-has-been-found has been read.</p>
-<p>Of course, if the message lengths match, then this need not be done...</p>
-</blockquote>
+<p>Messages may be flagged urgent. In this case they will be added to the front
+of the destination message queue, rather than the end - in other words, they
+will be the next message to be &quot;popped&quot; by NEXTMSG.</p>
+<p>Note that this means that if two urgent messages are sent to the same target,
+and <em>then</em> a NEXTMSG/read occurs, the second urgent message will be popped and
+read first.</p>
 </div>
 <div class="section">
 <h2><a class="toc-backref" href="#id28" id="select-write-send-and-next-message-blocking" name="select-write-send-and-next-message-blocking">Select, write/send and &quot;next message&quot;, blocking</a></h2>
@@ -1170,6 +1166,13 @@ improved (one can hope) in a future version of KBUS.</p>
 <h2><a class="toc-backref" href="#id31" id="error-numbers" name="error-numbers">Error numbers</a></h2>
 <p>The following error numbers get special use. In Python, they are all returned
 as values inside the IOError exception.</p>
+<blockquote>
+Since we're trying to fit into the normal Un*x convention that negative
+values are error numbers, and since Un*x defines many of these for us,
+it is natural to make use of the relevant definitions. However, this also
+means that we are often using them in an unnatural sense. I've tried to
+make the error numbers used bear at least a vague relationship to their
+(mis)use in KBUS.</blockquote>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
 <col class="field-body" />
@@ -1202,6 +1205,13 @@ targetted listener/replier queues was full.</li>
 </ol>
 </td>
 </tr>
+<tr class="field"><th class="field-name">ECONNREFUSED:</th><td class="field-body"><p class="first">On attempting to send a Reply, the intended recipient (the
+notional original sender of the Request) is not expecting
+a Reply with that message id in its 'in_reply_to'. Or, in
+other words, this appears to be an attempt to reply to the
+wrong message id or the wrong KSock.</p>
+</td>
+</tr>
 <tr class="field"><th class="field-name">EINVAL:</th><td class="field-body"><p class="first">Something went wrong (generic error).</p>
 </td>
 </tr>
@@ -1213,10 +1223,25 @@ too long.</p>
 name is too long.</p>
 </td>
 </tr>
-<tr class="field"><th class="field-name">ENOENT:</th><td class="field-body"><p class="first">On attempting to open an Interface/open a '/dev/kbus&lt;n&gt;'
-device: There is no such interface/device (normally because
-one has tried to open, for instance, '/dev/kbus9' when there
-are only 3 KBUS devices).</p>
+<tr class="field"><th class="field-name">ENOENT:</th><td class="field-body"><p class="first">On attempting to open a KSock: There is no such device
+(normally because one has tried to open, for instance,
+'/dev/kbus9' when there are only 3 KBUS devices).</p>
+</td>
+</tr>
+<tr class="field"><th class="field-name">ENOLCK:</th><td class="field-body"><p class="first">On attempting to send a Request, when there is not enough room
+in the sender's message queue to guarantee that it can
+receive a reply for every Request already sent, <em>plus</em> this
+one. If there are oustanding messages in the sender's message
+queue, then the solution is to read some of them. Otherwise,
+the sender will have to wait until one of the Repliers
+replies to a previous Request (or goes away and KBUS replies
+for it).</p>
+<p>When this error is received, the send has failed (just as if
+the message was invalid). The sender is not left in &quot;sending&quot;
+state, nor has the message been assigned a message id.</p>
+<p>Note that this is <em>not</em> EAGAIN, since we do not want to block
+the sender (in the SEND) if it is up to the sender to perform
+a read to sort things out.</p>
 </td>
 </tr>
 <tr class="field"><th class="field-name">ENOMSG:</th><td class="field-body"><p class="first">On attempting to send, when there is no message waiting to be
@@ -1243,7 +1268,7 @@ with that id is no longer bound to the given message's name.</p>
 <div class="footer">
 <hr class="footer" />
 <a class="reference" href="docs.txt">View document source</a>.
-Generated on: 2009-04-14 11:01 UTC.
+Generated on: 2009-04-15 14:56 UTC.
 Generated by <a class="reference" href="http://docutils.sourceforge.net/">Docutils</a> from <a class="reference" href="http://docutils.sourceforge.net/rst.html">reStructuredText</a> source.
 
 </div>
