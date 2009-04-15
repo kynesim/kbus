@@ -150,6 +150,7 @@ class RecordingKSock(KSock):
         self.bindings.remember_ksock(self)
 
     def close(self):
+        self.bindings.check_bindings()
         super(RecordingKSock,self).close()
         self.bindings.forget_ksock(self)
         self.bindings = None
