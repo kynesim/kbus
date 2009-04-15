@@ -243,12 +243,6 @@ static struct kbus_private_data *kbus_find_open_file(struct kbus_dev	*dev,
 						     uint32_t		 id);
 
 static void kbus_discard(struct kbus_private_data	*priv);
-
-static void kbus_push_synthetic_message(struct kbus_dev		  *dev,
-					uint32_t		   from,
-					uint32_t		   to,
-					struct kbus_msg_id	   in_reply_to,
-					const char		  *name);
 /* ========================================================================= */
 
 static int kbus_same_message_id(struct kbus_msg_id 	*msg_id,
@@ -845,6 +839,7 @@ static int kbus_empty_message_queue(struct kbus_private_data  *priv)
 
 	list_for_each_entry_safe(ptr, next, queue, list) {
 		struct kbus_message_struct	*msg = ptr->msg;
+		int  is_OUR_request = (KBUS_BIT_WANT_YOU_TO_REPLY & msg->flags);
 
 		/* XXX Let the user know */
 		printk(KERN_DEBUG "kbus: Deleting message from queue\n");
@@ -855,8 +850,7 @@ static int kbus_empty_message_queue(struct kbus_private_data  *priv)
 		 * going away (but take care not to send a message to
 		 * ourselves, by accident!)
 		 */
-		if ((msg->flags & KBUS_BIT_WANT_YOU_TO_REPLY) &&
-		     msg->to != priv->id ) {
+		if (is_OUR_request && msg->to != priv->id ) {
 			kbus_push_synthetic_message(priv->dev,priv->id,
 						    msg->from,msg->id,
 						    "$.KBUS.Replier.GoneAway");
@@ -1224,8 +1218,12 @@ static int kbus_forget_matching_messages(struct kbus_private_data  *priv,
 		printk(KERN_DEBUG "kbus: Deleting message from queue\n");
 		(void) kbus_report_message(KERN_DEBUG, msg);
 
-		/* If it wanted a reply. let the sender know it's going away */
-		if (msg->flags & KBUS_BIT_WANT_A_REPLY) {
+		/*
+		 * If it wanted a reply (from us). let the sender know it's
+		 * going away (but take care not to send a message to
+		 * ourselves, by accident!)
+		 */
+		if (is_OUR_request && msg->to != priv->id ) {
 			kbus_push_synthetic_message(priv->dev,priv->id,
 						    msg->from,msg->id,
 						    "$.KBUS.Replier.Unbound");
@@ -2636,7 +2634,7 @@ static unsigned int kbus_poll(struct file *filp, poll_table *wait)
 	struct kbus_dev			*dev = priv->dev;
 	unsigned mask = 0;
 
-	printk(KERN_DEBUG "kbus: POLL\n");
+	printk(KERN_DEBUG "kbus: %u/%u POLL\n",dev->index,priv->id);
 
 	down(&dev->sem);
 
