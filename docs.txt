@@ -376,6 +376,45 @@ Note that a KBUS status message is thus always (technically) a reply message
 (since it has 'in reply to' set). This makes sense in some ways, as it is a
 message that does not require the recipient to have bound to it.
 
+Requests and Replies
+--------------------
+KBUS guarantees that each Request will (eventually) be matched by a consequent
+Reply (or Status [1]_) message, and only one such.
+
+The "normal" case is when the replier reads the request, and sends its own
+reply back.
+
+If a Request message has been successfully SENT, there are the following other
+cases to consider:
+
+1. The replier unbinds from that message name before reading the request
+   message from its queue. In this case, KBUS removes the message from the
+   repliers queue, and issues a "$.KBUS.Replier.Unbound" message.
+
+2. The replier closes itself (close the KSock), but has not yet read the
+   message. In this case, KBUS issues a "$.KBUS.Replier.GoneAway" message.
+
+3. The replier closes itself (closes the KSock), has read the message, but has
+   not yet (and now cannot) replied to it. In this case, KBUS issues a
+   "$.KBUS.Replier.Ignored" message.
+
+4. SEND did not complete, and the replier closes itself before the message can
+   be added to its message queue (by the POLL mechanism). In this case, KBUS
+   issues a "$.KBUS.Replier.Disappeared" message.
+
+5. SEND did not complete, and an error occurs when the POLL mechanims tries to
+   send the message. In this case, KBUS issues a "$.KBUS.ErrorSending"
+   message.
+
+In all these cases, the 'in_reply_to' field is set to the original request's
+message id. In the first three cases, the 'from' field will be set to the
+KSock id of the (originally intended) replier. In the last two cases, that
+information is not available, and a 'from' of 0 (indicating KBUS itself) is
+used.
+
+.. [1] Remember that a Status message is essentially a specialisation of a
+       Reply message.
+
 KBUS end points - KSocks
 ========================
 The KBUS devices
@@ -497,7 +536,10 @@ whether the previous message has been read (or partially read) or not.
 
 If a listener no longer wants to receive a particular message name, then they
 can unbind from it, using the UNBIND ioctl. The message name and flags used in
-an UNBIND must match those in the corresponding BIND.
+an UNBIND must match those in the corresponding BIND. Any messages in the
+listener's message queue which match that unbinding will be removed from the
+queue (i.e., the listener will not actually receive them). This does *not*
+affect the message currently being read.
 
     Note that this has implication for binding and unbinding wildcards,
     which must also match.
@@ -820,9 +862,8 @@ as values inside the IOError exception.
                 message name is a wildcard.
 :EBUSY:         On attempting to send, then:
 
-                1. For a reply, the original sender's message queue is full.
-                2. For a request, the replier's message queue is full.
-                3. For any message, with ALL_OR_FAIL set, one of the
+                1. For a request, the replier's message queue is full.
+                2. For any message, with ALL_OR_FAIL set, one of the
                    targetted listener/replier queues was full.
 
 :ECONNREFUSED:  On attempting to send a Reply, the intended recipient (the

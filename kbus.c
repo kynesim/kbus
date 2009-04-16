@@ -111,6 +111,15 @@ struct kbus_msg_id_mem {
 	struct kbus_msg_id	*ids;
 };
 
+/* An item in the list of requests that a KSock has not yet replied to */
+struct kbus_unreplied_item {
+	struct list_head 	 list;
+	struct kbus_msg_id	 id;		/* the request's id */
+	uint32_t		 from;		/* the sender's id */
+	uint32_t		 name_len;	/* and its name... */
+	char			*name;
+};
+
 /*
  * This is the data for an individual KSock
  *
@@ -170,6 +179,66 @@ struct kbus_private_data {
 	 * replied)
 	 */
 	struct kbus_msg_id_mem	outstanding_requests;
+
+	/*
+	 * If we are a replier for a message, then KBUS wants to ensure
+	 * that a reply is *definitely* made. If we release ourselves, then
+	 * we're clearly not going to reply to any requests that we have
+	 * read but not replied to, and KBUS would like to generate a status
+	 * message for each such. So we need a list of the information needed
+	 * to form such Status/Reply messages.
+	 *
+	 *     (Thus we don't need the whole of the original message, since
+	 *     we're only *really* needing its name, its id and who its
+	 *     from -- given which its easiest just to keep the parts we
+	 *     *do* need, and ignore the data.)
+	 *
+	 *     XXX Of course, when messages get reference counted internally,
+	 *     XXX and message names are also available as message codes,
+	 *     XXX we should be able to store *just* the message id, code
+	 *     XXX and from values, which is considerably shorter.
+	 *
+	 * XXX Do I need to limit the size of this list? *Can* it grow
+	 * XXX in an unbounded manner? The limitation is set by the ability
+	 * XXX of the sender(s) to send requests, which in turn is limited
+	 * XXX by the number of slots they can reserve for the replies to
+	 * XXX those requests, in their own message queues. 
+	 * XXX
+	 * XXX If I do impose a limit, then I would also need to stop a
+	 * XXX sender sending a request because the replier has too many
+	 * XXX replies outstanding (which sounds like it might have gone
+	 * XXX to sleep). On the other hand, in that case we would also
+	 * XXX assume it's not reponding to messages in general, and so
+	 * XXX it's message queue would fill up, and I *think* that's a
+	 * XXX sufficient condition.
+	 */
+	struct list_head	replies_unsent;
+	uint32_t		num_replies_unsent;
+
+	/*
+	 * XXX ---------------------------------------------------------- XXX
+	 * Discussion: We need to police replying, such that a replier
+	 * may only reply to requests that it has received (where "received"
+	 * means "had placed into its message queue", because KBUS must reply
+	 * for us if the particular KSock is not going to).
+	 *
+	 * It is possible to do this using either the 'outstanding_requests'
+	 * or the 'replies_unsent' list.
+	 *
+	 * Using the 'outstanding_requests' list means that when a replier
+	 * wants to send a reply, it needs to look up who the original-sender
+	 * is (from its KSock id, in the "from" field of the message), and
+	 * check against that. This is a bit inefficient.
+	 *
+	 * Using the 'replies_unsent' list means that when a replier wants
+	 * to send a reply, it just needs to find the right message stub
+	 * in said 'replies_unsent' list, and check that the reply *does*
+	 * match the original request. This may be more efficient, depending.
+	 *
+	 * The 'outstanding_requests' list is currently used, simply because
+	 * it was implemented first.
+	 * XXX ---------------------------------------------------------- XXX
+	 */
 };
 
 /* What is a sensible number for the default maximum number of messages? */
@@ -730,6 +799,11 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 /*
  * Generate a synthetic message, and add it to the recipient's message queue.
  *
+ * This is expected to be used when a Reply is not going to be generated
+ * by the intended Replier. Since we don't want KBUS itself to block on
+ * (trying to) SEND a message to someone not expecting it, I don't think
+ * there are any other occasions when it is useful.
+ *
  * 'from' is the id of the recipient who has gone away, not received the
  * message, or whatever.
  *
@@ -866,6 +940,123 @@ static int kbus_empty_message_queue(struct kbus_private_data  *priv)
 	}
 	printk(KERN_DEBUG "kbus: Leaving %d messages in queue\n",
 	       priv->message_count);
+	return 0;
+}
+
+/*
+ * Add a message to the list of messages read by the replier, but still needing
+ * a reply
+ */
+static int kbus_reply_needed(struct kbus_private_data   *priv,
+			     struct kbus_message_struct	*msg)
+{
+	struct list_head		*queue = &priv->replies_unsent;
+	struct kbus_unreplied_item	*item;
+	char	*name_p;
+
+	printk(KERN_DEBUG "kbus: ** Adding message %u:%u to unsent replies list\n",
+	       msg->id.network_id,msg->id.serial_num);
+
+	item = kmalloc(sizeof(*item), GFP_KERNEL);
+	if (!item) {
+		printk(KERN_ERR "kbus: Cannot kmalloc reply-needed item\n");
+	       	return -ENOMEM;
+	}
+
+	item->name = kmalloc(msg->name_len, GFP_KERNEL);
+	if (!item->name) {
+		printk(KERN_ERR "kbus: Cannot kmalloc reply-needed item's name\n");
+		kfree(item);
+	       	return -ENOMEM;
+	}
+
+	item->id = msg->id;
+	item->from = msg->from;
+	item->name_len = msg->name_len;
+
+	name_p = (char *)&msg->rest[0];
+
+	strncpy(item->name,name_p,msg->name_len);
+	item->name[msg->name_len] = 0;
+
+	list_add(&item->list, queue);
+
+	priv->num_replies_unsent ++;
+
+	printk(KERN_DEBUG "kbus: Leaving %d messages unreplied-to\n",
+	       priv->num_replies_unsent);
+	return 0;
+}
+
+/*
+ * Remove a message from the list of (read) messages needing a reply
+ *
+ * Returns 0 on success, -1 if it could not find the message
+ */
+static int kbus_reply_now_sent(struct kbus_private_data  *priv,
+			       struct kbus_msg_id	 *msg_id)
+{
+	struct list_head		*queue = &priv->replies_unsent;
+	struct kbus_unreplied_item	*ptr;
+	struct kbus_unreplied_item	*next;
+
+	printk(KERN_DEBUG "kbus: ** Removing message %u:%u from unsent replies list\n",
+	       msg_id->network_id,msg_id->serial_num);
+
+	list_for_each_entry_safe(ptr, next, queue, list) {
+		if (kbus_same_message_id(&ptr->id,
+					 msg_id->network_id, msg_id->serial_num)) {
+
+			printk(KERN_DEBUG "kbus: Forgetting %u:%u %*s\n",
+			       msg_id->network_id, msg_id->serial_num,
+			       ptr->name_len, ptr->name);
+
+			/* Remove it from the list */
+			list_del(&ptr->list);
+			/* And forget all about it... */
+			kfree(ptr->name);
+			kfree(ptr);
+
+			priv->num_replies_unsent --;
+			printk(KERN_DEBUG "kbus: Leaving %d messages unreplied-to\n",
+			       priv->num_replies_unsent);
+			return 0;
+		}
+	}
+
+	printk(KERN_ERR "kbus: Could not find message %u:%u in unsent replies list\n",
+	       msg_id->network_id,msg_id->serial_num);
+	return -1;
+}
+
+/*
+ * Empty our "replies unsent" queue. Send synthetic messages for any
+ * request messages that are now not going to be replied to.
+ */
+static int kbus_empty_replies_unsent(struct kbus_private_data  *priv)
+{
+	struct list_head		*queue = &priv->replies_unsent;
+	struct kbus_unreplied_item	*ptr;
+	struct kbus_unreplied_item	*next;
+
+	printk(KERN_DEBUG "kbus: ** Emptying unreplied messages list\n");
+
+	list_for_each_entry_safe(ptr, next, queue, list) {
+
+		kbus_push_synthetic_message(priv->dev,priv->id,
+					    ptr->from,ptr->id,
+					    "$.KBUS.Replier.Ignored");
+
+		/* Remove it from the list */
+		list_del(&ptr->list);
+		/* And forget all about it... */
+		kfree(ptr->name);
+		kfree(ptr);
+
+		priv->num_replies_unsent --;
+	}
+	printk(KERN_DEBUG "kbus: Leaving %d messages unreplied-to\n",
+	       priv->num_replies_unsent);
 	return 0;
 }
 
@@ -1307,6 +1498,14 @@ static int kbus_forget_binding(struct kbus_dev		*dev,
 		       name_len,name);
 		return -EINVAL;
 	}
+
+	/*
+	 * We carefully don't try to do anything about requests that have
+	 * already been read - the fact that the user has unbound from
+	 * receiving new messages with this name doesn't imply anything about
+	 * whether they're going to reply to requests (with that name) which
+	 * they've already read.
+	 */
 }
 
 /*
@@ -1489,6 +1688,7 @@ static int kbus_open(struct inode *inode, struct file *filp)
 		return -EFAULT;
 	}
 	INIT_LIST_HEAD(&priv->message_queue);
+	INIT_LIST_HEAD(&priv->replies_unsent);
 
 	init_waitqueue_head(&priv->read_wait);
 
@@ -1510,6 +1710,7 @@ static int kbus_release(struct inode *inode, struct file *filp)
 {
 	int	retval1 = 0;
 	int	retval2 = 0;
+	int	retval3 = 0;
 	struct kbus_private_data *priv = filp->private_data;
 	struct kbus_dev *dev = priv->dev;
 
@@ -1526,14 +1727,17 @@ static int kbus_release(struct inode *inode, struct file *filp)
 	retval1 = kbus_empty_message_queue(priv);
 	kbus_forget_my_bindings(dev,priv->id);
 	retval2 = kbus_forget_open_file(dev,priv->id);
+	retval3 = kbus_empty_replies_unsent(priv);
 	kfree(priv);
 
 	up(&dev->sem);
 
 	if (retval1)
 		return retval1;
-	else
+	else if (retval2)
 		return retval2;
+	else
+		return retval3;
 }
 
 /*
@@ -1802,10 +2006,18 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 	/* If it's a reply message and we've got someone to reply to, send it */
 	if (reply_to) {
 		retval = kbus_push_message(reply_to,msg_len,msg,true);
-		if (retval == 0)
+		if (retval == 0) {
 			num_sent ++;
-		else
+			/*
+			 * In which case, we *have* sent this reply,
+			 * and can forget about needing to do so
+			 * (there's not much we can do with an error
+			 * in this, so just ignore it)
+			 */
+			(void) kbus_reply_now_sent(priv,&msg->id);
+		} else {
 			goto done_sending;
+		}
 	}
 
 	/* If it's a request, and we've got a replier for it, send it */
@@ -2213,6 +2425,24 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 
 	printk(KERN_DEBUG "kbus/NEXTMSG: Next message length %u\n",
 	       priv->read_msg_len);
+
+
+	/*
+	 * If the message is a request (to us), then this is the approriate
+	 * point to add it to our list of "requests we've read but not yet
+	 * replied to" -- although that *sounds* as if we should be doing it in
+	 * kbus_read, we might never get round to reading the content of the
+	 * message (we might call NEXTMSG again, or DISCARD), and also
+	 * kbus_read can get called multiple times for a single message body.*
+	 * If we do our remembering here, then we guarantee to get one memory
+	 * for each request, as it leaves the message queue and is (in whatever
+	 * way) dealt with.
+	 */
+	if (msg->flags & KBUS_BIT_WANT_YOU_TO_REPLY) {
+		retval = kbus_reply_needed(priv,msg);
+		/* If it couldn't malloc, there's not much we can do, it's fairly fatal */
+		if (retval) return retval;
+	}
 
 	retval = __put_user(priv->read_msg_len, (uint32_t __user *)arg);
 	if (retval)

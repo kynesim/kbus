@@ -1901,10 +1901,8 @@ class TestKernelModule:
 
                 assert listener.next_msg() == 0
 
-    def test_write_too_many_messages_to_replier(self):
-        """Writing too many messages to a replier.
-
-        Some should get dropped.
+    def test_send_too_many_requests_to_replier(self):
+        """Sending too many messages to a replier.
         """
         with KSock(0,'rw') as sender:
             with KSock(0,'rw') as replier:
@@ -2031,7 +2029,7 @@ class TestKernelModule:
             with KSock(0,'rw') as listener:
 
                 # With one slot in our message queue, we can't do much
-                sender.set_max_messages(1)
+                assert sender.set_max_messages(1) == 1
 
                 listener.bind('$.Fred',True)
                 req1 = Request('$.Fred')
@@ -2058,7 +2056,7 @@ class TestKernelModule:
         with KSock(0,'rw') as sender:
             with KSock(0,'rw') as listener:
                 # Only allow the sender a single item in its message queue
-                sender.set_max_messages(1)
+                assert sender.set_max_messages(1) == 1
 
                 listener.bind('$.Fred',True)
                 req = Request('$.Fred')
@@ -2214,5 +2212,27 @@ class TestKernelModule:
                     assert listener2 in w
                     assert x == []
 
+    def test_get_reply_for_ignored_request(self):
+        """Test that a sender gets a reply when replier ignores the request.
+
+        Specifically, test that if the replier *reads* the request, but then
+        "releases" the KSock without replying, KBUS will synthesise a Status
+        message, and the sender *will* get some sort of reply.
+        """
+        with KSock(0,'rw') as sender:
+            with KSock(0,'rw') as replier:
+                replier.bind('$.Fred',True)
+
+                req = Request('$.Fred')
+                req_id = sender.send_msg(req)
+
+                rep = replier.read_next_msg()
+                assert rep.id == req_id
+
+            # Since the replier is clearly not going to give us a reply,
+            # we expect KBUS to do so (and it shall be a "reply" to the
+            # correct request)
+            status = sender.read_next_msg()
+            assert status.in_reply_to == req_id
 
 # vim: set tabstop=8 shiftwidth=4 expandtab:
