@@ -2997,6 +2997,7 @@ static int kbus_read_proc_bindings(char *buf, char **start, off_t offset,
 	int ii;
 	int len = 0;
 	int limit = count - 4;		/* Leaving room for "...\n" */
+	int give_up = false;
 
 	/* We report on all of the KBUS devices */
 	for (ii=0; ii<kbus_num_devices; ii++) {
@@ -3012,8 +3013,8 @@ static int kbus_read_proc_bindings(char *buf, char **start, off_t offset,
 			if (len + 4 + 10 + 3 + strlen(ptr->name) + 1 < limit)
 			{
 				len += sprintf(buf+len,
-					       "%2d: %1u %c %.*s\n",
-					       ii,
+					       "%2u: %1u %c %.*s\n",
+					       dev->index,
 					       ptr->bound_to_id,
 					       (ptr->is_replier?'R':'L'),
 					       ptr->name_len,
@@ -3021,11 +3022,87 @@ static int kbus_read_proc_bindings(char *buf, char **start, off_t offset,
 			} else {
 				/* Icky trick to indicate we didn't finish */
 				len += sprintf(buf+len,"...\n");
+				give_up = true;
 			}
 		}
 
 		up(&dev->sem);
 		*eof = 1;
+		if (give_up) break;
+	}
+	return len;
+}
+
+/*
+ * A report of whatever statistics seem like they might be useful.
+ * Again, limited to a single page of output.
+ */
+static int kbus_read_proc_stats(char *buf, char **start, off_t offset,
+				int count, int *eof, void *data)
+{
+	int ii;
+	int len = 0;
+	int limit = count - 4;		/* Leaving room for "...\n" */
+	int give_up = false;
+	char	dev_fmt[] = "dev %2u: next file %u next msg %u\n";
+
+	char	ksock_fmt[] = "        ksock %u last msg %u:%u queue %u of %u\n"
+		"              read %u of %u, write %u (max %u), %ssending\n"
+		"              outstanding requests %u (max %u), replies %u\n";
+
+	int	dev_fmt_max;
+	int	ksock_fmt_max;
+
+	dev_fmt_max = strlen(dev_fmt) + 3*(10-2);
+	ksock_fmt_max = strlen(ksock_fmt) + 12*(10-2) + 4; /* 4 = "not " */
+
+	/* We report on all of the KBUS devices */
+	for (ii=0; ii<kbus_num_devices; ii++) {
+		struct kbus_dev	*dev = &kbus_devices[ii];
+
+		struct kbus_private_data *ptr;
+		struct kbus_private_data *next;
+
+		if (down_interruptible(&dev->sem))
+			return -ERESTARTSYS;
+
+		if (len + dev_fmt_max < limit) {
+			len += sprintf(buf+len, dev_fmt,
+				       dev->index,
+				       dev->next_file_id,dev->next_msg_serial_num);
+		} else {
+			/* Icky trick to indicate we didn't finish */
+			len += sprintf(buf+len,"...\n");
+			give_up = true;
+			goto done;
+		}
+
+		list_for_each_entry_safe(ptr, next, &dev->open_ksock_list, list) {
+
+			if (len + ksock_fmt_max < limit) {
+				len += sprintf(buf+len, ksock_fmt,
+					       ptr->id,
+					       ptr->last_msg_id.network_id,
+					       ptr->last_msg_id.serial_num,
+					       ptr->message_count, ptr->max_messages,
+					       ptr->read_msg_pos, ptr->read_msg_len,
+					       ptr->write_msg_len, ptr->write_msg_size,
+					       ptr->sending?"":"not ",
+					       ptr->outstanding_requests.count,
+					       ptr->outstanding_requests.size,
+					       ptr->num_replies_unsent);
+			} else {
+				/* Icky trick to indicate we didn't finish */
+				len += sprintf(buf+len,"...\n");
+				give_up = true;
+				goto done;
+			}
+		}
+
+done:
+		up(&dev->sem);
+		*eof = 1;
+		if (give_up) break;
 	}
 	return len;
 }
@@ -3128,15 +3205,17 @@ static int __init kbus_init(void)
 	}
 
 	/* ================================================================= */
-	/*
-	 * Our subsidiary purpose is to allow the user to find things out
-	 * about us via /proc/kbus
-	 */
+	/* Within the /proc/kbus directory, we have: */
 	kbus_proc_dir = proc_mkdir("kbus", NULL);
 	if (kbus_proc_dir) {
+		/* /proc/kbus/bindings -- message name bindings */
 		kbus_proc_file_bindings =
 		       	create_proc_read_entry("bindings", 0, kbus_proc_dir,
 					       kbus_read_proc_bindings, NULL);
+		/* /proc/kbus/stats -- miscellaneous statistics */
+		kbus_proc_file_bindings =
+		       	create_proc_read_entry("stats", 0, kbus_proc_dir,
+					       kbus_read_proc_stats, NULL);
 	}
 
 	return 0;
