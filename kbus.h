@@ -45,6 +45,10 @@
 #ifndef _kbus
 #define _kbus
 
+#if ! __KERNEL__ && defined(__cplusplus)
+extern "C" {
+#endif
+
 #if __KERNEL__
 #include <linux/kernel.h>
 #include <linux/ioctl.h>
@@ -393,6 +397,10 @@ struct kbus_message_struct {
 
 /* XXX If adding another IOCTL, remember to increment the next number! XXX */
 #define KBUS_IOC_MAXNR	12
+
+#if ! __KERNEL__ && defined(__cplusplus)
+}
+#endif
 
 #endif // _kbus
 
