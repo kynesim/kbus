@@ -70,14 +70,14 @@ struct kbus_msg_id {
 };
 
 /* When the user asks to bind a message name to an interface, they use: */
-struct kbus_m_bind_struct {
+struct kbus_bind_struct {
 	uint32_t	 is_replier;	/* are we a replier? */
 	uint32_t	 name_len;
 	char		*name;
 };
 
 /* When the user requests the id of the replier to a message, they use: */
-struct kbus_m_bind_query_struct {
+struct kbus_bind_query_struct {
 	uint32_t	 return_id;
 	uint32_t	 name_len;
 	char		*name;

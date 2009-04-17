@@ -2248,7 +2248,7 @@ static int kbus_bind(struct kbus_private_data	*priv,
 		     unsigned long		 arg)
 {
 	int		retval = 0;
-	struct kbus_m_bind_struct *bind;
+	struct kbus_bind_struct *bind;
 	char		*name = NULL;
 
 	bind = kmalloc(sizeof(*bind), GFP_KERNEL);
@@ -2309,7 +2309,7 @@ static int kbus_unbind(struct kbus_private_data	*priv,
 		       unsigned long		 arg)
 {
 	int		retval = 0;
-	struct kbus_m_bind_struct *bind;
+	struct kbus_bind_struct *bind;
 	char		*name = NULL;
 
 	bind = kmalloc(sizeof(*bind), GFP_KERNEL);
@@ -2365,7 +2365,7 @@ static int kbus_replier(struct kbus_private_data	*priv,
 			unsigned long			 arg)
 {
 	struct kbus_private_data	*replier;
-	struct kbus_m_bind_query_struct *query;
+	struct kbus_bind_query_struct	*query;
 	char 				*name = NULL;
 	int				 retval = 0;
 	uint32_t			 id  = priv->id;
