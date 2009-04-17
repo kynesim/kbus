@@ -675,7 +675,6 @@ static void kbus_report_message(char				*kern_prefix,
 	char		*name_p;
 	uint32_t	*data_p;
 	(void) kbus_dissect_message(msg,&name_p,&data_p);
-#if 0
 	if (msg->data_len)
 		printk("%skbus:   === %u:%u '%.*s'"
 		       " to %u from %u flags %08x data/%u %08x\n",
@@ -685,13 +684,11 @@ static void kbus_report_message(char				*kern_prefix,
 		       msg->to,msg->from,msg->flags,
 		       msg->data_len,data_p[0]);
 	else
-#endif
 		printk("%skbus:   === %u:%u '%.*s'"
 		       " to %u from %u flags %08x\n",
 		       kern_prefix,
 		       msg->id.network_id,msg->id.serial_num,
-		       msg->name_len,
-		       (msg->name_len==0?"":name_p),
+		       msg->name_len,name_p,
 		       msg->to,msg->from,msg->flags);
 }
 
@@ -798,7 +795,8 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 	/* And indicate that there is something available to read */
 	wake_up_interruptible(&priv->read_wait);
 
-	printk(KERN_DEBUG "kbus:   Leaving %d message%s in queue\n",
+	printk(KERN_DEBUG "kbus:   %u/%u Leaving %d message%s in queue\n",
+	       priv->dev->index, priv->id,
 	       priv->message_count,
 	       priv->message_count==1?"":"s");
 
@@ -901,7 +899,8 @@ static struct kbus_message_struct *kbus_pop_message(struct kbus_private_data *pr
 
 	kbus_report_message(KERN_DEBUG, msg);
 
-	printk(KERN_DEBUG "kbus:   Leaving %d message%s in queue\n",
+	printk(KERN_DEBUG "kbus:   %u/%u Leaving %d message%s in queue\n",
+	       priv->dev->index, priv->id,
 	       priv->message_count,
 	       priv->message_count==1?"":"s");
 
@@ -946,7 +945,8 @@ static int kbus_empty_message_queue(struct kbus_private_data  *priv)
 
 		priv->message_count --;
 	}
-	printk(KERN_DEBUG "kbus:   Leaving %d message%s in queue\n",
+	printk(KERN_DEBUG "kbus:   %u/%u Leaving %d message%s in queue\n",
+	       priv->dev->index, priv->id,
 	       priv->message_count,
 	       priv->message_count==1?"":"s");
 	return 0;
@@ -973,7 +973,11 @@ static int kbus_reply_needed(struct kbus_private_data   *priv,
 	       	return -ENOMEM;
 	}
 
-	item->name = kmalloc(msg->name_len, GFP_KERNEL);
+	/*
+	 * Perhaps I don't really need the zero byte at the end of the string,
+	 * but having it follows the line of least surprise
+	 */
+	item->name = kmalloc(msg->name_len+1, GFP_KERNEL);
 	if (!item->name) {
 		printk(KERN_ERR "kbus: Cannot kmalloc reply-needed item's name\n");
 		kfree(item);
@@ -993,7 +997,8 @@ static int kbus_reply_needed(struct kbus_private_data   *priv,
 
 	priv->num_replies_unsent ++;
 
-	printk(KERN_DEBUG "kbus:   Leaving %d message%s unreplied-to\n",
+	printk(KERN_DEBUG "kbus:   %u/%u Leaving %d message%s unreplied-to\n",
+	       priv->dev->index, priv->id,
 	       priv->num_replies_unsent,
 	       priv->num_replies_unsent==1?"":"s");
 	return 0;
@@ -1028,7 +1033,8 @@ static int kbus_reply_now_sent(struct kbus_private_data  *priv,
 
 			priv->num_replies_unsent --;
 
-			printk(KERN_DEBUG "kbus:   Leaving %d message%s unreplied-to\n",
+			printk(KERN_DEBUG "kbus:   %u/%u Leaving %d message%s unreplied-to\n",
+			       priv->dev->index, priv->id,
 			       priv->num_replies_unsent,
 			       priv->num_replies_unsent==1?"":"s");
 			return 0;
@@ -1068,7 +1074,8 @@ static int kbus_empty_replies_unsent(struct kbus_private_data  *priv)
 
 		priv->num_replies_unsent --;
 	}
-	printk(KERN_DEBUG "kbus:   Leaving %d message%s unreplied-to\n",
+	printk(KERN_DEBUG "kbus:   %u/%u Leaving %d message%s unreplied-to\n",
+	       priv->dev->index, priv->id,
 	       priv->num_replies_unsent,
 	       priv->num_replies_unsent==1?"":"s");
 	return 0;
@@ -1448,7 +1455,8 @@ static int kbus_forget_matching_messages(struct kbus_private_data  *priv,
 		if (priv->message_count == (priv->max_messages - 1))
 			wake_up_interruptible(&priv->dev->write_wait);
 	}
-	printk(KERN_DEBUG "kbus:   Leaving %d message%s in queue\n",
+	printk(KERN_DEBUG "kbus:   %u/%u Leaving %d message%s in queue\n",
+	       priv->dev->index, priv->id,
 	       priv->message_count, priv->message_count==1?"":"s");
 	return 0;
 }
@@ -1708,9 +1716,7 @@ static int kbus_open(struct inode *inode, struct file *filp)
 		return -EFAULT;
 	}
 	INIT_LIST_HEAD(&priv->message_queue);
-#if 0
 	INIT_LIST_HEAD(&priv->replies_unsent);
-#endif
 
 	init_waitqueue_head(&priv->read_wait);
 
@@ -1749,9 +1755,7 @@ static int kbus_release(struct inode *inode, struct file *filp)
 	retval1 = kbus_empty_message_queue(priv);
 	kbus_forget_my_bindings(dev,priv->id);
 	retval2 = kbus_forget_open_ksock(dev,priv->id);
-#if 0
 	retval3 = kbus_empty_replies_unsent(priv);
-#endif
 	kfree(priv);
 
 	up(&dev->sem);
@@ -1761,11 +1765,7 @@ static int kbus_release(struct inode *inode, struct file *filp)
 	else if (retval2)
 		return retval2;
 	else
-#if 0
 		return retval3;
-#else
-	return 0;
-#endif
 }
 
 /*
@@ -2043,9 +2043,7 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 			 * (there's not much we can do with an error
 			 * in this, so just ignore it)
 			 */
-#if 0
 			(void) kbus_reply_now_sent(priv,&msg->id);
-#endif
 		} else {
 			goto done_sending;
 		}
@@ -2460,13 +2458,11 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 	 * for each request, as it leaves the message queue and is (in whatever
 	 * way) dealt with.
 	 */
-#if 0
 	if (msg->flags & KBUS_BIT_WANT_YOU_TO_REPLY) {
 		retval = kbus_reply_needed(priv,msg);
 		/* If it couldn't malloc, there's not much we can do, it's fairly fatal */
 		if (retval) return retval;
 	}
-#endif
 
 	retval = __put_user(priv->read_msg_len, (uint32_t __user *)arg);
 	if (retval)
