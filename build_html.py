@@ -38,7 +38,7 @@ more often than the buildhtml.py script.
 
 import os
 
-EXCLUDE = [ 'mpl_license.txt', 'kbus.txt' ]
+EXCLUDE = [ 'mpl_license.txt', 'kbus.txt', 'nosetest.dmesg.txt' ]
 
 def main():
     filenames = os.listdir('.')

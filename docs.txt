@@ -51,26 +51,26 @@ be the last word of a name.
 
 Thus (in some notation or other)::
 
-    name := '$.' + more
-    more := ( word [ '.' more ]* ) | '*' | '%'
+    name := '$.'  [ word '.' ]+  ( word  | '*' | '%' )
     word := alphanumerics
 
 Case is significant. There is probably a limit on the maximum size of a
 subname, and also on the maximum length of a message name.
 
-Names form a name hierarchym or tree - so "$.Sensors" has children
+Names form a name hierarchy or tree - so "$.Sensors" might have children
 "$.Sensors.Kitchen" and "$.Sensors.Bedroom".
 
-If the last word of a name is "*", then this name also includes all the
-child names at that level and below -- i.e., all the names that start with the
-name up to the "*". So "$.Sensors.*" includes "$.Sensors.Kitchen",
-"$.Sensors.Bedroom", "$.Sensors.Kitchen.FireAlarm",
+If the last word of a name is "*", then this is a wildcard name that also
+includes all the child names at that level and below -- i.e., all the names
+that start with the name up to the "*". So "$.Sensors.*" includes
+"$.Sensors.Kitchen", "$.Sensors.Bedroom", "$.Sensors.Kitchen.FireAlarm",
 "$.Sensors.Kitchen.Toaster", "$.Sensors.Bedroom.FireAlarm", and so on.
 
-If the last word of a name is "%", then this name also includes all the child
-names at that level -- i.e., all the names obtained by replacing the "%" by
-another word. So "$.Sensors.%" includes "$.Sensors.Kitchen" and
-"$.Sensors.Bedroom", but not "$.Sensors.Kitchen.Toaster".
+If the last word of a name is "%", then this is a wildcard name that also
+includes all the child names at that level -- i.e., all the names obtained by
+replacing the "%" by another word. So "$.Sensors.%" includes
+"$.Sensors.Kitchen" and "$.Sensors.Bedroom", but not
+"$.Sensors.Kitchen.Toaster".
 
 Message ids
 -----------
@@ -95,9 +95,9 @@ touch its message id.
 Network ids are represented textually as ``{n,s}``, where ``n`` is the
 network id and ``s`` is the serial number.
 
-    Message id {0,0} is reserved for future use. Both network id and serial
-    number are unsigned 323-bit integers. Note that this means that local
-    serial numbers will eventually wrap.
+    Message id {0,0} is reserved for use as an invalid message id. Both
+    network id and serial number are unsigned 323-bit integers. Note that this
+    means that local serial numbers will eventually wrap.
 
 Message content
 ---------------
@@ -113,6 +113,12 @@ Messages are made of the following parts:
 	 
   These provide some help in checking that a message is well formed, and in
   particular the end guard helps to check for broken length fields.
+
+Unset
+~~~~~
+Unset values are 0, or have zero length (as appropriate).
+
+It is not possible for a message name to be unset.
 
 The message header
 ~~~~~~~~~~~~~~~~~~
@@ -158,6 +164,7 @@ The message header
 
   * the message is URGENT
   * a reply is wanted
+  * a reply is wanted from the specific reader
 
 The message body
 ~~~~~~~~~~~~~~~~
@@ -169,9 +176,10 @@ The message body
   must still be given - although it is possible that this may change in the
   future.
 
-      Note: in future implementations, a message name identifier (must think
-      of a better mnemonic) may be used instead of a message name, and this
-      field may be hijacked for that purpose, depending on flags, etc.
+      Note: in future implementations, a message name code (an integer
+      representing the particular message name) may be used instead of a
+      message name, and this field may be hijacked for that purpose, depending
+      on flags, etc.
 
 :data length: is the length of the message data, in 32-bit words. It may be zero
   if there is no data associated with this message.
@@ -202,10 +210,9 @@ The WANT_YOU_TO_REPLY bit is set by KBUS on a particular message
 to indicate that the particular recipient is responsible for replying
 to (this instance of the) message. Otherwise, KBUS clears it.
 
-The SYNTHETIC bit is set by KBUS when it generates a synthetic message (an
-exception, status or error message if you will - the terminology is stil
-settling), for instance when a replier has gone away and therefore a reply
-will never be generated for a request that has already been queued.
+The SYNTHETIC bit is set by KBUS when it generates a Status message, for
+instance when a replier has gone away and will therefore not be sending a
+reply to a request that has already been queued.
 
     Note that KBUS does not check that a sender has not set this
     flag on a message, but doing so may lead to confusion.
@@ -285,8 +292,8 @@ A request message is a message that wants a reply.
 
 Since only one KSock may bind as a replier for a given message name, a
 request message wants a reply from a single KSock. By default, this is
-whichever KSock has bound to the message name *at this moment*, but see
-`Stateful transactions`_.
+whichever KSock has bound to the message name at the moment of sending, but
+see `Stateful transactions`_.
 
 When creating a new request message, it has:
 
@@ -308,11 +315,12 @@ is this recipient's responsibility to reply.
 The Python interface provides a ``Request`` class to help in creating a
 request message.
 
-When a request message is sent, it is an error if there is no replier bound.
+When a request message is sent, it is an error if there is no replier bound to
+that message name.
 
 The message will, as normal, be delivered to all listeners, and will have the
-"needs a reply" flag set wherever it is received. However, the copy of the
-message received by the replier will be marked with the WANT_YOU_TO_REPLY
+"needs a reply" flag set wherever it is received. However, only the copy of
+the message received by the replier will be marked with the WANT_YOU_TO_REPLY
 flag.
 
     So, if a particular file descriptor is bound as listener and replier
@@ -323,7 +331,7 @@ flag.
 
 Reply message
 -------------
-A reply message is the expected response after reading a response message.
+A reply message is the expected response after reading a request message.
 
 A reply message is distinguished by having a non-zero 'in reply to' value.
 
@@ -346,14 +354,20 @@ When creating a new reply message, it has:
         :message name: the request message's 'message name'
         :message data: as appropriate
 
-The Python interface provides a ``reply_to`` function that helps in creating a
-Reply Message from the original Request.
+The Python interface provides a ``Reply`` class to help in creating a reply
+message, but more usefully there is also a ``reply_to`` function that creates
+a Reply Message from the original Request.
 
 Status message
 --------------
-KBUS generates Synthetic messages for various purposes -- that name was used
-because they are "synthesised" by KBUS. But in fact there is little to mark
-them as special, and so "status message" is used instead.
+KBUS generates Status messages (also sometimes referred to as "synthetic"
+messages) when a request message has been successfully sent, but the replier
+is unable to reply (for instance, because it has closed its KSock). KBUS thus
+uses a Status message to provide the "reply" that it guarantees the sender
+will get.
+
+As you might expect, a KBUS status message is thus (technically) a reply
+message.
 
 A status message looks like:
 
@@ -371,10 +385,6 @@ A status message looks like:
 KBUS status messages always have '$.KBUS.<something>' names (this may be a
 multi-level <something>), and are always in response to a previous message, so
 always have an 'in reply to'.
-
-Note that a KBUS status message is thus always (technically) a reply message
-(since it has 'in reply to' set). This makes sense in some ways, as it is a
-message that does not require the recipient to have bound to it.
 
 Requests and Replies
 --------------------
@@ -439,7 +449,7 @@ Specifically, messages are written to and read from KBUS device file
 descriptors. Each such is termed a *KSock* - this is a simpler term than "file
 descriptor", and has some resonance with "socket".
 
-Each KSock may be any of:
+Each KSock may be any (one or more) of:
 
 * a Sender (opening the device for read/write)
 * a Listener (only needing to open the device for read)
@@ -449,7 +459,7 @@ Every KSock has an id. This is a 32-bit unsigned number assigned by KBUS when
 the device is opened. The value 0 is reserved for KBUS itself.
 
     The terms "listener id", "sender id", "replier id", etc., thus all refer
-    to the a KSock id, depending on what it is being used for.
+    to a KSock id, depending on what it is being used for.
 
 Senders
 -------
@@ -477,8 +487,8 @@ KBUS.
 
 It is not possible to send a message with a wildcard message name.
 
-    As a restriction this makes the life of the implementor easier.
-    It is not clear that it would be useful, either.
+    As a restriction this makes the life of the implementor and documentor
+    easier. I believe it would also be confusing if provided.
 
 The sender does not need to bind to any message names in order to receive
 error and status messages from KBUS.
@@ -618,18 +628,23 @@ generates a Status message saying that it has "Unbound" from being a replier
 for that message name. It also forgets the message, which it is now not going
 to reply to.
 
+Lastly, when a Replier is closed, if it has read any Requests (technically,
+called NEXTMSG to pop them from the message queue), but not actually replied
+to them, then KBUS will send an "Ignored" Status message for each such
+Request.
+
 More information
 ================
 Stateful transactions
 ---------------------
 It is possible to make stateful message transactions, by:
 
-1. sending a message that requires a reply
-2. receiving the reply, and noting the KSock id of the replier
-3. sending a message (normally, one needing a reply) to that specific replier
+1. sending a Request
+2. receiving the Reply, and noting the KSock id of the replier
+3. sending another Request to that specific replier
 4. and so on
 
-Sending a message to a particular KSock will fail if that KSock is no longer
+Sending a request to a particular KSock will fail if that KSock is no longer
 bound as replier to the relevant message name. This allows a sender to
 guarantee that it is communicating with a particular instance of the replier
 for a message name.
@@ -697,17 +712,19 @@ always be either a Reply or a Status message in response to that request.
 
 Specifically, if:
 
-1. The Replier "goes away" (and its "release" function is called)
-2. The Replier unbinds from that Request message name
-3. Select/poll attempts to send the Request, and discovers that the
+1. The Replier "goes away" (and its "release" function is called) before
+   reading the Request (specifically, before calling NEXTMSG to pop it from
+   the message queue)
+2. The Replier "goes away" (and its "release" function is called) before
+   replying to a Request that it has already read (i.e., used NEXTMSG to pop
+   from the message queue)
+3. The Replier unbinds from that Request message name before reading the
+   Request (with the same caveat on what that means)
+4. Select/poll attempts to send the Request, and discovers that the
    Replier has disappeared since the initial SEND
-4. Select/poll attempts to send the Request, and some other error occurs
+5. Select/poll attempts to send the Request, and some other error occurs
 
 then KBUS will "reply" with an appropriate Status message.
-
-.. note:: This leaves one case missing, which is the case where the Replier
-          has read the message, but has gone away without replying. This will
-          be implemented in a future version of KBUS (see the TODO list).
 
 --------------------------------------------------
 
@@ -811,6 +828,7 @@ exclusive flag and message name for each binding, for each kbus device.
 
 An example might be::
 
+   $ cat /proc/kbus/bindings
     1: 1 R $.Sensors.*
     1: 2 R $.Sensors.Kitchen.Temperature
     1: 3 L $.Sensors.*
@@ -836,6 +854,44 @@ The current implementation of the ``/proc/kbus/bindings`` interface is very
 simplistic. If the data approaches the size of a kernel page, then the data
 output will be truncated, and the last line will be ``...``. This may be
 improved (one can hope) in a future version of KBUS.
+
+/proc/kbus/stats
+----------------
+``/proc/kbus/stats`` is a debugging aid for reporting various statistics about
+the KBUS devices and the KSocks open on them.
+
+An example might be::
+
+  $ cat /proc/kbus/stats 
+  dev  0: next file 5 next msg 8
+          ksock 4 last msg 0:7 queue 1 of 100
+              read: 0 of 0, write 52 (max 60), sending
+              outstanding requests 0 (max 16), replies 0
+          ksock 3 last msg 0:5 queue 0 of 1
+              read: 0 of 0, write 0 (max 0), not sending
+              outstanding requests 1 (max 16), replies 0
+
+or::
+
+  $ cat /proc/kbus/stats 
+  dev  0: next file 1002 next msg 0
+          ksock 1001 last msg 0:0 queue 0 of 100
+                read: 0 of 0, write 0 (max 0), not sending
+                outstanding requests 0 (max 16), replies 0
+          ksock 1000 last msg 0:0 queue 0 of 100
+                read: 0 of 0, write 0 (max 0), not sending
+                outstanding requests 0 (max 16), replies 0
+          ksock 999 last msg 0:0 queue 0 of 100
+                read: 0 of 0, write 0 (max 0), not sending
+                outstanding requests 0 (max 16), replies 0
+          ksock 998 last msg 0:0 queue 0 of 100
+                read: 0 of 0, write 0 (max 0), not sending
+                outstanding requests 0 (max 16), replies 0
+          ksock 997 last msg 0:0 queue 0 of 100
+                read: 0 of 0, write 0 (max 0), not sending
+                outstanding requests 0 (max 16), replies 0
+  ...
+
 
 Error numbers
 -------------
