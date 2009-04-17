@@ -2235,4 +2235,47 @@ class TestKernelModule:
             status = sender.read_next_msg()
             assert status.in_reply_to == req_id
 
+    def test_many_listeners(self):
+        """Test we can have many listeners.
+        """
+        with KSock(0,'rw') as sender:
+            listeners = []
+            for ii in range(1000):
+                l = KSock(0,'rw')
+                l.bind('$.Fred')
+                listeners.append(l)
+
+            a = Announcement('$.Fred','1234')
+            a_id = sender.send_msg(a)
+
+
+            for l in listeners:
+                m = l.read_next_msg()
+                assert m.equivalent(a)
+
+            for l in listeners:
+                l.close()
+
+    def test_many_messages(self):
+        """Test we can have many messages.
+        """
+        with KSock(0,'rw') as sender:
+            with KSock(0,'rw') as replier:
+                sender.set_max_messages(1050)
+                replier.set_max_messages(1050)
+                replier.bind('$.Fred',True)
+                req = Request('$.Fred','1234')
+                for ii in range(1000):
+                    sender.send_msg(req)
+
+                for r in replier:
+                    m = reply_to(r)
+                    replier.send_msg(m)
+
+                count = 0
+                for m in sender:
+                    count += 1
+
+                assert count == 1000
+
 # vim: set tabstop=8 shiftwidth=4 expandtab:

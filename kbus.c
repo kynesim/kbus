@@ -101,8 +101,8 @@ struct kbus_message_binding {
  * there are, it seems sensible to bundle this up in its own datastructure.
  */
 struct kbus_msg_id_mem {
-	int			 count;
-	int			 size;
+	uint32_t		 count;
+	uint32_t		 size;
 	/*
 	 * An array is probably the worst way to store a list of message ids,
 	 * but it's *very simple*, and should work OK for a smallish number of
@@ -313,6 +313,22 @@ static struct kbus_private_data *kbus_find_open_ksock(struct kbus_dev	*dev,
 static void kbus_discard(struct kbus_private_data	*priv);
 /* ========================================================================= */
 
+/*
+ * Return a stab at the next size for an array
+ */
+static uint32_t kbus_next_size(uint32_t		old_size)
+{
+	if (old_size < 16)
+		/* For very small numbers, just double */
+		return old_size << 1;
+	else 
+		/*
+		 * Otherwise, try something like the mechanism used for Python
+		 * lists - doubling feels a bit over the top
+		 */
+		return old_size + (old_size >> 3);
+}
+
 static int kbus_same_message_id(struct kbus_msg_id 	*msg_id,
 				uint32_t		 network_id,
 				uint32_t		 serial_num)
@@ -321,23 +337,21 @@ static int kbus_same_message_id(struct kbus_msg_id 	*msg_id,
 		msg_id->serial_num == serial_num;
 }
 
-/* Again, these are unlikely to be sensible values */
-#define KBUS_INIT_MSG_ID_MEMSIZE	100
-#define KBUS_INCR_MSG_ID_MEMSIZE	100
-
 static int kbus_init_msg_id_memory(struct kbus_private_data	*priv)
 {
+#define INIT_MSG_ID_MEMSIZE	16
+
 	struct kbus_msg_id_mem	*mem = &priv->outstanding_requests;
 	struct kbus_msg_id	*ids;
 
-	ids = kmalloc(sizeof(*ids)*KBUS_INIT_MSG_ID_MEMSIZE, GFP_KERNEL);
+	ids = kmalloc(sizeof(*ids)*INIT_MSG_ID_MEMSIZE, GFP_KERNEL);
 	if (!ids) return -ENOMEM;
 
-	memset(ids, 0, sizeof(*ids)*KBUS_INIT_MSG_ID_MEMSIZE);
+	memset(ids, 0, sizeof(*ids)*INIT_MSG_ID_MEMSIZE);
 
 	mem->count = 0;
 	mem->ids = ids;
-	mem->size = KBUS_INIT_MSG_ID_MEMSIZE;
+	mem->size = INIT_MSG_ID_MEMSIZE;
 	return 0;
 }
 
@@ -377,20 +391,21 @@ static int kbus_remember_msg_id(struct kbus_private_data	*priv,
 	}
 	/* Otherwise, give in and use a new one */
 	if (mem->count == mem->size) {
-		int old_size = mem->size;
-		printk(KERN_DEBUG "kbus:   XXX msg id array size %d -> %d\n",
-		       mem->size, mem->size + KBUS_INCR_MSG_ID_MEMSIZE);
-		mem->size += KBUS_INCR_MSG_ID_MEMSIZE;
+		uint32_t old_size = mem->size;
+		uint32_t new_size = kbus_next_size(old_size);
+		printk(KERN_DEBUG "kbus:   %u/%u XXX outstanding request array size %u -> %u\n",
+		       priv->dev->index,priv->id,
+		       old_size, new_size);
 		mem->ids = krealloc(mem->ids,
-				    sizeof(struct kbus_msg_id) * mem->size,
+				    sizeof(struct kbus_msg_id) * new_size,
 				    GFP_KERNEL);
-		if (!mem->ids)
-			return -EFAULT;
+		if (!mem->ids) return -EFAULT;
 		/* XXX Should probably be a memset or somesuch */
-		for (ii=old_size; ii<mem->size; ii++) {
+		for (ii=old_size; ii<new_size; ii++) {
 			mem->ids[ii].network_id = 0;
 			mem->ids[ii].serial_num = 0;
 		}
+		mem->size = new_size;
 	}
 	mem->ids[mem->count] = *id;
 	mem->count ++;
@@ -1144,15 +1159,9 @@ static int kbus_find_listeners(struct kbus_dev			 *dev,
 			       uint32_t				  name_len,
 			       char				 *name)
 {
-	/* XXX Silly values for debugging XXX */
-	/*
-	 * XXX Using low values here should provoke any problems,
-	 * XXX but more realistic values should be used later.
-	 */
-#define INIT_SIZE	2
-#define INCR_SIZE	2
+#define INIT_LISTENER_ARRAY_SIZE	8
 	int count = 0;
-	int array_size = INIT_SIZE;
+	int array_size = INIT_LISTENER_ARRAY_SIZE;
 	struct kbus_message_binding *ptr;
 	struct kbus_message_binding *next;
 
@@ -1227,9 +1236,10 @@ static int kbus_find_listeners(struct kbus_dev			 *dev,
 			} else {
 				/* It is a listener */
 				if (count == array_size) {
+					uint32_t new_size = kbus_next_size(array_size);
 					printk(KERN_DEBUG "kbus:      XXX listener array size %d -> %d\n",
-					       array_size, array_size + INCR_SIZE);
-					array_size += INCR_SIZE;
+					       array_size, new_size);
+					array_size = new_size;
 					*listeners = krealloc(*listeners,
 							      sizeof(**listeners) * array_size,
 							      GFP_KERNEL);
@@ -2144,12 +2154,9 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 		goto done;
 	}
 
-// XXX Stupidly small values so I can watch it make more space
-#define INIT_WRITE_SIZE		10
-#define INCR_WRITE_SIZE		10
-
 	if (priv->write_msg == NULL) {
-		priv->write_msg_size = max((size_t)INIT_WRITE_SIZE,count);
+		size_t start_size = KBUS_MSG_LEN(16,0);	/* As a random guess */
+		priv->write_msg_size = max(start_size,count);
 		priv->write_msg = kmalloc(priv->write_msg_size, GFP_KERNEL);
 		if (!priv->write_msg) {
 			printk(KERN_ERR "kbus/write: kmalloc failed\n");

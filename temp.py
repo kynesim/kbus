@@ -11,19 +11,22 @@ time.sleep(0.5)
 try:
         with KSock(0,'rw') as sender:
             with KSock(0,'rw') as replier:
+                sender.set_max_messages(1050)
+                replier.set_max_messages(1050)
                 replier.bind('$.Fred',True)
+                req = Request('$.Fred','1234')
+                for ii in range(1000):
+                    sender.send_msg(req)
 
-                req = Request('$.Fred')
-                req_id = sender.send_msg(req)
+                for r in replier:
+                    m = reply_to(r)
+                    replier.send_msg(m)
 
-                rep = replier.read_next_msg()
-                assert rep.id == req_id
+                count = 0
+                for m in sender:
+                    count += 1
 
-            # Since the replier is clearly not going to give us a reply,
-            # we expect KBUS to do so (and it shall be a "reply" to the
-            # correct request)
-            status = sender.read_next_msg()
-            assert status.in_reply_to == req_id
+                assert count == 1000
 
 finally:
     os.system('sudo rmmod kbus')
