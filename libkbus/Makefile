@@ -22,33 +22,32 @@
 #
 # Contributor(s):
 #   Kynesim, Cambridge UK
-#   Tibs <tony.ibbs@gmail.com>
+#   gb <gb@kynesim.co.uk>
 #
 # ***** END LICENSE BLOCK *****
 
-LIBKBUSDIR=libkbus
+CC=gcc
+LD=ld
+WARNING_FLAGS=-Wall -Werror
+DEBUG_FLAGS=
+LD_LIB_FLAGS=-shared
+INCLUDE_FLAGS=-I ../
 
-ifneq ($(KERNELRELEASE),)
-	# We are being invoked from inside a kernel build
-	# so can just ask it to build us
-	obj-m = kbus.o
-else
-	# We are being invoked by make directly
-	# We need to ask the kernel build system to do its
-	# thing
-	#
-	# Unless we've been given a value for KERNELDIR, guess the kernel build
-	# system is in the normal place (depending on what our system is)
-	KERNELDIR ?= /lib/modules/$(shell uname -r)/build
+OBJS=libkbus.o
+DEPS=lkbus.h
 
-	PWD = $(shell pwd)
+SONAME=libkbus.so
 
-default:
-	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules
-	$(MAKE) -C $(LIBKBUSDIR)
+
+all: $(SONAME)
+
+libkbus.o: $(DEPS)
+	$(CC) $(INCLUDE_FLAGS) $(WARNING_FLAGS) -fPIC -c libkbus.c
+
+
+$(SONAME): $(OBJS)
+	$(LD) $(LD_LIB_FLAGS) -soname $(SONAME) -o $(SONAME) -lc $^
 
 clean:
-	rm -f kbus.mod.c *.o kbus.ko .kbus*.cmd Module.* modules.order 
-	rm -rf .tmp_versions
-	$(MAKE) -C $(LIBKBUSDIR) clean
-endif
+	if [ -e libkbus.so ]; then rm libkbus.so; fi
+	if [ -e libkbus.o  ]; then rm libkbus.o;  fi
