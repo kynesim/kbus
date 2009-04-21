@@ -31,7 +31,7 @@ LD=ld
 WARNING_FLAGS=-Wall -Werror
 DEBUG_FLAGS=
 LD_LIB_FLAGS=-shared
-INCLUDE_FLAGS=-I ../
+INCLUDE_FLAGS=-I ../kbus
 
 OBJS=libkbus.o
 DEPS=lkbus.h
