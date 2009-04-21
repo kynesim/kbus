@@ -53,7 +53,7 @@
 #include <linux/poll.h>
 #include <asm/uaccess.h>	/* copy_*_user() functions */
 
-#include "kbus.h"
+#include "kbus_defns.h"
 
 /*
  * The actual number of /dev/kbus<N> devices can be set at module

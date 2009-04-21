@@ -1,7 +1,7 @@
-/* Kbus kernel module
+/* Kbus kernel module external headers
  *
- * This is a character device driver, providing the messaging support
- * for kbus.
+ * This file provides the definitions (datastructures and ioctls) needed to
+ * communicate with the KBUS character device driver.
  */
 
 /*
@@ -42,8 +42,8 @@
  * ***** END LICENSE BLOCK *****
  */
 
-#ifndef _kbus
-#define _kbus
+#ifndef _kbus_defns
+#define _kbus_defns
 
 #if ! __KERNEL__ && defined(__cplusplus)
 extern "C" {
@@ -402,7 +402,7 @@ struct kbus_message_struct {
 }
 #endif
 
-#endif // _kbus
+#endif // _kbus_defns
 
 // Kernel style layout -- note that including this text contravenes the Linux
 // coding style, and is thus a Bad Thing. Expect these lines to be removed if
