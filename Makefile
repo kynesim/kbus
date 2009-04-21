@@ -45,10 +45,8 @@ else
 
 default:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules
-	$(MAKE) -C $(LIBKBUSDIR)
 
 clean:
 	rm -f kbus.mod.c *.o kbus.ko .kbus*.cmd Module.* modules.order 
 	rm -rf .tmp_versions
-	$(MAKE) -C $(LIBKBUSDIR) clean
 endif
