@@ -43,7 +43,7 @@
 extern "C" {
 #endif 
 
-#include <kbus.h>
+#include <kbus/kbus_defns.h>
 
 #include <fcntl.h>
 #include <unistd.h>

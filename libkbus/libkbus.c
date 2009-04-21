@@ -37,7 +37,7 @@
  */
 
 #include <stdio.h>
-#include "lkbus.h"
+#include "kbus.h"
 
 #define DEBUG 0
 

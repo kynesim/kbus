@@ -31,10 +31,10 @@ LD=ld
 WARNING_FLAGS=-Wall -Werror
 DEBUG_FLAGS=
 LD_LIB_FLAGS=-shared
-INCLUDE_FLAGS=-I ../kbus
+INCLUDE_FLAGS=-I ..
 
 OBJS=libkbus.o
-DEPS=lkbus.h
+DEPS=kbus.h
 
 SONAME=libkbus.so
 
