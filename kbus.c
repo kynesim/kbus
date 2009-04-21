@@ -103,6 +103,7 @@ struct kbus_message_binding {
 struct kbus_msg_id_mem {
 	uint32_t		 count;
 	uint32_t		 size;
+	uint32_t		 max_count;
 	/*
 	 * An array is probably the worst way to store a list of message ids,
 	 * but it's *very simple*, and should work OK for a smallish number of
@@ -214,6 +215,7 @@ struct kbus_private_data {
 	 */
 	struct list_head	replies_unsent;
 	uint32_t		num_replies_unsent;
+	uint32_t		max_replies_unsent;
 
 	/*
 	 * XXX ---------------------------------------------------------- XXX
@@ -350,6 +352,7 @@ static int kbus_init_msg_id_memory(struct kbus_private_data	*priv)
 	memset(ids, 0, sizeof(*ids)*INIT_MSG_ID_MEMSIZE);
 
 	mem->count = 0;
+	mem->max_count = 0;
 	mem->ids = ids;
 	mem->size = INIT_MSG_ID_MEMSIZE;
 	return 0;
@@ -365,6 +368,7 @@ static void kbus_empty_msg_id_memory(struct kbus_private_data	*priv)
 	kfree(mem->ids);
 	mem->ids = NULL;
 	mem->size = 0;
+	mem->max_count = 0;
 	mem->count = 0;
 }
 
@@ -376,16 +380,15 @@ static int kbus_remember_msg_id(struct kbus_private_data	*priv,
 				struct kbus_msg_id		*id)
 {
 	struct kbus_msg_id_mem	*mem = &priv->outstanding_requests;
-	int ii;
+	int ii, which;
 	printk(KERN_DEBUG "kbus:   %u/%u Remembering outstanding request %u:%u (count=>%d)\n",
 	       priv->dev->index,priv->id,
 	       id->network_id,id->serial_num,mem->count+1);
 	/* First, try for an empty slot we can re-use */
 	for (ii=0; ii<mem->size; ii++) {
 		if (kbus_same_message_id(&mem->ids[ii],0,0)) {
-			mem->ids[ii] = *id;
-			mem->count ++;
-			return 0;
+			which = ii;
+			goto done;
 		}
 
 	}
@@ -406,9 +409,13 @@ static int kbus_remember_msg_id(struct kbus_private_data	*priv,
 			mem->ids[ii].serial_num = 0;
 		}
 		mem->size = new_size;
+		which = mem->count;
 	}
+done:
 	mem->ids[mem->count] = *id;
 	mem->count ++;
+	if (mem->count > mem->max_count)
+		mem->max_count = mem->count;
 	return 0;
 }
 
@@ -1011,6 +1018,9 @@ static int kbus_reply_needed(struct kbus_private_data   *priv,
 	list_add(&item->list, queue);
 
 	priv->num_replies_unsent ++;
+
+	if (priv->num_replies_unsent > priv->max_replies_unsent)
+		priv->max_replies_unsent = priv->num_replies_unsent;
 
 	printk(KERN_DEBUG "kbus:   %u/%u Leaving %d message%s unreplied-to\n",
 	       priv->dev->index, priv->id,
@@ -1720,6 +1730,8 @@ static int kbus_open(struct inode *inode, struct file *filp)
 	priv->id  = dev->next_file_id ++;
 	priv->max_messages = DEF_MAX_MESSAGES;
 	priv->sending = false;
+	priv->num_replies_unsent = 0;
+	priv->max_replies_unsent = 0;
 
 	if (kbus_init_msg_id_memory(priv)) {
 		kfree(priv);
@@ -3046,15 +3058,20 @@ static int kbus_read_proc_stats(char *buf, char **start, off_t offset,
 	int give_up = false;
 	char	dev_fmt[] = "dev %2u: next file %u next msg %u\n";
 
+	/* Aim for simple/predictable indentation to delimit entries */
 	char	ksock_fmt[] = "        ksock %u last msg %u:%u queue %u of %u\n"
-		"              read %u of %u, write %u (max %u), %ssending\n"
-		"              outstanding requests %u (max %u), replies %u\n";
+		"              read byte %u of %u, wrote byte %u (max %u), %ssending\n"
+		"              outstanding requests %u (size %u, max %u), unsent replies %u (max %u)\n";
+	/*
+	 * That last line is at the 80 char boundary, more or less, which is a
+	 * bit naughty, but I shall let it stand, for the moment at least.
+	 */
 
 	int	dev_fmt_max;
 	int	ksock_fmt_max;
 
 	dev_fmt_max = strlen(dev_fmt) + 3*(10-2);
-	ksock_fmt_max = strlen(ksock_fmt) + 12*(10-2) + 4; /* 4 = "not " */
+	ksock_fmt_max = strlen(ksock_fmt) + 14*(10-2) + 4; /* 4 = "not " */
 
 	/* We report on all of the KBUS devices */
 	for (ii=0; ii<kbus_num_devices; ii++) {
@@ -3090,7 +3107,9 @@ static int kbus_read_proc_stats(char *buf, char **start, off_t offset,
 					       ptr->sending?"":"not ",
 					       ptr->outstanding_requests.count,
 					       ptr->outstanding_requests.size,
-					       ptr->num_replies_unsent);
+					       ptr->outstanding_requests.max_count,
+					       ptr->num_replies_unsent,
+					       ptr->max_replies_unsent);
 			} else {
 				/* Icky trick to indicate we didn't finish */
 				len += sprintf(buf+len,"...\n");
