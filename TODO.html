@@ -298,6 +298,89 @@ ul.auto-toc {
 If you are looking at an HTML file, then it is provided for your
 convenience, and may not be up-to-date.</p>
 </div>
+<hr class="docutils" />
+<div class="section">
+<h1><a id="discussion-on-message-datastructure" name="discussion-on-message-datastructure">Discussion on message datastructure</a></h1>
+<p>At the moment, the same datastructure is used for :</p>
+<ol class="arabic simple">
+<li>creating a new message in userspace and writing it to KBUS</li>
+<li>reading a message from KBUS into userspace</li>
+<li>storing/manipulating the message within KBUS itself.</li>
+</ol>
+<p>For the purposes of this discussion, the third can be ignored, as it is known
+to be likely to change for all sorts of reasons, but also, importantly, since
+KBUS needs to copy data between user and kernel space for both of the first
+two, so conversion is not an issue.</p>
+<p>Ideally, the message as send and the message as read use the same
+datastructure.</p>
+<p>Ideally, C shouldn't have to &quot;stuff&quot; a string into the message datastructure.
+One &quot;solution&quot; to this is to use a message <em>code</em> instead of a message name.
+That then raises the question of whether one only allows a message code in a
+message, or if one still allows a string (which I personally prefer) how one
+tells if the message is named or coded. Which tends to be icky.</p>
+<p>In the future, it is believed that Richard will want to send messages with
+large amounts of data. Copying said data into the message (in userspace) and
+then out again (in kernel space) is at least one copy too many for comfort.</p>
+<p>Lastly, the message size if variable, because it contains a message name and
+optional data. This is a minor niggle, but still a niggle.</p>
+<p>The alternative is to have a datastrucure with pointers out to the name and
+data. I've tended to shy away from this, as it feels (to me) a little odd to
+use <tt class="docutils literal"><span class="pre">write</span></tt> to write a datastructure containing pointers. Of course, I've
+happily done exactly this with the ioctls for binding and umbinding, so that
+is perhaps inconsistent.</p>
+<p>What about reading? Since we're meant to use NEXTMSG to &quot;pop&quot; the next
+message, and then <tt class="docutils literal"><span class="pre">read</span></tt> to read it, it feels to me as if that operation
+should indeed read all of the data, into one place. But, as John points out,
+this can be done:</p>
+<pre class="literal-block">
+Header data
+ptr to name --------------+
+ptr to data ---------+    +
+name        &lt;--------|----+
+...                  |
+data        &lt;--------+
+...
+</pre>
+<p>So, a proposal is to transform the message header into:</p>
+<pre class="literal-block">
+&lt;start guard&gt;
+&lt;various header fields&gt;
+name length
+ptr to name
+data length
+ptr to data
+&lt;end guard&gt;
+</pre>
+<p>The name length may never be less that 3 (&quot;$.x&quot;). The name pointer must thus
+always be present.</p>
+<p>The data length may be zero, in which case the ptr-to-data shall also be zero,
+otherwise it shall not.</p>
+<p>A special macro or function shall be supplied by the kernel header file to
+<em>free</em> such a message. If the ptr-to-name is an &quot;internal&quot; pointer (see the
+first diagram) then it doesn't need to free it. If the ptr-to-data is an
+&quot;internal&quot; pointer, then it doesn't need to free it. It is quite likely that
+these case would <em>also</em> be indicated by having some sort of flag in the
+&quot;flags&quot; field.</p>
+<p>Hmm. Presumably, a writer might want to reuse the same name for multiple
+messages - they would presumably best <em>not</em> use this macro to free their
+datastructure!</p>
+<p>Given the above, <em>do</em> we need message codes? Since we're no longer copying the
+message name all over the place externally? If we do, then it's probably
+sufficient to set the name length to 0 and assert that this means that the
+name pointer is now a name code.</p>
+<blockquote>
+(Message name length is <em>definitely</em> illegal, and is enforced as such now,
+so this seems a reasonable &quot;escape clause&quot;. And we've now got a fixed size
+datastructure, so we'd have the pointer field available anyway.)</blockquote>
+<p>What about the end guard?</p>
+<p>One of the nice things about the current (monolithic) message datastructure is
+that the end guard sits, well, at the end of the (entire) message. Clearly in
+our new (writable) datastructure, it sits after the ptr/length pairs, and
+<em>not</em> after all of the other data. I'm not convinced this is a great problem,
+though. Perhaps the &quot;all in one&quot; (first diagram) idea should include an extra
+end guard after the end of the actual data, although I'm not convinced that
+this makes sense.</p>
+<hr class="docutils" />
 <p>In no particular order (well, except for the first):</p>
 <ul>
 <li><p class="first">REQ Always, update documentation.</p>
@@ -432,10 +515,11 @@ replied to a message, even though it <em>has</em> read it.</p>
 </li>
 </ul>
 </div>
+</div>
 <div class="footer">
 <hr class="footer" />
 <a class="reference" href="TODO.txt">View document source</a>.
-Generated on: 2009-04-17 14:38 UTC.
+Generated on: 2009-04-21 12:29 UTC.
 Generated by <a class="reference" href="http://docutils.sourceforge.net/">Docutils</a> from <a class="reference" href="http://docutils.sourceforge.net/rst.html">reStructuredText</a> source.
 
 </div>

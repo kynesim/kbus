@@ -5,6 +5,134 @@ A crude to-do list
           If you are looking at an HTML file, then it is provided for your
           convenience, and may not be up-to-date.
 
+-------------------------------------------------------------------------------
+
+Discussion on message datastructure
+-----------------------------------
+
+At the moment, the same datastructure is used for :
+
+1. creating a new message in userspace and writing it to KBUS
+2. reading a message from KBUS into userspace
+3. storing/manipulating the message within KBUS itself.
+
+For the purposes of this discussion, the third can be ignored, as it is known
+to be likely to change for all sorts of reasons, but also, importantly, since
+KBUS needs to copy data between user and kernel space for both of the first
+two, so conversion is not an issue.
+
+Ideally, the message as send and the message as read use the same
+datastructure.
+
+Ideally, C shouldn't have to "stuff" a string into the message datastructure.
+One "solution" to this is to use a message *code* instead of a message name.
+That then raises the question of whether one only allows a message code in a
+message, or if one still allows a string (which I personally prefer) how one
+tells if the message is named or coded. Which tends to be icky.
+
+In the future, it is believed that Richard will want to send messages with
+large amounts of data. Copying said data into the message (in userspace) and
+then out again (in kernel space) is at least one copy too many for comfort.
+
+Lastly, the message size if variable, because it contains a message name and
+optional data. This is a minor niggle, but still a niggle.
+
+The alternative is to have a datastrucure with pointers out to the name and
+data. I've tended to shy away from this, as it feels (to me) a little odd to
+use ``write`` to write a datastructure containing pointers. Of course, I've
+happily done exactly this with the ioctls for binding and umbinding, so that
+is perhaps inconsistent.
+
+What about reading? Since we're meant to use NEXTMSG to "pop" the next
+message, and then ``read`` to read it, it feels to me as if that operation
+should indeed read all of the data, into one place. But, as John points out,
+this can be done::
+
+        Header data
+        ptr to name --------------+
+        ptr to data ---------+    +
+        name        <--------|----+
+        ...                  |
+        data        <--------+
+        ...
+
+So, a proposal is to transform the message header into::
+
+    <start guard>
+    <various header fields>
+    name length
+    ptr to name
+    data length
+    ptr to data
+    <end guard>
+
+The name length may never be less that 3 ("$.x"). The name pointer must thus
+always be present.
+
+The data length may be zero, in which case the ptr-to-data shall also be zero,
+otherwise it shall not.
+
+A special macro or function shall be supplied by the kernel header file to
+*free* such a message. If the ptr-to-name is an "internal" pointer (see the
+first diagram) then it doesn't need to free it. If the ptr-to-data is an
+"internal" pointer, then it doesn't need to free it. It is quite likely that
+these case would *also* be indicated by having some sort of flag in the
+"flags" field.
+
+Hmm. Presumably, a writer might want to reuse the same name for multiple
+messages - they would presumably best *not* use this macro to free their
+datastructure!
+
+Given the above, *do* we need message codes? Since we're no longer copying the
+message name all over the place externally? If we do, then it's probably
+sufficient to set the name length to 0 and assert that this means that the
+name pointer is now a name code.
+
+    (Message name length is *definitely* illegal, and is enforced as such now,
+    so this seems a reasonable "escape clause". And we've now got a fixed size
+    datastructure, so we'd have the pointer field available anyway.)
+
+What about the end guard?
+
+One of the nice things about the current (monolithic) message datastructure is
+that the end guard sits, well, at the end of the (entire) message. Clearly in
+our new (writable) datastructure, it sits after the ptr/length pairs, and
+*not* after all of the other data. I'm not convinced this is a great problem,
+though. Perhaps the "all in one" (first diagram) idea should include an extra
+end guard after the end of the actual data, although I'm not convinced that
+this makes sense.
+
+Restrictions
+~~~~~~~~~~~~
+Clearly, whilst ``write``-ing a message, and until after it has been
+successfully SENT (which can be a while, if ALL_OR_WAIT or blocking is in
+force), the original pointers in the message must stay valid. This worries me
+a little.
+
+
+More thinking
+~~~~~~~~~~~~~
+I'm still not entirely sure I *like* this idea.
+
+*But* it does scale up nicely to the "messages with *lots* of data" problem,
+which I'd quite like to solve without needing to have a "special solution"  -
+in other words, it would feel even more wrong to have "small messages"
+(whatever that means) in one format and "large messages" in another. And what
+happens if someone uses "small messages" to send large amounts of data? Are we
+meant to get upset?
+
+On the other hand, if we go with the proposed scheme, is data length now in
+bytes? I assume so, as (a) the caller is presumably going to want to use
+``sizeof``, and (b) if their data is naturally an odd number of bytes long,
+they're not going to want to have to pad it out, just so an incorrect length
+can be passed.
+
+Why don't I like it? I think it really is (just?) down to the issue of
+``read`` and ``write`` being used to move a datastructure with dangling
+references. Which doesn't worry John (for instance) at all.
+
+-------------------------------------------------------------------------------
+
 In no particular order (well, except for the first):
 
 * REQ Always, update documentation.

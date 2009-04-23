@@ -49,4 +49,5 @@ default:
 clean:
 	rm -f kbus.mod.c *.o kbus.ko .kbus*.cmd Module.* modules.order 
 	rm -rf .tmp_versions
+	rm -rf *.pyc
 endif

@@ -865,32 +865,22 @@ An example might be::
   $ cat /proc/kbus/stats 
   dev  0: next file 5 next msg 8
           ksock 4 last msg 0:7 queue 1 of 100
-              read: 0 of 0, write 52 (max 60), sending
-              outstanding requests 0 (max 16), replies 0
+              read byte 0 of 0, wrote byte 52 (max 60), sending
+              outstanding requests 0 (size 16, max 0), unsent replies 0 (max 0)
           ksock 3 last msg 0:5 queue 0 of 1
-              read: 0 of 0, write 0 (max 0), not sending
-              outstanding requests 1 (max 16), replies 0
+              read byte 0 of 0, wrote byte 0 (max 0), not sending
+              outstanding requests 1 (size 16, max 0), unsent replies 0 (max 0)
 
 or::
 
   $ cat /proc/kbus/stats 
-  dev  0: next file 1002 next msg 0
-          ksock 1001 last msg 0:0 queue 0 of 100
-                read: 0 of 0, write 0 (max 0), not sending
-                outstanding requests 0 (max 16), replies 0
-          ksock 1000 last msg 0:0 queue 0 of 100
-                read: 0 of 0, write 0 (max 0), not sending
-                outstanding requests 0 (max 16), replies 0
-          ksock 999 last msg 0:0 queue 0 of 100
-                read: 0 of 0, write 0 (max 0), not sending
-                outstanding requests 0 (max 16), replies 0
-          ksock 998 last msg 0:0 queue 0 of 100
-                read: 0 of 0, write 0 (max 0), not sending
-                outstanding requests 0 (max 16), replies 0
-          ksock 997 last msg 0:0 queue 0 of 100
-                read: 0 of 0, write 0 (max 0), not sending
-                outstanding requests 0 (max 16), replies 0
-  ...
+  dev  0: next file 4 next msg 101
+          ksock 3 last msg 0:0 queue 100 of 100
+                read byte 0 of 0, wrote byte 0 (max 0), not sending
+                outstanding requests 0 (size 16, max 0), unsent replies 0 (max 0)
+          ksock 2 last msg 0:100 queue 0 of 100
+                read byte 0 of 0, wrote byte 0 (max 0), not sending
+                outstanding requests 100 (size 102, max 92), unsent replies 0 (max 0)
 
 
 Error numbers

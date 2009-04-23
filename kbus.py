@@ -41,6 +41,7 @@ from __future__ import with_statement
 import fcntl
 import ctypes
 import array
+import itertools
 
 # Kernel definitions for ioctl commands
 # Following closely from #include <asm[-generic]/ioctl.h>
@@ -139,6 +140,428 @@ class MessageId(object):
             raise NotImplemented
         else:
             return MessageId(self.network_id,self.serial_num+other)
+
+class NewMessage(object):
+    """A wrapper for a KBUS message
+
+    A Message can be created in a variety of ways. Perhaps most obviously:
+
+        >>> msg = NewMessage('$.Fred')
+        >>> msg
+        Message('$.Fred', data=(), to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
+
+        >>> msg = NewMessage('$.Fred', (0x1234,))
+        >>> msg
+        Message('$.Fred', data=(0x00001234,), to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
+
+        >>> msg = NewMessage('$.Fred', (0x1234,0xFFFF00FF))
+        >>> msg
+        Message('$.Fred', data=(0x00001234, 0xffff00ff), to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
+
+        >>> msg1 = NewMessage('$.Fred',data=(0x1234,))
+        >>> msg1
+        Message('$.Fred', data=(0x00001234,), to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
+
+    Yes, that's a tuple as the "data" argument. It should be either None or a
+    tuple of unsigned 32-bit integers.
+
+    A Message can be constructed from another message directly:
+
+        >>> msg2 = NewMessage(msg1)
+        >>> msg2 == msg1
+        True
+
+    or from the '.extract()' tuple:
+
+        >>> msg3 = NewMessage(msg1.extract())
+        >>> msg3 == msg1
+        True
+
+    or from an equivalent list::
+
+        >>> msg3 = NewMessage(list(msg1.extract()))
+        >>> msg3 == msg1
+        True
+
+    or one can use a "string" -- for instance, as returned by the KSock 'read'
+    method:
+
+        >>> msg_as_string = msg1.to_string()
+        >>> msg4 = NewMessage(msg_as_string)
+        >>> msg4 == msg1
+        True
+
+    When constructing a message from another message, one may override
+    particular values (but not the name):
+
+        >>> msg5 = NewMessage(msg1,to=9,in_reply_to=MessageId(0,3))
+        >>> msg5
+        Message('$.Fred', data=(0x00001234,), to=9L, from_=0L, in_reply_to=MessageId(0,3), flags=0x00000000, id=None)
+
+        >>> msg5a = NewMessage(msg1,to=9,in_reply_to=MessageId(0,3))
+        >>> msg5a == msg5
+        True
+
+    However, whilst it is possible to set (for instance) 'to' back to 0 by this method:
+
+        >>> msg6 = NewMessage(msg5,to=0)
+        >>> msg6
+        Message('$.Fred', data=(0x00001234,), to=0L, from_=0L, in_reply_to=MessageId(0,3), flags=0x00000000, id=None)
+
+    (and the same for any of the integer fields), it is not possible to set any
+    of the message id fields to None:
+
+        >>> msg6 = NewMessage(msg5,in_reply_to=None)
+        >>> msg6
+        Message('$.Fred', data=(0x00001234,), to=9L, from_=0L, in_reply_to=MessageId(0,3), flags=0x00000000, id=None)
+
+    If you need to do that, go via the 'extract()' method:
+
+        >>> (id,in_reply_to,to,from_,flags,name,data) = msg5.extract()
+        >>> msg6 = NewMessage(name,data,to,from_,None,flags,id)
+        >>> msg6
+        Message('$.Fred', data=(0x00001234,), to=9L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
+
+    For convenience, the parts of a Message may be retrieved as properties:
+
+        >>> print msg1.id
+        None
+        >>> msg1.name
+        '$.Fred'
+        >>> msg1.to
+        0L
+        >>> msg1.from_
+        0L
+        >>> print msg1.in_reply_to
+        None
+        >>> msg1.flags
+        0L
+        >>> msg1.data[:]
+        [4660L]
+        >>> tuple(msg1.data)
+        (4660L,)
+
+    Message ids are objects if set:
+
+        >>> msg1 = NewMessage('$.Fred',data=(0x1234,),id=MessageId(0,33))
+        >>> msg1
+        Message('$.Fred', data=(0x00001234,), to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=MessageId(0,33))
+        >>> msg1.id
+        MessageId(0,33)
+
+    The arguments to Message() are:
+
+    - 'arg' -- this is the initial argument, and is a message name (a string
+      that starts '$.'), a Message, some data that may be interpreted as a
+      message (e.g., an array.array of unsigned 32-bit words, or a string of
+      the right form), or a tuple from the .extract() method of another
+      Message.
+
+    If 'arg' is a message name, then the keyword arguments may be used (if
+    'arg' is not a messsage name, they will be ignored):
+
+    - 'data' is data for the Message, either None or a tuple of unsigned 32-bit
+      integers
+    - 'to' is the KSock id for the destination, for use in replies or in
+      stateful messaging. Normally it should be left 0.
+    - 'from_' is the KSock id of the sender. Normally this should be left
+      0, as it is assigned by KBUS.
+    - if 'in_reply_to' is non-zero, then it is the KSock id to which the
+      reply shall go (taken from the 'from_' field in the original message).
+      Setting 'in_reply_to' non-zero indicates that the Message *is* a reply.
+      See also the Reply class, and especially the 'reply_to' function, which
+      makes constructing replies simpler.
+    - 'flags' can be used to set the flags for the message. If all that is
+      wanted is to set Messages.WANT_A_REPLY flag, it is simpler to use the
+      Request class to construct the message.
+    - 'id' may be used to set the message id, although unless the network_id is
+      set, KBUS will ignore this and set the id internally (this can be useful
+      when constructing a message to compare received messages against).
+
+    Our internal values are:
+
+    - 'msg', which is the actual message data, as a KbusEntireMessageStruct
+    - 'size', which is the size of that datastructure in bytes
+    """
+
+    START_GUARD = 0x7375626B
+    END_GUARD   = 0x6B627573
+
+    WANT_A_REPLY        = _BIT(0)
+    WANT_YOU_TO_REPLY   = _BIT(1)
+    SYNTHETIC           = _BIT(2)
+    URGENT              = _BIT(3)
+
+    ALL_OR_WAIT         = _BIT(8)
+    ALL_OR_FAIL         = _BIT(9)
+
+    # Header offsets (in case I change them again)
+    IDX_START_GUARD            = 0
+    IDX_ID_NETWORK_ID          = 1
+    IDX_ID_SERIAL_NUM          = 2
+    IDX_IN_REPLY_TO_NETWORK_ID = 3
+    IDX_IN_REPLY_TO_SERIAL_NUM = 4
+    IDX_TO                     = 5
+    IDX_FROM                   = 6
+    IDX_FLAGS                  = 7
+    IDX_NAME_LEN               = 8
+    IDX_DATA_LEN               = 9     # required to be the last fixed item
+    IDX_END_GUARD              = -1
+
+    def __init__(self, arg, data=None, to=None, from_=None, in_reply_to=None, flags=None, id=None):
+        """Initialise a Message.
+
+        All named arguments are meant to be "unset" by default.
+        """
+
+        if isinstance(arg,NewMessage):
+            self._merge_args(arg.extract(),data,to,from_,in_reply_to,flags,id)
+        elif isinstance(arg,tuple) or isinstance(arg,list):
+            # A tuple from .extract(), or an equivalent tuple/list
+            if len(arg) != 7:
+                raise ValueError("Tuple arg to Message() must have"
+                        " 7 values, not %d"%len(arg))
+            else:
+                self._merge_args(arg,data,to,from_,in_reply_to,flags,id)
+        elif isinstance(arg,str) and arg.startswith('$.'):
+            # It looks like a message name
+            name = arg
+            self._from_data(name,data,to,from_,in_reply_to,flags,id)
+        elif arg and data is None and to is None and from_ is None and \
+                in_reply_to is None and flags is None and id is None:
+                # Assume it's sensible data...
+                # (is this only allowed to be a "string"?)
+                self.msg = entire_message_from_string(arg)
+        else:
+            raise ValueError,'Argument %s does not seem to make sense'%repr(arg)
+
+        # Make sure the result *looks* like a message
+        self._check()
+
+        # And I personally find it useful to have the length available
+        self.size = ctypes.sizeof(self.msg)
+
+    def _merge_args(self,extracted, this_data, this_to, this_from_,
+                    this_in_reply_to, this_flags, this_id):
+        """Set our data from a msg.extract() tuple and optional arguments.
+
+        Note that, if given, 'id' and 'in_reply_to' must be MessageId
+        instances.
+
+        Note that 'data' must be:
+
+        1. an array.array('L',...) instance, or
+        2. a string, or something else compatible, which will be converted to
+           the above, or
+        3. None.
+        """
+        (id,in_reply_to,to,from_,flags,name,data) = extracted
+        if this_data        is not None: data        = this_data
+        if this_to          is not None: to          = this_to
+        if this_from_       is not None: from_       = this_from_
+        if this_in_reply_to is not None: in_reply_to = this_in_reply_to
+        if this_flags       is not None: flags       = this_flags
+        if this_id          is not None: id          = this_id
+        self._from_data(name, data, to, from_, in_reply_to, flags, id)
+
+    def _from_data(self, name, data, to, from_, in_reply_to, flags, id):
+        """Set our data from individual arguments.
+
+        Note that, if given, 'id' and 'in_reply_to' must be MessageId
+        instances.
+
+        Note that 'data' must be a tuple of (unsigned, 32-bit) integers, or
+        None.
+        """
+                                         
+        if id:
+            id_tuple = (id.network_id, id.serial_num)
+        else:
+            id_tuple = (0, 0)
+
+        if in_reply_to:
+            in_reply_to_tuple = (in_reply_to.network_id, in_reply_to.serial_num)
+        else:
+            in_reply_to_tuple = (0, 0)
+
+        if not to:
+            to = 0
+
+        if not from_:
+            from_ = 0
+
+        if not flags:
+            flags = 0
+
+        if data is None:
+            data = ()
+
+        self.msg = entire_message_from_parts(id_tuple, in_reply_to_tuple,
+                                             to, from_, flags, name, data)
+
+    def _check(self):
+        """Perform some basic sanity checks on our data.
+        """
+        # XXX Make the reporting of problems nicer for the user!
+        assert self.msg.start_guard == self.START_GUARD
+        assert self.msg.end_guard == self.END_GUARD
+        if self.msg.name_len < 3:
+            raise ValueError("Message name is %d long, minimum is 3"
+                             " (e.g., '$.*')"%name_len_bytes)
+
+    def __repr__(self):
+        (id,in_reply_to,to,from_,flags,name,data) = self.extract()
+        args = [repr(name),
+                'data=%s'%_int_tuple_as_str(data),
+                'to='+repr(to),
+                'from_='+repr(from_),
+                'in_reply_to='+repr(in_reply_to),
+                'flags=0x%08x'%flags,
+                'id='+repr(id)]
+        return 'Message(%s)'%(', '.join(args))
+
+    def __eq__(self,other):
+        if not isinstance(other,NewMessage):
+            return False
+        else:
+            return (self.msg == other.msg)
+
+    def __ne__(self,other):
+        if not isinstance(other,NewMessage):
+            return True
+        else:
+            return (self.msg != other.msg)
+
+    def equivalent(self,other):
+        """Returns true if the two messages are mostly the same.
+
+        For purposes of this comparison, we ignore:
+
+        * 'id',
+        * 'flags',
+        * 'in_reply_to' and
+        * 'from'
+        """
+        parts1 = list(self.extract())
+        parts2 = list(other.extract())
+        parts1[0] = parts2[0]   # id
+        parts1[1] = parts2[1]   # in_reply_to
+        parts1[3] = parts2[3]   # from_
+        parts1[4] = parts2[4]   # flags
+        return parts1 == parts2
+
+    def set_want_reply(self,value=True):
+        """Set or unset the 'we want a reply' flag.
+        """
+        if value:
+            self.msg.flags = _set_bit(self.msg.flags, Message.WANT_A_REPLY)
+        else:
+            self.msg.flags = _clear_bit(self.msg.flags, Message.WANT_A_REPLY)
+
+    def set_urgent(self,value=True):
+        """Set or unset the 'urgent message' flag.
+        """
+        if value:
+            self.msg.flags = _set_bit(self.msg.flags, Message.URGENT)
+        else:
+            self.msg.flags = _clear_bit(self.msg.flags, Message.URGENT)
+
+    def wants_us_to_reply(self):
+        """Return true if we (*specifically* us) are should reply to this message.
+        """
+        return self.msg.flags & Message.WANT_YOU_TO_REPLY
+
+    def is_synthetic(self):
+        """Return true if this is a synthetic message - one generated by KBUS.
+        """
+        return self.msg.flags & Message.SYNTHETIC
+
+    def is_urgent(self):
+        """Return true if this is an urgent message.
+        """
+        return self.msg.flags & Message.URGENT
+
+    def _get_id(self):
+        network_id = self.msg.id.network_id
+        serial_num = self.msg.id.serial_num
+        if network_id == 0 and serial_num == 0:
+            return None
+        else:
+            return MessageId(network_id,serial_num)
+
+    def _get_in_reply_to(self):
+        network_id = self.msg.in_reply_to.network_id
+        serial_num = self.msg.in_reply_to.serial_num
+        if network_id == 0 and serial_num == 0:
+            return None
+        else:
+            return MessageId(network_id,serial_num)
+
+    def _get_to(self):
+        return self.msg.to
+
+    def _get_from(self):
+        return self.msg.from_
+
+    def _get_flags(self):
+        return self.msg.flags
+
+    def _get_name(self):
+        name_len = self.msg.name_len
+        # Make sure we remove the padding bytes (although they *should* be
+        # '\0', and so "reasonably safe")
+        return self.msg.name[:name_len]
+
+    def _get_data(self):
+        return self.msg.data
+
+    id          = property(_get_id)
+    in_reply_to = property(_get_in_reply_to)
+    to          = property(_get_to)
+    from_       = property(_get_from)
+    flags       = property(_get_flags)
+    name        = property(_get_name)
+    data        = property(_get_data)
+
+    def extract(self):
+        """Return our parts as a tuple.
+
+        The values are returned in something approximating the order
+        within the message itself:
+
+            (id,in_reply_to,to,from_,flags,name,data_tuple)
+
+        This is not the same order as the keyword arguments to Message().
+        """
+        return (self.id, self.in_reply_to, self.to, self.from_,
+                self.flags, self.name, self.data)
+
+    def to_string(self):
+        """Return our data as a string
+        """
+        return _struct_to_string(self.msg)
+
+    def cast(self):
+        """Return (a copy of) ourselves as an appropriate subclass of Message
+
+        Reading from a KSock returns a Message, whatever the actual message
+        type. Normally, this is OK, but sometimes it would be nice to have
+        an actual message of the correct class.
+        """
+        # If it has in_reply_to set...
+        if self.in_reply_to:
+            # Status messages have a specific sort of name
+            if self.msg.name.startswith('$.KBUS.'):
+                return Status(self)
+            else:
+                return Reply(self)
+
+        # If it has the WANT_A_REPLY flag set, then it's a Request
+        if self.msg.flags & Message.WANT_A_REPLY:
+            return Request(self)
+
+        # Otherwise, it's basically an Announcement (at least, that's a good bet)
+        return Announcement(self)
 
 class Message(object):
     """A wrapper for a KBUS message
@@ -1018,28 +1441,237 @@ def reply_to(original, data=None, flags=0):
 class KbusBindStruct(ctypes.Structure):
     """The datastucture we need to describe an IOC_BIND argument
     """
-    _fields_ = [('is_replier', ctypes.c_uint),
-                ('len',        ctypes.c_uint),
+    _fields_ = [('is_replier', ctypes.c_uint32),
+                ('len',        ctypes.c_uint32),
                 ('name',       ctypes.c_char_p)]
 
 class KbusListenerStruct(ctypes.Structure):
     """The datastucture we need to describe an IOC_REPLIER argument
     """
-    _fields_ = [('return_id', ctypes.c_uint),
-                ('len',       ctypes.c_uint),
+    _fields_ = [('return_id', ctypes.c_uint32),
+                ('len',       ctypes.c_uint32),
                 ('name',      ctypes.c_char_p)]
 
-class KbusMsgIdStruct(ctypes.Structure):
+class KbusMessageIdStruct(ctypes.Structure):
     """The datastucture we need to describe a KBUS message id
     """
-    _fields_ = [('network_id', ctypes.c_uint),
-                ('serial_num', ctypes.c_uint)]
+    _fields_ = [('network_id', ctypes.c_uint32),
+                ('serial_num', ctypes.c_uint32)]
+
+    def __repr__(self):
+        """For debugging, not construction of an instance of ourselves.
+        """
+        return '%u:%u'%(self.network_id,self.serial_num)
+
+    def __eq__(self,other):
+        if not isinstance(other,KbusMessageIdStruct):
+            return False
+        else:
+            return (self.network_id == other.network_id and
+                    self.serial_num == other.serial_num)
+
+    def __ne__(self,other):
+        if not isinstance(other,KbusMessageIdStruct):
+            return True
+        else:
+            return (self.network_id != other.network_id or
+                    self.serial_num != other.serial_num)
 
 class KbusSendResultStruct(ctypes.Structure):
     """The datastucture we need to describe an IOC_SEND argument/return
     """
-    _fields_ = [('retval',  ctypes.c_int),
-                ('msg_id',  KbusMsgIdStruct)]
+    _fields_ = [('retval',  ctypes.c_int32),
+                ('msg_id',  KbusMessageIdStruct)]
+
+class KbusMessageHeaderStruct(ctypes.Structure):
+    """The datastructure for a Message header.
+    """
+    _fields_ = [('start_guard', ctypes.c_uint32),
+                ('id',          KbusMessageIdStruct),
+                ('in_reply_to', KbusMessageIdStruct),
+                ('to',          ctypes.c_uint32),
+                ('from_',       ctypes.c_uint32), # named consistently with elsewhere
+                ('flags',       ctypes.c_uint32),
+                ('name_len',    ctypes.c_uint32),
+                ('data_len',    ctypes.c_uint32)]
+
+    def __repr__(self):
+        """For debugging, not construction of an instance of ourselves.
+        """
+        return "<%08x] %s %s %u %u %08x %u %u"%(
+                self.start_guard,
+                self.id,
+                self.in_reply_to,
+                self.to,
+                self.from_,
+                self.flags,
+                self.name_len,
+                self.data_len)
+
+    def __eq__(self,other):
+        if not isinstance(other,KbusMessageHeaderStruct):
+            return False
+        else:
+            return (self.id == other.id and
+                    self.in_reply_to == other.in_reply_to and
+                    self.to == other.to and
+                    self.from_ == other.from_ and
+                    self.flags == other.flags and
+                    self.name_len == other.name_len and
+                    self.data_len == other.data_len)
+
+    def __ne__(self,other):
+        if not isinstance(other,KbusMessageHeaderStruct):
+            return True
+        else:
+            return (self.id != other.id or
+                    self.in_reply_to != other.in_reply_to or
+                    self.to != other.to or
+                    self.from_ != other.from_ or
+                    self.flags != other.flags or
+                    self.name_len != other.name_len or
+                    self.data_len != other.data_len)
+
+def _struct_to_string(struct):
+    return ctypes.string_at(ctypes.addressof(struct), ctypes.sizeof(struct))
+
+def _struct_from_string(struct_class, data):
+    thing = struct_class()
+    ctypes.memmove(ctypes.addressof(thing), data, ctypes.sizeof(thing))
+    return thing
+
+class KbusEntireMessageStructBaseclass(ctypes.Structure):
+    """The baseclass for our "entire message structure".
+
+    Defined separately just to reduce the amount of code executed in the
+    functions that *build* the classes.
+
+    It is required that the fields defined be 'header', 'name', 'data'
+    and 'end_guard' -- but since I'm assuming this will only be (directly)
+    used internally to kbus.py, I'm happy with that.
+
+        (Specifically, see the ``_specific_entire_message_struct`` function)
+    """
+
+    def __repr__(self):
+        """For debugging, not construction of an instance of ourselves.
+        """
+        return "%s '%s' %s [%08x>"%(
+                self.header,
+                self.name[:self.name_len],
+                _int_tuple_as_str(self.data),
+                self.end_guard)
+
+    def __eq__(self,other):
+        if not isinstance(other,KbusEntireMessageStructBaseclass):
+            return False
+        else:
+            return (self.header == other.header and
+                    self.name == other.name and
+                    self._data_eq(other))
+
+    def __ne__(self,other):
+        if not isinstance(other,KbusEntireMessageStructBaseclass):
+            return True
+        else:
+            return (self.id != other.id or
+                    self.name != other.name or
+                    self._data_ne(other))
+
+    def _data_eq(self,other):
+        if len(self.data) != len(other.data):
+            return False
+        for (a,b) in itertools.izip(self.data, other.data):
+            if a != b:
+                return False
+        return True
+
+    def _data_ne(self,other):
+        if len(self.data) != len(other.data):
+            return True
+        for (a,b) in itertools.izip(self.data, other.data):
+            if a != b:
+                return True
+        return False
+
+def _int_tuple_as_str(data):
+    """Return a representation of a tuple of integers, as a string.
+    """
+    words = []
+    for w in data:
+        words.append('0x%08x'%w)
+
+    if len(words) == 0:
+        return '()'
+    elif len(words) == 1:
+        return '(%s,)'%words[0]
+    else:
+        return '(%s)'%(', '.join(words))
+
+# Is this premature optimisation?
+# I don't think Python would cache the different classes for me,
+# and it seems wasteful to create a new class for *every* message,
+# given there will be a lot of messages that are very similar...
+_specific_entire_message_struct_dict = {}
+
+def _specific_entire_message_struct(padded_name_len, data_len):
+    """Return a specific subclass of KbusMessageHeaderStruct
+    """
+    key = (padded_name_len,data_len)
+    if key in _specific_entire_message_struct_dict:
+        return _specific_entire_message_struct_dict[key]
+    else:
+        class localKbusEntireMessageStruct(KbusEntireMessageStructBaseclass):
+            _fields_ = [('header',     KbusMessageHeaderStruct),
+                        ('name',       ctypes.c_char   * padded_name_len),
+                        ('data',       ctypes.c_uint32 * data_len),
+                        ('end_guard',  ctypes.c_uint32)]
+            # Allow the user to type '.to' instead of '.header.to'
+            _anonymous_ = ('header',)
+        _specific_entire_message_struct_dict[key] = localKbusEntireMessageStruct
+        return localKbusEntireMessageStruct
+
+def entire_message_from_parts(id, in_reply_to, to, from_, flags, name, data):
+    """Return a new KbusEntireMessageStruct of the correct shape.
+
+    - 'id' and 'in_reply_to' are (network_id,serial_num) tuples
+    - 'to', 'in_reply_to' and 'from_' are 0 or a KSock id
+    - 'name' is a string
+    - 'data' is a tuple of integers
+    """
+    name_len = len(name)
+    data_len = len(data)
+
+    # Remember that the message name itself needs padding out to 4-bytes
+    # ...this is about the nastiest way possible of doing it...
+    while len(name)%4:
+        name += '\0'
+
+    padded_name_len = len(name)
+
+    header = KbusMessageHeaderStruct(Message.START_GUARD,
+                                     id, in_reply_to,
+                                     to, from_, flags, name_len, data_len)
+
+    # We rather rely on 'data' "disappearing" (being of zero length)
+    # if 'data_len' is zero, and it appears that that just works.
+
+    local_class = _specific_entire_message_struct(padded_name_len, data_len)
+
+    return local_class(header, name, data, Message.END_GUARD)
+
+def entire_message_from_string(data):
+    """Return a KbusEntireMessageStruct of a size that satisfies.
+
+    'data' is a string-like object (as, for instance, returned by 'read')
+    """
+    h = _struct_from_string(KbusMessageHeaderStruct, data)
+
+    padded_name_len = 4*((h.name_len + 3) / 4)
+
+    local_class = _specific_entire_message_struct(padded_name_len, h.data_len)
+
+    return _struct_from_string(local_class, data)
 
 class KSock(object):
     """A wrapper around a KBUS device, for purposes of message sending.

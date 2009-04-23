@@ -60,6 +60,10 @@
  * startup. We set hard limits so it is between 1 and 10, and default
  * to 1.
  *
+ *     Why a hard limit? A lack of imagination on my part as to what
+ *     one might want more for - there's no particular reason not to
+ *     lift this in the future.
+ *
  * For instance::
  *
  *     # insmod kbus.ko kbus_num_devices=5
