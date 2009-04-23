@@ -94,7 +94,7 @@ def _clear_bit(value,which):
     return value
 
 
-class MessageId(object):
+class MessageId(ctypes.Structure):
     """A wrapper around a message id.
 
         >>> a = MessageId(1,2)
@@ -114,15 +114,20 @@ class MessageId(object):
 
     simply to make it convenient to generate unique message ids.
     """
-
-    def __init__(self,network_id=0,serial_num=0):
-        self.network_id = network_id
-        self.serial_num = serial_num
+    _fields_ = [('network_id', ctypes.c_uint32),
+                ('serial_num', ctypes.c_uint32)]
 
     def __repr__(self):
         return 'MessageId(%u,%u)'%(self.network_id,self.serial_num)
 
+    def _short_str(self):
+        """For use in message structure reporting
+        """
+        return '%u:%u'%(self.network_id,self.serial_num)
+
     def __cmp__(self,other):
+        if not isinstance(other,MessageId):
+            return NotImplemented
         if self.network_id == other.network_id:
             if self.serial_num == other.serial_num:
                 return 0
@@ -137,7 +142,7 @@ class MessageId(object):
 
     def __add__(self,other):
         if not isinstance(other,int):
-            raise NotImplemented
+            return NotImplemented
         else:
             return MessageId(self.network_id,self.serial_num+other)
 
@@ -1452,43 +1457,18 @@ class KbusListenerStruct(ctypes.Structure):
                 ('len',       ctypes.c_uint32),
                 ('name',      ctypes.c_char_p)]
 
-class KbusMessageIdStruct(ctypes.Structure):
-    """The datastucture we need to describe a KBUS message id
-    """
-    _fields_ = [('network_id', ctypes.c_uint32),
-                ('serial_num', ctypes.c_uint32)]
-
-    def __repr__(self):
-        """For debugging, not construction of an instance of ourselves.
-        """
-        return '%u:%u'%(self.network_id,self.serial_num)
-
-    def __eq__(self,other):
-        if not isinstance(other,KbusMessageIdStruct):
-            return False
-        else:
-            return (self.network_id == other.network_id and
-                    self.serial_num == other.serial_num)
-
-    def __ne__(self,other):
-        if not isinstance(other,KbusMessageIdStruct):
-            return True
-        else:
-            return (self.network_id != other.network_id or
-                    self.serial_num != other.serial_num)
-
 class KbusSendResultStruct(ctypes.Structure):
     """The datastucture we need to describe an IOC_SEND argument/return
     """
     _fields_ = [('retval',  ctypes.c_int32),
-                ('msg_id',  KbusMessageIdStruct)]
+                ('msg_id',  MessageId)]
 
 class KbusMessageHeaderStruct(ctypes.Structure):
     """The datastructure for a Message header.
     """
     _fields_ = [('start_guard', ctypes.c_uint32),
-                ('id',          KbusMessageIdStruct),
-                ('in_reply_to', KbusMessageIdStruct),
+                ('id',          MessageId),
+                ('in_reply_to', MessageId),
                 ('to',          ctypes.c_uint32),
                 ('from_',       ctypes.c_uint32), # named consistently with elsewhere
                 ('flags',       ctypes.c_uint32),
@@ -1500,8 +1480,8 @@ class KbusMessageHeaderStruct(ctypes.Structure):
         """
         return "<%08x] %s %s %u %u %08x %u %u"%(
                 self.start_guard,
-                self.id,
-                self.in_reply_to,
+                self.id._short_str(),
+                self.in_reply_to._short_str(),
                 self.to,
                 self.from_,
                 self.flags,

@@ -57,7 +57,7 @@ import nose
 from kbus import KSock, Message, MessageId, Announcement, \
                  Request, Reply, Status, reply_to
 from kbus import read_bindings, KbusBindStruct
-from kbus import NewMessage, KbusMessageIdStruct
+from kbus import NewMessage
 from kbus import _struct_to_string, _struct_from_string
 from kbus import KbusMessageHeaderStruct
 from kbus import entire_message_from_parts, entire_message_from_string
@@ -2291,8 +2291,8 @@ class TestKernelModule:
         name = '$.Fred'
         data = '12345678'
         header = KbusMessageHeaderStruct(Message.START_GUARD,
-                                         KbusMessageIdStruct(0,0),
-                                         KbusMessageIdStruct(0,27),
+                                         MessageId(0,0),
+                                         MessageId(0,27),
                                          32,
                                          0,
                                          0,
@@ -2341,8 +2341,8 @@ class TestKernelModule:
         name = '$.Fred'
         data = (1234,5678)
         header = KbusMessageHeaderStruct(Message.START_GUARD,
-                                         KbusMessageIdStruct(0,0),
-                                         KbusMessageIdStruct(0,27),
+                                         MessageId(0,0),
+                                         MessageId(0,27),
                                          32,
                                          0,
                                          0,
