@@ -85,12 +85,12 @@ def system(command):
     try:
         retcode = subprocess.call(command, shell=True)
         if retcode < 0:
-            print "'%s' was terminated by signal %s"%(command,-retcode)
+            print "'%s' was terminated by signal %s"%(command, -retcode)
         else:
-            print "'%s' returned %s"%(command,retcode)
+            print "'%s' returned %s"%(command, retcode)
         return retcode
     except OSError, e:
-        print "Execution of '%s' failed: %s"%(command,e)
+        print "Execution of '%s' failed: %s"%(command, e)
 
 class BindingsMemory(object):
     """A class for remembering message name bindings.
@@ -98,8 +98,8 @@ class BindingsMemory(object):
     We remember bindings in a dictionary, relating KSock instances to
     bindings made on those interfaces. So, for instance:
     
-       bindings[if] = [(True,False,'$.Fred.Jim.Bob'),
-                       (False,True,'$.Fred')]
+       bindings[if] = [(True, False, '$.Fred.Jim.Bob'),
+                       (False, True, '$.Fred')]
     
     (the order in the tuple matches that in the /proc/kbus/bindings file).
     
@@ -109,20 +109,20 @@ class BindingsMemory(object):
     def __init__(self):
         self.bindings = {}
 
-    def remember_ksock(self,ksock):
+    def remember_ksock(self, ksock):
         self.bindings[ksock] = []
 
-    def forget_ksock(self,ksock):
+    def forget_ksock(self, ksock):
         del self.bindings[ksock]
 
-    def remember_binding(self,ksock,name,replier=False):
-        self.bindings[ksock].append( (replier,name) )
+    def remember_binding(self, ksock, name, replier=False):
+        self.bindings[ksock].append( (replier, name) )
 
-    def forget_binding(self,ksock,name,replier=False):
+    def forget_binding(self, ksock, name, replier=False):
         if_list = self.bindings[ksock]
         # If there are multiple matches, we'll delete the first,
         # which is what we want (well, to delete a single instance)
-        for index,thing in enumerate(if_list):
+        for index, thing in enumerate(if_list):
             if thing[-1] == name:       # the name is always the last element
                 del if_list[index]
                 break
@@ -132,9 +132,9 @@ class BindingsMemory(object):
         """Check the bindings we think we have match those of kbus
         """
         expected = []
-        for ksock,if_list in self.bindings.items():
-            for r,n in if_list:
-                expected.append( (ksock,r,n) )
+        for ksock, if_list in self.bindings.items():
+            for r, n in if_list:
+                expected.append( (ksock, r, n) )
         assert bindings_match(expected)
 
 class RecordingKSock(KSock):
@@ -148,27 +148,27 @@ class RecordingKSock(KSock):
     """
 
     def __init__(self, which=0, mode='r', bindings=None):
-        super(RecordingKSock,self).__init__(which,mode)
+        super(RecordingKSock, self).__init__(which, mode)
         self.bindings = bindings
         self.bindings.remember_ksock(self)
 
     def close(self):
         self.bindings.check_bindings()
-        super(RecordingKSock,self).close()
+        super(RecordingKSock, self).close()
         self.bindings.forget_ksock(self)
         self.bindings = None
 
-    def bind(self,name,replier=False):
+    def bind(self, name, replier=False):
         """A wrapper around the 'bind' function. to keep track of bindings.
         """
-        super(RecordingKSock,self).bind(name,replier)
-        self.bindings.remember_binding(self,name,replier)
+        super(RecordingKSock, self).bind(name, replier)
+        self.bindings.remember_binding(self, name, replier)
 
-    def unbind(self,name,replier=False):
+    def unbind(self, name, replier=False):
         """A wrapper around the 'unbind' function, to keep track of bindings.
         """
-        super(RecordingKSock,self).unbind(name,replier)
-        self.bindings.forget_binding(self,name,replier)
+        super(RecordingKSock, self).unbind(name, replier)
+        self.bindings.forget_binding(self, name, replier)
 
 def str_rep(rep):
     if rep:
@@ -185,7 +185,7 @@ def bindings_match(bindings):
 
     so for instance:
 
-        ( (f,True,'$.Fred'), (g,False,'$.JimBob') )
+        ( (f, True, '$.Fred'), (g, False, '$.JimBob') )
 
     where the boolean means the binding is for a replier (or not).
 
@@ -198,10 +198,10 @@ def bindings_match(bindings):
     """
     testwith = []
     names = {}
-    for (fd,rep,name) in bindings:
+    for (fd, rep, name) in bindings:
         if fd not in names:
             names[fd] = fd.ksock_id()
-        testwith.append((fd.ksock_id(),rep,name))
+        testwith.append((fd.ksock_id(), rep, name))
 
     actual = read_bindings(names)
 
@@ -219,33 +219,33 @@ def bindings_match(bindings):
     print 'The contents of /proc/kbus/bindings is not as expected'
     if len(found):
         print 'The following were expected but not found:'
-        for f,r,n in expected-found:
-            print '  %10u %c %s'%(f,str_rep(r),n)
+        for f, r, n in expected-found:
+            print '  %10u %c %s'%(f, str_rep(r), n)
     if len(expected):
         print 'The following were found but not expected:'
-        for f,r,n in found-expected:
-            print '  %10u %c %s'%(f,str_rep(r),n)
+        for f, r, n in found-expected:
+            print '  %10u %c %s'%(f, str_rep(r), n)
     return False
 
-def check_IOError(expected_errno,fn,*stuff):
-    """When calling apply(fn,stuff), check for IOError with the given errno.
+def check_IOError(expected_errno, fn, *stuff):
+    """When calling apply(fn, stuff), check for IOError with the given errno.
 
     Check that is what happens...
     """
     try:
-        apply(fn,stuff)
+        apply(fn, stuff)
         # We're not expecting to get here...
-        assert False, 'Applying %s%s did not fail with IOError'%(repr(fn),repr(stuff))
+        assert False, 'Applying %s%s did not fail with IOError'%(repr(fn), repr(stuff))
     except IOError, e:
         actual_errno = e.args[0]
         errno_name = errno.errorcode[actual_errno]
         expected_errno_name = errno.errorcode[expected_errno]
         assert actual_errno == expected_errno, \
-                'expected %s, got %s'%(expected_errno_name,errno_name)
+                'expected %s, got %s'%(expected_errno_name, errno_name)
     except Exception, e:
         print e
         assert False, 'Applying %s%s failed with %s, not IOError'%(repr(fn),
-                repr(stuff),sys.exc_type)
+                repr(stuff), sys.exc_type)
 
 class TestKSock:
     """Some basic testing of KSock.
@@ -262,19 +262,19 @@ class TestKSock:
             f = KSock(ii)
             f.close()
         # and not those that don't
-        check_IOError(errno.ENOENT,KSock,-1)
-        check_IOError(errno.ENOENT,KSock,NUM_DEVICES)
+        check_IOError(errno.ENOENT, KSock, -1)
+        check_IOError(errno.ENOENT, KSock, NUM_DEVICES)
 
     def test_modes(self):
         """Test only the allowed modes are allowed
         """
-        f = KSock(0,'r')
+        f = KSock(0, 'r')
         f.close()
-        f = KSock(0,'rw')
+        f = KSock(0, 'rw')
         f.close()
-        nose.tools.assert_raises(ValueError,KSock,0,'fred')
-        nose.tools.assert_raises(ValueError,KSock,0,'w+')
-        nose.tools.assert_raises(ValueError,KSock,0,'x')
+        nose.tools.assert_raises(ValueError, KSock, 0, 'fred')
+        nose.tools.assert_raises(ValueError, KSock, 0, 'w+')
+        nose.tools.assert_raises(ValueError, KSock, 0, 'x')
 
 class TestKernelModule:
 
@@ -284,7 +284,7 @@ class TestKernelModule:
     def _check_bindings(self):
         self.bindings.check_bindings()
 
-    def _check_read(self,f,expected):
+    def _check_read(self, f, expected):
         """Check that we can read back an equivalent message to 'expected'
         """
         if expected:
@@ -302,7 +302,7 @@ class TestKernelModule:
     def test_readonly(self):
         """If we open the device readonly, we can't do much(!)
         """
-        f = RecordingKSock(0,'r',self.bindings)
+        f = RecordingKSock(0, 'r', self.bindings)
         assert f != None
         try:
             # Nothing to read
@@ -310,17 +310,17 @@ class TestKernelModule:
             assert f.read_data(1) == ''
 
             # We can't write to it, by any of the obvious means
-            msg2 = Message('$.Fred',(0xdada,))
-            check_IOError(errno.EBADF,f.write_data,msg2.to_string())
-            check_IOError(errno.EBADF,f.write_msg,msg2)
-            check_IOError(errno.EBADF,f.send_msg,msg2)
+            msg2 = Message('$.Fred', (0xdada,))
+            check_IOError(errno.EBADF, f.write_data, msg2.to_string())
+            check_IOError(errno.EBADF, f.write_msg, msg2)
+            check_IOError(errno.EBADF, f.send_msg, msg2)
         finally:
             assert f.close() is None
 
     def test_readwrite_kbus0(self):
         """If we open the device read/write, we can read and write.
         """
-        f = RecordingKSock(0,'rw',self.bindings)
+        f = RecordingKSock(0, 'rw', self.bindings)
         assert f != None
 
         try:
@@ -328,21 +328,21 @@ class TestKernelModule:
             f.bind('$.C')
 
             # We start off with no message
-            self._check_read(f,None)
+            self._check_read(f, None)
 
             # We can send a message and read it back
-            msg1 = Message('$.B',(0xdada,))
+            msg1 = Message('$.B', (0xdada,))
             f.send_msg(msg1)
-            self._check_read(f,msg1)
+            self._check_read(f, msg1)
 
             # We can send a message and read it back, again
-            msg2 = Message('$.C',(0xfead,))
+            msg2 = Message('$.C', (0xfead,))
             f.send_msg(msg2)
-            self._check_read(f,msg2)
+            self._check_read(f, msg2)
 
             # If we try to send a message that nobody is listening for,
             # it just disappears into the void
-            msg3 = Message('$.D',(0xfead,))
+            msg3 = Message('$.D', (0xfead,))
             f.send_msg(msg3)
 
         finally:
@@ -351,7 +351,7 @@ class TestKernelModule:
     def test_readwrite_kbus0_with_Announcement(self):
         """If we open the device read/write, we can read and write.
         """
-        f = RecordingKSock(0,'rw',self.bindings)
+        f = RecordingKSock(0, 'rw', self.bindings)
         assert f != None
 
         try:
@@ -359,21 +359,21 @@ class TestKernelModule:
             f.bind('$.C')
 
             # We start off with no message
-            self._check_read(f,None)
+            self._check_read(f, None)
 
             # We can send a message and read it back
-            msg1 = Announcement('$.B',(0xdada,))
+            msg1 = Announcement('$.B', (0xdada,))
             f.send_msg(msg1)
-            self._check_read(f,msg1)
+            self._check_read(f, msg1)
 
             # We can send a message and read it back, again
-            msg2 = Announcement('$.C',(0xfead,))
+            msg2 = Announcement('$.C', (0xfead,))
             f.send_msg(msg2)
-            self._check_read(f,msg2)
+            self._check_read(f, msg2)
 
             # If we try to send a message that nobody is listening for,
             # it just disappears into the void
-            msg3 = Announcement('$.D',(0xfead,))
+            msg3 = Announcement('$.D', (0xfead,))
             f.send_msg(msg3)
 
         finally:
@@ -382,32 +382,32 @@ class TestKernelModule:
     def test_two_opens_kbus0(self):
         """If we open the device multiple times, they communicate
         """
-        f1 = RecordingKSock(0,'rw',self.bindings)
+        f1 = RecordingKSock(0, 'rw', self.bindings)
         assert f1 != None
         try:
-            f2 = RecordingKSock(0,'rw',self.bindings)
+            f2 = RecordingKSock(0, 'rw', self.bindings)
             assert f2 != None
             try:
                 # Both files listen to both messages
-                f1.bind('$.B',False)
-                f1.bind('$.C',False)
-                f2.bind('$.B',False)
-                f2.bind('$.C',False)
+                f1.bind('$.B', False)
+                f1.bind('$.C', False)
+                f2.bind('$.B', False)
+                f2.bind('$.C', False)
 
                 # Nothing to read at the start
-                self._check_read(f1,None)
-                self._check_read(f2,None)
+                self._check_read(f1, None)
+                self._check_read(f2, None)
 
                 # If we write, we can read appropriately
-                msg1 = Message('$.B',(0xdada,))
+                msg1 = Message('$.B', (0xdada,))
                 f1.send_msg(msg1)
-                self._check_read(f2,msg1)
-                self._check_read(f1,msg1)
+                self._check_read(f2, msg1)
+                self._check_read(f1, msg1)
 
-                msg2 = Message('$.C',(0xdada,))
+                msg2 = Message('$.C', (0xdada,))
                 f2.send_msg(msg2)
-                self._check_read(f1,msg2)
-                self._check_read(f2,msg2)
+                self._check_read(f1, msg2)
+                self._check_read(f2, msg2)
             finally:
                 assert f2.close() is None
         finally:
@@ -416,7 +416,7 @@ class TestKernelModule:
     def test_bind(self):
         """Initial ioctl/bind test.
         """
-        f = RecordingKSock(0,'rw',self.bindings)
+        f = RecordingKSock(0, 'rw', self.bindings)
         assert f != None
 
         try:
@@ -436,7 +436,7 @@ class TestKernelModule:
     def test_many_bind_1(self):
         """Initial ioctl/bind test -- make lots of bindings
         """
-        f = RecordingKSock(0,'rw',self.bindings)
+        f = RecordingKSock(0, 'rw', self.bindings)
         assert f != None
 
         try:
@@ -450,65 +450,65 @@ class TestKernelModule:
     def test_many_bind_2(self):
         """Initial ioctl/bind test -- make lots of the same binding
         """
-        f = RecordingKSock(0,'rw',self.bindings)
+        f = RecordingKSock(0, 'rw', self.bindings)
         assert f != None
 
         try:
             f.bind('$.Fred')
-            f.bind('$.Fred',False)
-            f.bind('$.Fred',False)
-            f.bind('$.Fred',False)
+            f.bind('$.Fred', False)
+            f.bind('$.Fred', False)
+            f.bind('$.Fred', False)
         finally:
             assert f.close() is None
 
     def test_many_bind_3(self):
         """Initial ioctl/bind test -- multiple matching bindings/unbindings
         """
-        f = RecordingKSock(0,'rw',self.bindings)
+        f = RecordingKSock(0, 'rw', self.bindings)
         assert f != None
 
         try:
-            f.bind('$.Fred',True)  # But remember, only one replier
-            f.bind('$.Fred',False)
-            f.bind('$.Fred',False)
-            f.unbind('$.Fred',True)
-            f.unbind('$.Fred',False)
-            f.unbind('$.Fred',False)
+            f.bind('$.Fred', True)  # But remember, only one replier
+            f.bind('$.Fred', False)
+            f.bind('$.Fred', False)
+            f.unbind('$.Fred', True)
+            f.unbind('$.Fred', False)
+            f.unbind('$.Fred', False)
             # But not too many
             check_IOError(errno.EINVAL, f.unbind, '$.Fred')
-            check_IOError(errno.EINVAL, f.unbind, '$.Fred',False)
+            check_IOError(errno.EINVAL, f.unbind, '$.Fred', False)
             # We can't unbind something we've not bound
-            check_IOError(errno.EINVAL, f.unbind, '$.JimBob',False)
+            check_IOError(errno.EINVAL, f.unbind, '$.JimBob', False)
         finally:
             assert f.close() is None
 
     def test_bind_more(self):
         """Initial ioctl/bind test - with more bindings.
         """
-        f1 = RecordingKSock(0,'rw',self.bindings)
+        f1 = RecordingKSock(0, 'rw', self.bindings)
         assert f1 != None
         try:
-            f2 = RecordingKSock(0,'rw',self.bindings)
+            f2 = RecordingKSock(0, 'rw', self.bindings)
             assert f2 != None
             try:
                 # We can bind and unbind
-                f1.bind('$.Fred',replier=True)
-                f1.unbind( '$.Fred',replier=True)
-                f1.bind('$.Fred',replier=False)
-                f1.unbind( '$.Fred',replier=False)
+                f1.bind('$.Fred', replier=True)
+                f1.unbind( '$.Fred', replier=True)
+                f1.bind('$.Fred', replier=False)
+                f1.unbind( '$.Fred', replier=False)
                 # We can bind many times
-                f1.bind('$.Fred',replier=False)
-                f1.bind('$.Fred',replier=False)
-                f1.bind('$.Fred',replier=False)
+                f1.bind('$.Fred', replier=False)
+                f1.bind('$.Fred', replier=False)
+                f1.bind('$.Fred', replier=False)
                 # But we can only have one replier
-                f1.bind('$.Fred',replier=True)
-                check_IOError(errno.EADDRINUSE, f1.bind, '$.Fred',True)
+                f1.bind('$.Fred', replier=True)
+                check_IOError(errno.EADDRINUSE, f1.bind, '$.Fred', True)
 
                 # Two files can bind to the same thing
-                f1.bind('$.Jim.Bob',replier=False)
-                f2.bind('$.Jim.Bob',replier=False)
+                f1.bind('$.Jim.Bob', replier=False)
+                f2.bind('$.Jim.Bob', replier=False)
                 # But we can still only have one replier
-                f1.bind('$.Jim.Bob',replier=True)
+                f1.bind('$.Jim.Bob', replier=True)
                 check_IOError(errno.EADDRINUSE, f2.bind, '$.Jim.Bob', True)
             finally:
                 assert f2.close() is None
@@ -518,16 +518,16 @@ class TestKernelModule:
     def test_bindings_match1(self):
         """Check that bindings match inside and out.
         """
-        f1 = RecordingKSock(0,'rw',self.bindings)
+        f1 = RecordingKSock(0, 'rw', self.bindings)
         assert f1 != None
         try:
-            f2 = RecordingKSock(0,'rw',self.bindings)
+            f2 = RecordingKSock(0, 'rw', self.bindings)
             assert f2 != None
             try:
-                f1.bind('$.Fred',True)
-                f1.bind('$.Fred.Jim',True)
-                f1.bind('$.Fred.Bob',True)
-                f1.bind('$.Fred.Jim.Bob',True)
+                f1.bind('$.Fred', True)
+                f1.bind('$.Fred.Jim', True)
+                f1.bind('$.Fred.Bob', True)
+                f1.bind('$.Fred.Jim.Bob', True)
                 f1.bind('$.Fred.Jim.Derek')
                 # /proc/kbus/bindings should reflect all of the above, and none other
                 self._check_bindings()
@@ -535,7 +535,7 @@ class TestKernelModule:
                 f2.bind('$.William')
                 f2.bind('$.William')
                 f2.bind('$.William')
-                f1.bind('$.Fred.Jim.Bob.Eric',True)
+                f1.bind('$.Fred.Jim.Bob.Eric', True)
                 self._check_bindings()
             finally:
                 assert f2.close() is None
@@ -547,31 +547,31 @@ class TestKernelModule:
     def test_rw_single_file(self):
         """Test reading and writing two messages on a single file
         """
-        f = RecordingKSock(0,'rw',self.bindings)
+        f = RecordingKSock(0, 'rw', self.bindings)
         assert f != None
         try:
 
             name1 = '$.Fred.Jim'
-            data1 = array.array('L','datadata')
+            data1 = array.array('L', 'datadata')
 
             name2 = '$.Fred.Bob.William'
-            data2 = array.array('L','This is surely some data')
+            data2 = array.array('L', 'This is surely some data')
 
             # Bind so that we can write/read the first, but not the second
-            f.bind(name1,False)
-            f.bind('$.William',False)
+            f.bind(name1, False)
+            f.bind('$.William', False)
 
-            msg1 = Message(name1,data=data1)
+            msg1 = Message(name1, data=data1)
             f.send_msg(msg1)
-            print 'Wrote:',msg1
+            print 'Wrote:', msg1
 
             # There are no listeners for '$.Fred.Bob.William'
-            msg2 = Message(name2,data=data2)
+            msg2 = Message(name2, data=data2)
             f.send_msg(msg2)
             # So it just gets ignored
 
             msg1r = f.read_next_msg()
-            print 'Read: ',msg1r
+            print 'Read: ', msg1r
 
             # The message read should essentially match
             assert msg1.equivalent(msg1r)
@@ -588,17 +588,17 @@ class TestKernelModule:
     def test_read_write_2files(self):
         """Test reading and writing between two files.
         """
-        f1 = RecordingKSock(0,'rw',self.bindings)
+        f1 = RecordingKSock(0, 'rw', self.bindings)
         assert f1 != None
         try:
-            f2 = RecordingKSock(0,'rw',self.bindings)
+            f2 = RecordingKSock(0, 'rw', self.bindings)
             assert f2 != None
             try:
-                f1.bind('$.Fred',False)
-                f1.bind('$.Fred',False)
-                f1.bind('$.Fred',False)
+                f1.bind('$.Fred', False)
+                f1.bind('$.Fred', False)
+                f1.bind('$.Fred', False)
 
-                f2.bind('$.Jim',False)
+                f2.bind('$.Jim', False)
 
                 # No one is listening for $.William, so we can just send it
                 # and it will get ignored
@@ -607,11 +607,11 @@ class TestKernelModule:
                 f2.send_msg(msgW)
 
                 # Writing to $.Fred on f1 - writes message id N
-                msgF = Message('$.Fred',(0xdada,))
+                msgF = Message('$.Fred', (0xdada,))
                 n0 = f1.send_msg(msgF)
 
                 # Writing to $.Jim on f1 - writes message N+1
-                msgJ = Message('$.Jim',(0x1234,0x5678))
+                msgJ = Message('$.Jim', (0x1234, 0x5678))
                 n1 = f1.send_msg(msgJ)
                 assert n1 == n0+1
 
@@ -654,36 +654,36 @@ class TestKernelModule:
     def test_message_names(self):
         """Test for message name legality.
         """
-        f = RecordingKSock(0,'rw',self.bindings)
+        f = RecordingKSock(0, 'rw', self.bindings)
         assert f != None
         try:
 
-            def _error(error,name):
+            def _error(error, name):
                 check_IOError(error, f.bind, name, True)
 
             def _ok(name):
-                f.bind(name,True)
+                f.bind(name, True)
 
             # I don't necessarily know what name will be "too long",
             # but we can make a good guess as to a silly sort of length
-            _error(errno.ENAMETOOLONG,'1234567890'*1000)
+            _error(errno.ENAMETOOLONG, '1234567890'*1000)
 
             # We need a leading '$.'
-            _error(errno.EBADMSG,'')
-            _error(errno.EBADMSG,'$')
-            _error(errno.EBADMSG,'$x')
-            _error(errno.EBADMSG,'Fred')
+            _error(errno.EBADMSG, '')
+            _error(errno.EBADMSG, '$')
+            _error(errno.EBADMSG, '$x')
+            _error(errno.EBADMSG, 'Fred')
 
-            _error(errno.EBADMSG,"$.Non-alphanumerics aren't allowed")
-            _error(errno.EBADMSG,'$.#')
+            _error(errno.EBADMSG, "$.Non-alphanumerics aren't allowed")
+            _error(errno.EBADMSG, '$.#')
 
             # We cannot end with a dot
-            _error(errno.EBADMSG,'$.Fred.')
-            _error(errno.EBADMSG,'$.Fred..')
+            _error(errno.EBADMSG, '$.Fred.')
+            _error(errno.EBADMSG, '$.Fred..')
             # Or have two dots in a row
-            _error(errno.EBADMSG,'$.Fred..Jim')
-            _error(errno.EBADMSG,'$.Fred...Jim')
-            _error(errno.EBADMSG,'$.Fred....Jim')
+            _error(errno.EBADMSG, '$.Fred..Jim')
+            _error(errno.EBADMSG, '$.Fred...Jim')
+            _error(errno.EBADMSG, '$.Fred....Jim')
 
             # The following *are* legal
             _ok('$.Fred.Jim')
@@ -702,12 +702,12 @@ class TestKernelModule:
     def test_data_too_long(self):
         """Test for message name legality.
         """
-        f = RecordingKSock(0,'rw',self.bindings)
+        f = RecordingKSock(0, 'rw', self.bindings)
         assert f != None
         try:
             # I don't necessarily know how much data will be "too long",
             # but we can make a good guess as to a silly sort of length
-            m = Message('$.Fred',data=(1,2)*1000)
+            m = Message('$.Fred', data=(1, 2)*1000)
             f.bind('$.Fred')
             check_IOError(errno.EMSGSIZE, f.send_msg, m)
         finally:
@@ -716,7 +716,7 @@ class TestKernelModule:
     def test_cant_write_to_wildcard(self):
         """It's not possible to send a message with a wildcard name.
         """
-        f = RecordingKSock(0,'rw',self.bindings)
+        f = RecordingKSock(0, 'rw', self.bindings)
         assert f != None
         try:
             # Listen with a wildcard - this is OK
@@ -738,9 +738,9 @@ class TestKernelModule:
     def test_request_vs_message(self):
         """Test repliers and Requests versus Messages
         """
-        with RecordingKSock(0,'rw',self.bindings) as f0:
-            with RecordingKSock(0,'r',self.bindings) as listener:
-                listener.bind('$.Fred.Message',False)
+        with RecordingKSock(0, 'rw', self.bindings) as f0:
+            with RecordingKSock(0, 'r', self.bindings) as listener:
+                listener.bind('$.Fred.Message', False)
                 
                 # A listener receives Messages
                 m = Message('$.Fred.Message')
@@ -749,8 +749,8 @@ class TestKernelModule:
                 assert r.equivalent(m)
                 assert not r.wants_us_to_reply()
 
-                with RecordingKSock(0,'r',self.bindings) as replier:
-                    replier.bind('$.Fred.Message',True)
+                with RecordingKSock(0, 'r', self.bindings) as replier:
+                    replier.bind('$.Fred.Message', True)
 
                     # And a listener receives Requests (although it need not reply)
                     m = Request('$.Fred.Message')
@@ -774,10 +774,10 @@ class TestKernelModule:
     def test_wildcards_a_bit(self):
         """Some initial testing of wildcards. And use of 'with'
         """
-        with RecordingKSock(0,'rw',self.bindings) as f:
+        with RecordingKSock(0, 'rw', self.bindings) as f:
             assert f != None
             # Note, binding just as a listener
-            f.bind('$.Fred.*',False)
+            f.bind('$.Fred.*', False)
 
             # We should receive the message, it matches the wildcard
             m = Message('$.Fred.Jim')
@@ -798,7 +798,7 @@ class TestKernelModule:
             # A more specific binding, overlapping the wildcard
             # Since we're bound as (just) a listener both times,
             # we should get the message twice, once for each binding
-            f.bind('$.Fred.Jim',False)
+            f.bind('$.Fred.Jim', False)
             m = Message('$.Fred.Jim')
             f.send_msg(m)
             r = f.read_next_msg()
@@ -809,10 +809,10 @@ class TestKernelModule:
     def test_wildcards_a_bit_more(self):
         """Some more initial testing of wildcards. And use of 'with'
         """
-        with RecordingKSock(0,'rw',self.bindings) as f:
+        with RecordingKSock(0, 'rw', self.bindings) as f:
             assert f != None
             # Note, binding as a default replier
-            f.bind('$.Fred.*',True)
+            f.bind('$.Fred.*', True)
 
             # We should receive the message, it matches the wildcard
             m = Request('$.Fred.Jim')
@@ -833,7 +833,7 @@ class TestKernelModule:
             check_IOError(errno.EADDRNOTAVAIL, f.send_msg, m)
 
             # A more specific binding, overlapping the wildcard
-            f.bind('$.Fred.Jim',True)
+            f.bind('$.Fred.Jim', True)
             m = Request('$.Fred.Jim')
             f.send_msg(m)
             r = f.read_next_msg()
@@ -865,7 +865,7 @@ class TestKernelModule:
     def test_iteration(self):
         """Test we can iterate over messages.
         """
-        with RecordingKSock(0,'rw',self.bindings) as f:
+        with RecordingKSock(0, 'rw', self.bindings) as f:
             assert f != None
             f.bind('$.Fred')
             m = Message('$.Fred')
@@ -886,18 +886,18 @@ class TestKernelModule:
     def test_wildcard_listening_1(self):
         """Test using wildcards to listen - 1, asterisk.
         """
-        with RecordingKSock(0,'rw',self.bindings) as f0:
+        with RecordingKSock(0, 'rw', self.bindings) as f0:
 
-            with RecordingKSock(0,'r',self.bindings) as f1:
+            with RecordingKSock(0, 'r', self.bindings) as f1:
                 f1.bind('$.This.Fred')
                 f1.bind('$.That.Fred')
 
-                with RecordingKSock(0,'r',self.bindings) as f2:
+                with RecordingKSock(0, 'r', self.bindings) as f2:
                     f2.bind('$.This.Jim.One')
                     f2.bind('$.This.Jim.Two')
                     f2.bind('$.That.Jim')
 
-                    with RecordingKSock(0,'r',self.bindings) as f3:
+                    with RecordingKSock(0, 'r', self.bindings) as f3:
                         f3.bind('$.This.*')
 
                         # For each tuple, we have:
@@ -907,20 +907,20 @@ class TestKernelModule:
                         # 2. Whether it should be "seen" by f0 (via f0's
                         #    wildcard binding)
                         # 3. The actual message
-                        msgs = [ (f1, True,  Message('$.This.Fred','dat1')),
-                                 (f1, True,  Message('$.This.Fred','dat2')),
-                                 (f1, False, Message('$.That.Fred','dat3')),
-                                 (f1, False, Message('$.That.Fred','dat4')),
-                                 (f2, True,  Message('$.This.Jim.One','dat1')),
-                                 (f2, True,  Message('$.This.Jim.Two','dat2')),
-                                 (f2, False, Message('$.That.Jim','dat3')),
-                                 (f2, False, Message('$.That.Jim','dat4')),
+                        msgs = [ (f1, True,  Message('$.This.Fred', 'dat1')),
+                                 (f1, True,  Message('$.This.Fred', 'dat2')),
+                                 (f1, False, Message('$.That.Fred', 'dat3')),
+                                 (f1, False, Message('$.That.Fred', 'dat4')),
+                                 (f2, True,  Message('$.This.Jim.One', 'dat1')),
+                                 (f2, True,  Message('$.This.Jim.Two', 'dat2')),
+                                 (f2, False, Message('$.That.Jim', 'dat3')),
+                                 (f2, False, Message('$.That.Jim', 'dat4')),
                                 ]
 
-                        for fd,wild,m in msgs:
+                        for fd, wild, m in msgs:
                             f0.send_msg(m)
 
-                        for fd,wild,m in msgs:
+                        for fd, wild, m in msgs:
                             if wild:
                                 # This is a message that f3 should see
                                 a = f3.read_next_msg()
@@ -933,18 +933,18 @@ class TestKernelModule:
     def test_wildcard_listening_2(self):
         """Test using wildcards to listen - 2, percent.
         """
-        with RecordingKSock(0,'rw',self.bindings) as f0:
+        with RecordingKSock(0, 'rw', self.bindings) as f0:
 
-            with RecordingKSock(0,'r',self.bindings) as f1:
+            with RecordingKSock(0, 'r', self.bindings) as f1:
                 f1.bind('$.This.Fred')
                 f1.bind('$.That.Fred')
 
-                with RecordingKSock(0,'r',self.bindings) as f2:
+                with RecordingKSock(0, 'r', self.bindings) as f2:
                     f2.bind('$.This.Jim.One')
                     f2.bind('$.This.Jim.Two')
                     f2.bind('$.That.Jim')
 
-                    with RecordingKSock(0,'r',self.bindings) as f3:
+                    with RecordingKSock(0, 'r', self.bindings) as f3:
                         f3.bind('$.This.%')
 
                         # For each tuple, we have:
@@ -954,20 +954,20 @@ class TestKernelModule:
                         # 2. Whether it should be "seen" by f0 (via f0's
                         #    wildcard binding)
                         # 3. The actual message
-                        msgs = [ (f1, True,  Message('$.This.Fred','dat1')),
-                                 (f1, True,  Message('$.This.Fred','dat2')),
-                                 (f1, False, Message('$.That.Fred','dat3')),
-                                 (f1, False, Message('$.That.Fred','dat4')),
-                                 (f2, False, Message('$.This.Jim.One','dat1')),
-                                 (f2, False, Message('$.This.Jim.Two','dat2')),
-                                 (f2, False, Message('$.That.Jim','dat3')),
-                                 (f2, False, Message('$.That.Jim','dat4')),
+                        msgs = [ (f1, True,  Message('$.This.Fred', 'dat1')),
+                                 (f1, True,  Message('$.This.Fred', 'dat2')),
+                                 (f1, False, Message('$.That.Fred', 'dat3')),
+                                 (f1, False, Message('$.That.Fred', 'dat4')),
+                                 (f2, False, Message('$.This.Jim.One', 'dat1')),
+                                 (f2, False, Message('$.This.Jim.Two', 'dat2')),
+                                 (f2, False, Message('$.That.Jim', 'dat3')),
+                                 (f2, False, Message('$.That.Jim', 'dat4')),
                                 ]
 
-                        for fd,wild,m in msgs:
+                        for fd, wild, m in msgs:
                             f0.send_msg(m)
 
-                        for fd,wild,m in msgs:
+                        for fd, wild, m in msgs:
                             if wild:
                                 # This is a message that f3 should see
                                 a = f3.read_next_msg()
@@ -980,19 +980,19 @@ class TestKernelModule:
     def test_reply_single_file(self):
         """Test replying with a single file
         """
-        with RecordingKSock(0,'rw',self.bindings) as f:
+        with RecordingKSock(0, 'rw', self.bindings) as f:
             name1 = '$.Fred.Jim'
             name2 = '$.Fred.Bob.William'
             name3 = '$.Fred.Bob.Jonathan'
 
-            f.bind(name1,True)     # replier
-            f.bind(name1,False)    # and listener
-            f.bind(name2,True)     # replier
-            f.bind(name3,False)    # listener
+            f.bind(name1, True)     # replier
+            f.bind(name1, False)    # and listener
+            f.bind(name2, True)     # replier
+            f.bind(name3, False)    # listener
 
-            msg1 = Message(name1,data='dat1')
-            msg2 = Request(name2,data='dat2')
-            msg3 = Request(name3,data='dat3')
+            msg1 = Message(name1, data='dat1')
+            msg2 = Request(name2, data='dat2')
+            msg3 = Request(name3, data='dat3')
 
             f.send_msg(msg1)
             f.send_msg(msg2)
@@ -1018,7 +1018,7 @@ class TestKernelModule:
             # We can make a reply "by hand" - remember that we want to
             # reply to the message we *received*, which has the id set
             # (by KBUS)
-            (id,in_reply_to,to,from_,flags,name,data_array) = m2.extract()
+            (id, in_reply_to, to, from_, flags, name, data_array) = m2.extract()
             reply_by_hand = Message(name, data=None, in_reply_to=id, to=from_)
 
             # But it is easier to use the pre-packaged mechanism
@@ -1042,13 +1042,13 @@ class TestKernelModule:
     def test_reply_three_files(self):
         """Test replying with two files in dialogue, and another listening
         """
-        with RecordingKSock(0,'r',self.bindings) as listener:
+        with RecordingKSock(0, 'r', self.bindings) as listener:
             listener.bind('$.*')
 
-            with RecordingKSock(0,'rw',self.bindings) as writer:
+            with RecordingKSock(0, 'rw', self.bindings) as writer:
 
-                with RecordingKSock(0,'rw',self.bindings) as replier:
-                    replier.bind('$.Fred',replier=True)
+                with RecordingKSock(0, 'rw', self.bindings) as replier:
+                    replier.bind('$.Fred', replier=True)
 
                     msg1 = Message('$.Fred')    # no reply necessary
                     msg2 = Request('$.Fred')
@@ -1096,13 +1096,13 @@ class TestKernelModule:
     def test_wildcard_generic_vs_specific_bind_1(self):
         """Test generic versus specific wildcard binding - fit the first
         """
-        with RecordingKSock(0,'rw',self.bindings) as f0:
+        with RecordingKSock(0, 'rw', self.bindings) as f0:
             # We'll use this interface to do all the writing of requests,
             # just to keep life simple.
 
-            with RecordingKSock(0,'r',self.bindings) as f1:
+            with RecordingKSock(0, 'r', self.bindings) as f1:
                 # f1 asks for generic replier status on everything below '$.Fred'
-                f1.bind('$.Fred.*',replier=True)
+                f1.bind('$.Fred.*', replier=True)
 
                 mJim = Request('$.Fred.Jim')
                 f0.send_msg(mJim)
@@ -1115,9 +1115,9 @@ class TestKernelModule:
                 # Hmm - apart from existential worries, nothing happens if we
                 # don't *actually* reply..
 
-                with RecordingKSock(0,'r',self.bindings) as f2:
+                with RecordingKSock(0, 'r', self.bindings) as f2:
                     # f2 knows it wants specific replier status on '$.Fred.Jim'
-                    f2.bind('$.Fred.Jim',replier=True)
+                    f2.bind('$.Fred.Jim', replier=True)
 
                     # So, now, any requests to '$.Fred.Jim' should only go to
                     # f2, who should need to reply to them.
@@ -1141,13 +1141,13 @@ class TestKernelModule:
     def test_wildcard_generic_vs_specific_bind_2(self):
         """Test generic versus specific wildcard binding - fit the second
         """
-        with RecordingKSock(0,'rw',self.bindings) as f0:
+        with RecordingKSock(0, 'rw', self.bindings) as f0:
             # We'll use this interface to do all the writing of requests,
             # just to keep life simple.
 
-            with RecordingKSock(0,'r',self.bindings) as f1:
+            with RecordingKSock(0, 'r', self.bindings) as f1:
                 # f1 asks for generic replier status on everything below '$.Fred'
-                f1.bind('$.Fred.*',replier=True)
+                f1.bind('$.Fred.*', replier=True)
 
                 mJim = Request('$.Fred.Jim')
                 f0.send_msg(mJim)
@@ -1160,9 +1160,9 @@ class TestKernelModule:
                 # Hmm - apart from existential worries, nothing happens if we
                 # don't *actually* reply..
 
-                with RecordingKSock(0,'r',self.bindings) as f2:
+                with RecordingKSock(0, 'r', self.bindings) as f2:
                     # f2 gets more specific
-                    f2.bind('$.Fred.%',replier=True)
+                    f2.bind('$.Fred.%', replier=True)
 
                     # So, now, any requests to '$.Fred.Jim' should only go to
                     # f2, who should need to reply to them.
@@ -1183,9 +1183,9 @@ class TestKernelModule:
                     assert rJimBob.equivalent(mJimBob)
                     assert f1.next_msg() == 0
 
-                    with RecordingKSock(0,'r',self.bindings) as f3:
+                    with RecordingKSock(0, 'r', self.bindings) as f3:
                         # f3 knows it wants specific replier status on '$.Fred.Jim'
-                        f3.bind('$.Fred.Jim',replier=True)
+                        f3.bind('$.Fred.Jim', replier=True)
 
                         # So, now, any requests to '$.Fred.Jim' should only go to
                         # f3, who should need to reply to them.
@@ -1215,8 +1215,8 @@ class TestKernelModule:
     def test_message_subclasses(self):
         """Reading from a KSock and casting gives an appropriate Message subclass.
         """
-        with KSock(0,'rw') as sender:
-            with KSock(0,'rw') as listener:
+        with KSock(0, 'rw') as sender:
+            with KSock(0, 'rw') as listener:
                 listener.bind('$.Fred')
                 ann = Announcement('$.Fred')
                 ann_id = sender.send_msg(ann)
@@ -1225,10 +1225,10 @@ class TestKernelModule:
                 m = m.cast()
                 assert m.id == ann_id
                 assert m.equivalent(ann)
-                assert isinstance(m,Announcement)
+                assert isinstance(m, Announcement)
 
                 listener.unbind('$.Fred')
-                listener.bind('$.Fred',True)
+                listener.bind('$.Fred', True)
                 req = Request('$.Fred')
                 req_id = sender.send_msg(req)
 
@@ -1236,7 +1236,7 @@ class TestKernelModule:
                 m = m.cast()
                 assert m.id == req_id
                 assert m.equivalent(req)
-                assert isinstance(m,Request)
+                assert isinstance(m, Request)
 
                 rep = reply_to(m)
                 rep_id = listener.send_msg(rep)
@@ -1245,37 +1245,37 @@ class TestKernelModule:
                 m = m.cast()
                 assert m.id == rep_id
                 assert m.equivalent(rep)
-                assert isinstance(m,Reply)
+                assert isinstance(m, Reply)
 
                 req = Request('$.Fred')
                 req_id = sender.send_msg(req)
-                listener.unbind('$.Fred',True)
+                listener.unbind('$.Fred', True)
                 m = sender.read_next_msg()
                 m = m.cast()
                 assert m.in_reply_to == req_id
                 assert m.name.startswith('$.KBUS.')
-                assert isinstance(m,Status)
+                assert isinstance(m, Status)
 
     def test_reads(self):
         """Test partial reads, next_msg, etc.
         """
-        with RecordingKSock(0,'rw',self.bindings) as f0:
+        with RecordingKSock(0, 'rw', self.bindings) as f0:
             # We'll use this interface to do all the writing of requests,
             # just to keep life simple.
 
-            with RecordingKSock(0,'r',self.bindings) as f1:
+            with RecordingKSock(0, 'r', self.bindings) as f1:
                 f1.bind('$.Fred')
 
                 # At this point, nothing to read
                 assert f1.next_msg() == 0
 
                 # Stack up some useful writes
-                m1 = Message('$.Fred','dat1')
-                m2 = Message('$.Fred','dat2')
-                m3 = Message('$.Fred','dat3')
-                m4 = Message('$.Fred','dat4')
-                m5 = Message('$.Fred','dat5')
-                m6 = Message('$.Fred','dat6')
+                m1 = Message('$.Fred', 'dat1')
+                m2 = Message('$.Fred', 'dat2')
+                m3 = Message('$.Fred', 'dat3')
+                m4 = Message('$.Fred', 'dat4')
+                m5 = Message('$.Fred', 'dat5')
+                m6 = Message('$.Fred', 'dat6')
 
                 f0.send_msg(m1)
                 f0.send_msg(m2)
@@ -1344,14 +1344,14 @@ class TestKernelModule:
     def test_partial_writes(self):
         """Test partial writes, etc.
         """
-        with RecordingKSock(0,'rw',self.bindings) as f0:
+        with RecordingKSock(0, 'rw', self.bindings) as f0:
             # We'll use this interface to do all the writing of requests,
             # just to keep life simple.
 
-            with RecordingKSock(0,'r',self.bindings) as f1:
+            with RecordingKSock(0, 'r', self.bindings) as f1:
                 f1.bind('$.Fred')
 
-                m = Message('$.Fred',(0xdada,))
+                m = Message('$.Fred', (0xdada,))
 
                 # We can do it all in one go (the convenient way)
                 f0.send_msg(m)
@@ -1392,19 +1392,19 @@ class TestKernelModule:
     def test_reply_to_specific_id(self):
         """Test replying to a specific id.
         """
-        with KSock(0,'rw') as f1:
-            with KSock(0,'rw') as f2:
-                with KSock(0,'rw') as f3:
+        with KSock(0, 'rw') as f1:
+            with KSock(0, 'rw') as f2:
+                with KSock(0, 'rw') as f3:
 
-                    print 'f1 is',f1.ksock_id()
-                    print 'f2 is',f2.ksock_id()
-                    print 'f3 is',f3.ksock_id()
+                    print 'f1 is', f1.ksock_id()
+                    print 'f2 is', f2.ksock_id()
+                    print 'f3 is', f3.ksock_id()
 
                     # f2 is listening for someone to say 'Hello'
                     f2.bind('$.Hello')
 
                     # f1 says 'Hello' to anyone listening
-                    m = Message('$.Hello',(0xdada,))
+                    m = Message('$.Hello', (0xdada,))
                     f1.send_msg(m)
 
                     # We read the next message - it's a 'Hello'
@@ -1413,14 +1413,14 @@ class TestKernelModule:
                     print r
 
                     # Two interfaces decide to listen to '$.Reponse'
-                    f1.bind('$.Response',True)
+                    f1.bind('$.Response', True)
                     f3.bind('$.Response')
                     # However, f2 *cares* that f1 should receive its
                     # response, and is not worried about anyone else
                     # doing so
                     target_id = r.from_
                     print 'Hello from %d'%target_id
-                    m2 = Request('$.Response',data=(0xfead,),to=target_id)
+                    m2 = Request('$.Response', data=(0xfead,), to=target_id)
                     f2.send_msg(m2)
 
                     # So, both recipients should "see" it
@@ -1432,28 +1432,28 @@ class TestKernelModule:
                     # But if f1 should stop listening to the responses
                     # (either because it "goes away", or because it unbinds)
                     # then we want to know about this...
-                    f1.unbind('$.Response',True)
+                    f1.unbind('$.Response', True)
                     check_IOError(errno.EADDRNOTAVAIL, f2.send_msg, m2)
 
                     # And if someone different starts to reply, we want to
                     # know about that as well
-                    f3.bind('$.Response',True)
+                    f3.bind('$.Response', True)
                     check_IOError(errno.EPIPE, f2.send_msg, m2)
 
     def test_request_with_replier_and_listener(self):
         """Send a request to replier/listener (same ksock)
         """
-        with KSock(0,'rw') as f1:
+        with KSock(0, 'rw') as f1:
             f1_id = f1.ksock_id()
             f2_id = 0
 
-            m = Request('$.Fred',(0xdada,))
+            m = Request('$.Fred', (0xdada,))
             print m
 
-            with KSock(0,'rw') as f2:
+            with KSock(0, 'rw') as f2:
                 f2_id = f2.ksock_id()
-                f2.bind('$.Fred',replier=True)
-                f2.bind('$.Fred',replier=False)
+                f2.bind('$.Fred', replier=True)
+                f2.bind('$.Fred', replier=False)
 
                 f1.send_msg(m)
 
@@ -1474,15 +1474,15 @@ class TestKernelModule:
     def test_request_with_replier_absconding(self):
         """Send a request, but the replier goes away.
         """
-        with KSock(0,'rw') as f1:
+        with KSock(0, 'rw') as f1:
             f1_id = f1.ksock_id()
             f2_id = 0
 
-            m = Request('$.Fred',(0xdada,))
+            m = Request('$.Fred', (0xdada,))
 
-            with KSock(0,'rw') as f2:
+            with KSock(0, 'rw') as f2:
                 f2_id = f2.ksock_id()
-                f2.bind('$.Fred',replier=True)
+                f2.bind('$.Fred', replier=True)
 
                 f1.send_msg(m)
                 m_id = f1.last_msg_id()
@@ -1490,8 +1490,8 @@ class TestKernelModule:
             # And f2 closes ("releases" internally)
             e = f1.read_next_msg()
 
-            print 'f1 is',f1_id
-            print 'f2 is',f2_id
+            print 'f1 is', f1_id
+            print 'f2 is', f2_id
             print m
             print e
 
@@ -1506,16 +1506,16 @@ class TestKernelModule:
     def test_request_with_replier_absconding_2(self):
         """Send a request, but the replier (who is also a listener) goes away.
         """
-        with KSock(0,'rw') as f1:
+        with KSock(0, 'rw') as f1:
             f1_id = f1.ksock_id()
             f2_id = 0
 
-            m = Request('$.Fred',(0xdada,))
+            m = Request('$.Fred', (0xdada,))
 
-            with KSock(0,'rw') as f2:
+            with KSock(0, 'rw') as f2:
                 f2_id = f2.ksock_id()
-                f2.bind('$.Fred',replier=True)
-                f2.bind('$.Fred',replier=False)
+                f2.bind('$.Fred', replier=True)
+                f2.bind('$.Fred', replier=False)
 
                 f1.send_msg(m)
                 m_id = f1.last_msg_id()
@@ -1537,19 +1537,19 @@ class TestKernelModule:
     def test_request_with_replier_absconding_3(self):
         """Send a request, but the replier (who is also a listener) goes away.
         """
-        with KSock(0,'rw') as f1:
+        with KSock(0, 'rw') as f1:
             f1_id = f1.ksock_id()
             f2_id = 0
 
-            r1 = Request('$.Fred',(0xdada,))
-            r2 = Request('$.Fred','more')
-            m1 = Message('$.Fred',(0xdada,))
-            m2 = Message('$.Fred','more')
+            r1 = Request('$.Fred', (0xdada,))
+            r2 = Request('$.Fred', 'more')
+            m1 = Message('$.Fred', (0xdada,))
+            m2 = Message('$.Fred', 'more')
 
-            with KSock(0,'rw') as f2:
+            with KSock(0, 'rw') as f2:
                 f2_id = f2.ksock_id()
-                f2.bind('$.Fred',replier=True)
-                f2.bind('$.Fred',replier=False)
+                f2.bind('$.Fred', replier=True)
+                f2.bind('$.Fred', replier=False)
 
                 f1.send_msg(m1)
                 f1.send_msg(r1)
@@ -1585,26 +1585,26 @@ class TestKernelModule:
     def test_request_with_replier_unbinding(self):
         """Send a request, but the replier goes unbinds.
         """
-        with KSock(0,'rw') as f1:
+        with KSock(0, 'rw') as f1:
             f1_id = f1.ksock_id()
             f2_id = 0
 
-            m = Request('$.Fred',(0xdada,))
+            m = Request('$.Fred', (0xdada,))
 
-            with KSock(0,'rw') as f2:
+            with KSock(0, 'rw') as f2:
                 f2_id = f2.ksock_id()
-                f2.bind('$.Fred',replier=True)
+                f2.bind('$.Fred', replier=True)
 
                 f1.send_msg(m)
                 m_id = f1.last_msg_id()
 
                 # And f2 unbinds
-                f2.unbind('$.Fred',replier=True)
+                f2.unbind('$.Fred', replier=True)
 
                 e = f1.read_next_msg()
 
-                print 'f1 is',f1_id
-                print 'f2 is',f2_id
+                print 'f1 is', f1_id
+                print 'f2 is', f2_id
                 print m
                 print e
 
@@ -1621,16 +1621,16 @@ class TestKernelModule:
     def test_request_with_replier_unbinding_2(self):
         """Send a request, but the replier (who is also a listener) unbinds.
         """
-        with KSock(0,'rw') as f1:
+        with KSock(0, 'rw') as f1:
             f1_id = f1.ksock_id()
             f2_id = 0
 
-            m = Request('$.Fred',(0xdada,))
+            m = Request('$.Fred', (0xdada,))
 
-            with KSock(0,'rw') as f2:
+            with KSock(0, 'rw') as f2:
                 f2_id = f2.ksock_id()
-                f2.bind('$.Fred',replier=True)
-                f2.bind('$.Fred',replier=False)
+                f2.bind('$.Fred', replier=True)
+                f2.bind('$.Fred', replier=False)
 
                 f1.send_msg(m)
                 m_id = f1.last_msg_id()
@@ -1638,7 +1638,7 @@ class TestKernelModule:
                 # And f2 unbinds as a replier
                 #   the Request should be lost, and f1 should get told
                 # - the Message should still be "in transit"
-                f2.unbind('$.Fred',replier=True)
+                f2.unbind('$.Fred', replier=True)
 
                 e = f1.read_next_msg()
 
@@ -1660,24 +1660,24 @@ class TestKernelModule:
     def test_request_with_replier_unbinding_3(self):
         """Send a request, but the replier (who is also a listener) unbinds.
         """
-        with KSock(0,'rw') as f1:
+        with KSock(0, 'rw') as f1:
             f1_id = f1.ksock_id()
             f2_id = 0
 
-            r1 = Request('$.Fred',(0xdada,))
-            r2 = Request('$.Fred','more')
-            r3 = Request('$.Jim','that')
+            r1 = Request('$.Fred', (0xdada,))
+            r2 = Request('$.Fred', 'more')
+            r3 = Request('$.Jim', 'that')
 
-            m1 = Message('$.Fred',(0xdada,))
-            m2 = Message('$.Fred','more')
-            m3 = Message('$.Jim','what')
+            m1 = Message('$.Fred', (0xdada,))
+            m2 = Message('$.Fred', 'more')
+            m3 = Message('$.Jim', 'what')
 
-            with KSock(0,'rw') as f2:
+            with KSock(0, 'rw') as f2:
                 f2_id = f2.ksock_id()
-                f2.bind('$.Fred',replier=True)
-                f2.bind('$.Fred',replier=False)
-                f2.bind('$.Jim',replier=True)
-                f2.bind('$.Jim',replier=False)
+                f2.bind('$.Fred', replier=True)
+                f2.bind('$.Fred', replier=False)
+                f2.bind('$.Jim', replier=True)
+                f2.bind('$.Jim', replier=False)
 
                 f1.send_msg(m1)
                 f1.send_msg(r1)
@@ -1699,7 +1699,7 @@ class TestKernelModule:
                 #   the Request should be lost, and f1 should get told
                 # - the Message should still be "in transit"
                 # - the '$.Jim' messages should be unaffected
-                f2.unbind('$.Fred',replier=True)
+                f2.unbind('$.Fred', replier=True)
 
                 e = f1.read_next_msg()
 
@@ -1758,13 +1758,13 @@ class TestKernelModule:
     def test_urgent(self):
         """Test adding urgent messages.
         """
-        with KSock(0,'rw') as f1:
-            with KSock(0,'rw') as f2:
+        with KSock(0, 'rw') as f1:
+            with KSock(0, 'rw') as f2:
                 f2.bind('$.Message')
-                f2.bind('$.Request',True)
+                f2.bind('$.Request', True)
 
                 f2.bind('$.Urgent.Message')
-                f2.bind('$.Urgent.Request',True)
+                f2.bind('$.Urgent.Request', True)
 
                 m1 = Message('$.Message')
                 m2 = Message('$.Message')
@@ -1837,7 +1837,7 @@ class TestKernelModule:
     def test_max_messages_readonly_1(self):
         """Test that we can set the maximum number of messages in a queue (R).
         """
-        with KSock(0,'r') as f1:
+        with KSock(0, 'r') as f1:
             # Find out what the current value is
             orig_size = f1.set_max_messages(0)
             # It should stay the same if we ask again
@@ -1854,7 +1854,7 @@ class TestKernelModule:
     def test_max_messages_readwrite_1(self):
         """Test that we can set the maximum number of messages in a queue (RW).
         """
-        with KSock(0,'rw') as f1:
+        with KSock(0, 'rw') as f1:
             # Find out what the current value is
             orig_size = f1.set_max_messages(0)
             # It should stay the same if we ask again
@@ -1871,7 +1871,7 @@ class TestKernelModule:
     def test_max_messages_readwrite_1a(self):
         """Test that we can set the maximum number of messages in a queue (1a).
         """
-        with KSock(0,'rw') as f1:
+        with KSock(0, 'rw') as f1:
             # Find out what the current value is - use the More Pythonic method
             orig_size = f1.max_messages()
             # It should stay the same if we ask again
@@ -1890,8 +1890,8 @@ class TestKernelModule:
 
         Some should get dropped.
         """
-        with KSock(0,'rw') as sender:
-            with KSock(0,'r') as listener:
+        with KSock(0, 'rw') as sender:
+            with KSock(0, 'r') as listener:
                 listener.bind('$.Fred')
                 assert listener.set_max_messages(1) == 1
 
@@ -1907,9 +1907,9 @@ class TestKernelModule:
     def test_send_too_many_requests_to_replier(self):
         """Sending too many messages to a replier.
         """
-        with KSock(0,'rw') as sender:
-            with KSock(0,'rw') as replier:
-                replier.bind('$.Fred',replier=True)
+        with KSock(0, 'rw') as sender:
+            with KSock(0, 'rw') as replier:
+                replier.bind('$.Fred', replier=True)
                 assert replier.set_max_messages(1) == 1
 
                 m = Request('$.Fred')
@@ -1928,11 +1928,11 @@ class TestKernelModule:
 
         Some should get dropped.
         """
-        with KSock(0,'rw') as sender:
-            with KSock(0,'rw') as replier:
-                with KSock(0,'r') as listener:
-                    replier.bind('$.Fred',replier=True)
-                    listener.bind('$.Fred',replier=False)
+        with KSock(0, 'rw') as sender:
+            with KSock(0, 'rw') as replier:
+                with KSock(0, 'r') as listener:
+                    replier.bind('$.Fred', replier=True)
+                    listener.bind('$.Fred', replier=False)
 
                     assert replier.set_max_messages(1) == 1
 
@@ -1964,44 +1964,44 @@ class TestKernelModule:
         """Check the logic of the ALL_OR_xxx flags
         """
 
-        with KSock(0,'rw') as sender:
-            with KSock(0,'rw') as listener:
+        with KSock(0, 'rw') as sender:
+            with KSock(0, 'rw') as listener:
                 listener.bind('$.Fred')
-                m1 = Message('$.Fred',flags=Message.ALL_OR_WAIT)
+                m1 = Message('$.Fred', flags=Message.ALL_OR_WAIT)
                 sender.send_msg(m1)
 
-                m2 = Message('$.Fred',flags=Message.ALL_OR_FAIL)
+                m2 = Message('$.Fred', flags=Message.ALL_OR_FAIL)
                 sender.send_msg(m2)
 
                 # But we can't send a message with both flags set
-                m3 = Message('$.Fred',flags=Message.ALL_OR_WAIT|Message.ALL_OR_FAIL)
-                check_IOError(errno.EINVAL,sender.send_msg,m3)
+                m3 = Message('$.Fred', flags=Message.ALL_OR_WAIT|Message.ALL_OR_FAIL)
+                check_IOError(errno.EINVAL, sender.send_msg, m3)
 
     def test_reply_to(self):
         """Test that reply_to generates the Reply we expect (at least a bit)
         """
-        m = Message('$.Fred',id=MessageId(0,9999),from_=23)
+        m = Message('$.Fred', id=MessageId(0, 9999), from_=23)
         r1 = reply_to(m)
-        r2 = Reply('$.Fred',in_reply_to=MessageId(0,9999),to=23)
+        r2 = Reply('$.Fred', in_reply_to=MessageId(0, 9999), to=23)
         assert r1 == r2
 
     def test_send_retcode_1(self):
         """It's not possible to send an "unsolicited" reply
         """
-        with KSock(0,'rw') as sender:
-            with KSock(0,'rw') as listener:
+        with KSock(0, 'rw') as sender:
+            with KSock(0, 'rw') as listener:
 
                 # Let's fake an unwanted Reply, to a Request from our sender
-                r = reply_to(Message('$.Fred',id=MessageId(0,9999),from_=sender.ksock_id()))
+                r = reply_to(Message('$.Fred', id=MessageId(0, 9999), from_=sender.ksock_id()))
                 # And try to send it
                 check_IOError(errno.ECONNREFUSED, listener.send_msg, r)
 
     def test_all_or_fail_1(self):
         """Writing with all_or_fail should fail if someone cannot receive
         """
-        with KSock(0,'rw') as sender:
-            with KSock(0,'r') as listener1:
-                with KSock(0,'r') as listener2:
+        with KSock(0, 'rw') as sender:
+            with KSock(0, 'r') as listener1:
+                with KSock(0, 'r') as listener2:
                     listener1.bind('$.Fred')
                     listener2.bind('$.Fred')
 
@@ -2012,7 +2012,7 @@ class TestKernelModule:
 
                     # So listener1 now has a full queue
                     # Sending will fail
-                    m = Message('$.Fred',flags=Message.ALL_OR_FAIL)
+                    m = Message('$.Fred', flags=Message.ALL_OR_FAIL)
                     check_IOError(errno.EBUSY, sender.send_msg, m)
 
                     # So listener1 should have one message outstanding
@@ -2028,26 +2028,26 @@ class TestKernelModule:
     def test_cant_write_while_sending(self):
         """Test that SEND stops WRITE.
         """
-        with KSock(0,'rw') as sender:
-            with KSock(0,'rw') as listener:
+        with KSock(0, 'rw') as sender:
+            with KSock(0, 'rw') as listener:
 
                 # With one slot in our message queue, we can't do much
                 assert sender.set_max_messages(1) == 1
 
-                listener.bind('$.Fred',True)
+                listener.bind('$.Fred', True)
                 req1 = Request('$.Fred')
 
                 # Sending a request reserves that single slot
                 sender.send_msg(req1)
 
-                sender.bind('$.Jim',True)
+                sender.bind('$.Jim', True)
                 req2 = Request('$.Jim')
 
                 # So there's no room to send *it* a request
                 check_IOError(errno.EBUSY, listener.send_msg, req2)
 
                 # However, if we ask it to wait...
-                req2 = Request('$.Jim',flags=Message.ALL_OR_WAIT)
+                req2 = Request('$.Jim', flags=Message.ALL_OR_WAIT)
                 check_IOError(errno.EAGAIN, listener.send_msg, req2)
 
                 # And because it's now "in" send, we can't write to that KSock
@@ -2056,12 +2056,12 @@ class TestKernelModule:
     def test_connection_refused(self):
         """Test one can't fill up a sender's buffer with replies.
         """
-        with KSock(0,'rw') as sender:
-            with KSock(0,'rw') as listener:
+        with KSock(0, 'rw') as sender:
+            with KSock(0, 'rw') as listener:
                 # Only allow the sender a single item in its message queue
                 assert sender.set_max_messages(1) == 1
 
-                listener.bind('$.Fred',True)
+                listener.bind('$.Fred', True)
                 req = Request('$.Fred')
 
                 # Sending a request reserves a slot (for the eventual Reply)
@@ -2083,7 +2083,7 @@ class TestKernelModule:
                 # We are not allowed to send a random Reply
                 # - let's construct one with an unexpected message id
                 r = reply_to(m)
-                x = Reply(r,in_reply_to=msg_id+100)
+                x = Reply(r, in_reply_to=msg_id+100)
 
                 check_IOError(errno.ECONNREFUSED, listener.send_msg, x)
 
@@ -2103,23 +2103,23 @@ class TestKernelModule:
     def test_select_on_reading_1(self):
         """Test the ability to do select.select for message reading.
         """
-        with KSock(0,'rw') as sender:
-            with KSock(0,'r') as listener1:
+        with KSock(0, 'rw') as sender:
+            with KSock(0, 'r') as listener1:
                 # Initially, listener has nothing to read
                 # Let's check - timeout of 0 means "come back immediately"
-                (r,w,x) = select.select([listener1],[],[],0)
+                (r, w, x) = select.select([listener1], [], [], 0)
                 assert r == []
                 assert w == []
                 assert x == []
 
                 # Conversely
                 listener1.bind('$.Fred')
-                msg = Announcement('$.Fred',(0xdada,))
+                msg = Announcement('$.Fred', (0xdada,))
                 sender.send_msg(msg)
 
                 assert listener1.num_messages() == 1
 
-                (r,w,x) = select.select([listener1],[],[],0)
+                (r, w, x) = select.select([listener1], [], [], 0)
                 assert r == [listener1]
                 assert w == []
                 assert x == []
@@ -2127,11 +2127,11 @@ class TestKernelModule:
                 m = listener1.read_next_msg()
                 assert m.equivalent(msg)
 
-                with KSock(0,'r') as listener2:
+                with KSock(0, 'r') as listener2:
                     listener2.bind('$.Fred')
                     sender.send_msg(msg)
 
-                    (r,w,x) = select.select([listener1,listener2],[],[],0)
+                    (r, w, x) = select.select([listener1, listener2], [], [], 0)
                     assert len(r) == 2
                     assert listener1 in r
                     assert listener2 in r
@@ -2147,7 +2147,7 @@ class TestKernelModule:
                     assert listener1.num_messages() == 0
                     assert listener2.num_messages() == 1
 
-                    (r,w,x) = select.select([listener1,listener2],[],[],0)
+                    (r, w, x) = select.select([listener1, listener2], [], [], 0)
                     assert r == [listener2]
                     assert w == []
                     assert x == []
@@ -2155,7 +2155,7 @@ class TestKernelModule:
                     m = listener2.read_next_msg()
                     assert m.equivalent(msg)
 
-                    (r,w,x) = select.select([listener1],[],[],0)
+                    (r, w, x) = select.select([listener1], [], [], 0)
                     assert r == []
                     assert w == []
                     assert x == []
@@ -2163,19 +2163,19 @@ class TestKernelModule:
     def test_select_on_sending_1(self):
         """Test the ability to do select.select for message sending.
         """
-        with KSock(0,'rw') as sender:
+        with KSock(0, 'rw') as sender:
             # Initially, sender is allowed to send
 
             write_list = [sender]
 
-            (r,w,x) = select.select([],write_list,[],0)
+            (r, w, x) = select.select([], write_list, [], 0)
             assert r == []
             assert w == [sender]
             assert x == []
 
             # Indeed, at the moment, the sender is *always* ready to send
 
-            with KSock(0,'r') as listener1:
+            with KSock(0, 'r') as listener1:
 
                 # Our listener should *not* be ready to send, as it is not
                 # opened for write
@@ -2183,18 +2183,18 @@ class TestKernelModule:
                 write_list.append(listener1)
                 read_list = [listener1]
 
-                (r,w,x) = select.select(read_list,write_list,[],0)
+                (r, w, x) = select.select(read_list, write_list, [], 0)
                 assert r == []
                 assert w == [sender]
                 assert x == []
 
-                with KSock(0,'rw') as listener2:
+                with KSock(0, 'rw') as listener2:
 
                     # But listener2 is available...
                     write_list.append(listener2)
                     read_list.append(listener2)
 
-                    (r,w,x) = select.select(read_list,write_list,[],0)
+                    (r, w, x) = select.select(read_list, write_list, [], 0)
                     assert r == []
                     assert len(w) == 2
                     assert sender in w
@@ -2203,10 +2203,10 @@ class TestKernelModule:
 
                     listener1.bind('$.Fred')
                     listener2.bind('$.Fred')
-                    msg = Message('$.Fred',(0xdada,))
+                    msg = Message('$.Fred', (0xdada,))
                     msg_id = sender.send_msg(msg)
 
-                    (r,w,x) = select.select(read_list,write_list,[],0)
+                    (r, w, x) = select.select(read_list, write_list, [], 0)
                     assert len(r) == 2
                     assert listener1 in r
                     assert listener2 in r
@@ -2222,9 +2222,9 @@ class TestKernelModule:
         "releases" the KSock without replying, KBUS will synthesise a Status
         message, and the sender *will* get some sort of reply.
         """
-        with KSock(0,'rw') as sender:
-            with KSock(0,'rw') as replier:
-                replier.bind('$.Fred',True)
+        with KSock(0, 'rw') as sender:
+            with KSock(0, 'rw') as replier:
+                replier.bind('$.Fred', True)
 
                 req = Request('$.Fred')
                 req_id = sender.send_msg(req)
@@ -2241,14 +2241,14 @@ class TestKernelModule:
     def test_many_listeners(self):
         """Test we can have many listeners.
         """
-        with KSock(0,'rw') as sender:
+        with KSock(0, 'rw') as sender:
             listeners = []
             for ii in range(1000):
-                l = KSock(0,'rw')
+                l = KSock(0, 'rw')
                 l.bind('$.Fred')
                 listeners.append(l)
 
-            a = Announcement('$.Fred','1234')
+            a = Announcement('$.Fred', '1234')
             a_id = sender.send_msg(a)
 
 
@@ -2262,12 +2262,12 @@ class TestKernelModule:
     def test_many_messages(self):
         """Test we can have many messages.
         """
-        with KSock(0,'rw') as sender:
-            with KSock(0,'rw') as replier:
+        with KSock(0, 'rw') as sender:
+            with KSock(0, 'rw') as replier:
                 sender.set_max_messages(1050)
                 replier.set_max_messages(1050)
-                replier.bind('$.Fred',True)
-                req = Request('$.Fred','1234')
+                replier.bind('$.Fred', True)
+                req = Request('$.Fred', '1234')
                 for ii in range(1000):
                     sender.send_msg(req)
 
@@ -2290,8 +2290,8 @@ class TestKernelModule:
         name = '$.Fred'
         data = '12345678'
         header = KbusMessageHeaderStruct(Message.START_GUARD,
-                                         MessageId(0,0),
-                                         MessageId(0,27),
+                                         MessageId(0, 0),
+                                         MessageId(0, 27),
                                          32,
                                          0,
                                          0,
@@ -2316,8 +2316,8 @@ class TestKernelModule:
         #    print ' %02x'%ord(char),
         #print
 
-        h2 = _struct_from_string(KbusMessageHeaderStruct,strhdr)
-        #print 'h2',h2
+        h2 = _struct_from_string(KbusMessageHeaderStruct, strhdr)
+        #print 'h2', h2
 
         assert h2==header
 
@@ -2338,18 +2338,18 @@ class TestKernelModule:
         """Some more testing of building messages in odd ways.
         """
         name = '$.Fred'
-        data = (1234,5678)
+        data = (1234, 5678)
         header = KbusMessageHeaderStruct(Message.START_GUARD,
-                                         MessageId(0,0),
-                                         MessageId(0,27),
+                                         MessageId(0, 0),
+                                         MessageId(0, 27),
                                          32,
                                          0,
                                          0,
                                          len(name),
                                          len(data))
-        end_guard = array.array('L',[Message.END_GUARD]).tostring()
+        end_guard = array.array('L', [Message.END_GUARD]).tostring()
         strhdr = _struct_to_string(header)
-        strdata = array.array('L',data).tostring()
+        strdata = array.array('L', data).tostring()
 
         fred = entire_message_from_string(strhdr + name+'  ' + strdata + end_guard)
         assert fred.start_guard == Message.START_GUARD
@@ -2370,19 +2370,19 @@ class TestKernelModule:
     def test_odd_message_creation(self):
         """Test some of the more awkward ways of making messages.
         """
-        simple = Message('$.Jim.Bob',data=(1,2,3,4,5,6),to=32,
-                         in_reply_to=MessageId(0,27))
+        simple = Message('$.Jim.Bob', data=(1, 2, 3, 4, 5, 6), to=32,
+                         in_reply_to=MessageId(0, 27))
         #print simple
         #print simple.msg
 
-        latest = entire_message_from_parts((0,0), (0,27), 32, 0, 0, '$.Jim.Bob',
-                                           (1,2,3,4,5,6))
+        latest = entire_message_from_parts((0, 0), (0, 27), 32, 0, 0, '$.Jim.Bob',
+                                           (1, 2, 3, 4, 5, 6))
         #print latest
         assert latest == simple.msg
 
         # For added ickiness
-        latest = entire_message_from_parts((0,0), (0,27), 32, 0, 0, '$.Jim.Bob',
-                                           tuple(array.array('L',(1,2,3,4,5,6)).tolist()))
+        latest = entire_message_from_parts((0, 0), (0, 27), 32, 0, 0, '$.Jim.Bob',
+                                           tuple(array.array('L', (1, 2, 3, 4, 5, 6)).tolist()))
         #print latest
         assert latest == simple.msg
 
@@ -2416,8 +2416,8 @@ class TestKernelModule:
         assert a == b
 
         # And with some data
-        c = Message('$.JimBob',(0x1234,0x56780000))
-        d = Message('$.JimBob',(0x1234,0x56780000))
+        c = Message('$.JimBob', (0x1234, 0x56780000))
+        d = Message('$.JimBob', (0x1234, 0x56780000))
         assert c.msg == d.msg
         assert c == d
 

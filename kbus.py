@@ -61,29 +61,29 @@ _IOC_WRITE = 1
 _IOC_READ  = 2
 
 # Mustn't use "type" as an argument, since Python already has it...
-def _IOC(d,t,nr,size):
+def _IOC(d, t, nr, size):
     return ((d << _IOC_DIRSHIFT) | (ord(t) << _IOC_TYPESHIFT) | 
             (nr << _IOC_NRSHIFT) | (size << _IOC_SIZESHIFT))
-def _IO(t,nr):
+def _IO(t, nr):
     return _IOC(_IOC_NONE, t, nr, 0)
-def _IOW(t,nr,size):
+def _IOW(t, nr, size):
     return _IOC(_IOC_WRITE, t, nr, size)
-def _IOR(t,nr,size):
+def _IOR(t, nr, size):
     return _IOC(_IOC_READ, t, nr, size)
-def _IOWR(t,nr,size):
+def _IOWR(t, nr, size):
     return _IOC(_IOC_READ | _IOC_WRITE, t, nr, size)
 
 def _BIT(nr):
     return 1L << nr
 
-def _set_bit(value,which):
+def _set_bit(value, which):
     """Return 'value' with the bit 'which' set.
 
     'which' should be something like _BIT(3).
     """
     return value | which
 
-def _clear_bit(value,which):
+def _clear_bit(value, which):
     """Return 'value' with the bit 'which' cleared.
 
     'which' should be something like _BIT(3).
@@ -97,20 +97,20 @@ def _clear_bit(value,which):
 class MessageId(ctypes.Structure):
     """A wrapper around a message id.
 
-        >>> a = MessageId(1,2)
+        >>> a = MessageId(1, 2)
         >>> a
-        MessageId(1,2)
-        >>> a < MessageId(2,2) and a < MessageId(1,3)
+        MessageId(1, 2)
+        >>> a < MessageId(2, 2) and a < MessageId(1, 3)
         True
-        >>> a == MessageId(1,2)
+        >>> a == MessageId(1, 2)
         True
-        >>> a > MessageId(0,2) and a > MessageId(1,1)
+        >>> a > MessageId(0, 2) and a > MessageId(1, 1)
         True
 
     We support addition in a limited manner:
 
         >>> a + 3
-        MessageId(1,5)
+        MessageId(1, 5)
 
     simply to make it convenient to generate unique message ids.
     """
@@ -118,15 +118,15 @@ class MessageId(ctypes.Structure):
                 ('serial_num', ctypes.c_uint32)]
 
     def __repr__(self):
-        return 'MessageId(%u,%u)'%(self.network_id,self.serial_num)
+        return 'MessageId(%u, %u)'%(self.network_id, self.serial_num)
 
     def _short_str(self):
         """For use in message structure reporting
         """
-        return '%u:%u'%(self.network_id,self.serial_num)
+        return '%u:%u'%(self.network_id, self.serial_num)
 
-    def __cmp__(self,other):
-        if not isinstance(other,MessageId):
+    def __cmp__(self, other):
+        if not isinstance(other, MessageId):
             return NotImplemented
         if self.network_id == other.network_id:
             if self.serial_num == other.serial_num:
@@ -140,11 +140,11 @@ class MessageId(ctypes.Structure):
         else:
             return 1
 
-    def __add__(self,other):
-        if not isinstance(other,int):
+    def __add__(self, other):
+        if not isinstance(other, int):
             return NotImplemented
         else:
-            return MessageId(self.network_id,self.serial_num+other)
+            return MessageId(self.network_id, self.serial_num+other)
 
 class Message(object):
     """A wrapper for a KBUS message
@@ -159,11 +159,11 @@ class Message(object):
         >>> msg
         Message('$.Fred', data=(0x1234,), to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
 
-        >>> msg = Message('$.Fred', (0x1234,0xFFFF00FF))
+        >>> msg = Message('$.Fred', (0x1234, 0xFFFF00FF))
         >>> msg
         Message('$.Fred', data=(0x1234, 0xffff00ff), to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
 
-        >>> msg1 = Message('$.Fred',data=(0x1234,))
+        >>> msg1 = Message('$.Fred', data=(0x1234,))
         >>> msg1
         Message('$.Fred', data=(0x1234,), to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
 
@@ -199,31 +199,31 @@ class Message(object):
     When constructing a message from another message, one may override
     particular values (but not the name):
 
-        >>> msg5 = Message(msg1,to=9,in_reply_to=MessageId(0,3))
+        >>> msg5 = Message(msg1, to=9, in_reply_to=MessageId(0, 3))
         >>> msg5
-        Message('$.Fred', data=(0x1234,), to=9L, from_=0L, in_reply_to=MessageId(0,3), flags=0x00000000, id=None)
+        Message('$.Fred', data=(0x1234,), to=9L, from_=0L, in_reply_to=MessageId(0, 3), flags=0x00000000, id=None)
 
-        >>> msg5a = Message(msg1,to=9,in_reply_to=MessageId(0,3))
+        >>> msg5a = Message(msg1, to=9, in_reply_to=MessageId(0, 3))
         >>> msg5a == msg5
         True
 
     However, whilst it is possible to set (for instance) 'to' back to 0 by this method:
 
-        >>> msg6 = Message(msg5,to=0)
+        >>> msg6 = Message(msg5, to=0)
         >>> msg6
-        Message('$.Fred', data=(0x1234,), to=0L, from_=0L, in_reply_to=MessageId(0,3), flags=0x00000000, id=None)
+        Message('$.Fred', data=(0x1234,), to=0L, from_=0L, in_reply_to=MessageId(0, 3), flags=0x00000000, id=None)
 
     (and the same for any of the integer fields), it is not possible to set any
     of the message id fields to None:
 
-        >>> msg6 = Message(msg5,in_reply_to=None)
+        >>> msg6 = Message(msg5, in_reply_to=None)
         >>> msg6
-        Message('$.Fred', data=(0x1234,), to=9L, from_=0L, in_reply_to=MessageId(0,3), flags=0x00000000, id=None)
+        Message('$.Fred', data=(0x1234,), to=9L, from_=0L, in_reply_to=MessageId(0, 3), flags=0x00000000, id=None)
 
     If you need to do that, go via the 'extract()' method:
 
-        >>> (id,in_reply_to,to,from_,flags,name,data) = msg5.extract()
-        >>> msg6 = Message(name,data,to,from_,None,flags,id)
+        >>> (id, in_reply_to, to, from_, flags, name, data) = msg5.extract()
+        >>> msg6 = Message(name, data, to, from_, None, flags, id)
         >>> msg6
         Message('$.Fred', data=(0x1234,), to=9L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
 
@@ -250,11 +250,11 @@ class Message(object):
 
     Message ids are objects if set:
 
-        >>> msg1 = Message('$.Fred',data=(0x1234,),id=MessageId(0,33))
+        >>> msg1 = Message('$.Fred', data=(0x1234,), id=MessageId(0, 33))
         >>> msg1
-        Message('$.Fred', data=(0x1234,), to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=MessageId(0,33))
+        Message('$.Fred', data=(0x1234,), to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=MessageId(0, 33))
         >>> msg1.id
-        MessageId(0,33)
+        MessageId(0, 33)
 
     The arguments to Message() are:
 
@@ -322,35 +322,35 @@ class Message(object):
         """
 
         if data:
-            if isinstance(data,str):
-                d = array.array('L',data)
+            if isinstance(data, str):
+                d = array.array('L', data)
                 data = tuple(d.tolist())
-            elif isinstance(data,array.array):
+            elif isinstance(data, array.array):
                 if data.typecode != 'L':
                     raise ValueError("Message 'data' is an array.array('%c'), not 'L'"%\
                                      data.typecode)
                 data = tuple(data.tolist())
 
-        if isinstance(arg,Message):
-            self._merge_args(arg.extract(),data,to,from_,in_reply_to,flags,id)
-        elif isinstance(arg,tuple) or isinstance(arg,list):
+        if isinstance(arg, Message):
+            self._merge_args(arg.extract(), data, to, from_, in_reply_to, flags, id)
+        elif isinstance(arg, tuple) or isinstance(arg, list):
             # A tuple from .extract(), or an equivalent tuple/list
             if len(arg) != 7:
                 raise ValueError("Tuple arg to Message() must have"
                         " 7 values, not %d"%len(arg))
             else:
-                self._merge_args(arg,data,to,from_,in_reply_to,flags,id)
-        elif isinstance(arg,str) and arg.startswith('$.'):
+                self._merge_args(arg, data, to, from_, in_reply_to, flags, id)
+        elif isinstance(arg, str) and arg.startswith('$.'):
             # It looks like a message name
             name = arg
-            self._from_data(name,data,to,from_,in_reply_to,flags,id)
+            self._from_data(name, data, to, from_, in_reply_to, flags, id)
         elif arg and data is None and to is None and from_ is None and \
                 in_reply_to is None and flags is None and id is None:
                 # Assume it's sensible data...
                 # (is this only allowed to be a "string"?)
                 self.msg = entire_message_from_string(arg)
         else:
-            raise ValueError,'Argument %s does not seem to make sense'%repr(arg)
+            raise ValueError('Argument %s does not seem to make sense'%repr(arg))
 
         # Make sure the result *looks* like a message
         self._check()
@@ -358,7 +358,7 @@ class Message(object):
         # And I personally find it useful to have the length available
         self.size = ctypes.sizeof(self.msg)
 
-    def _merge_args(self,extracted, this_data, this_to, this_from_,
+    def _merge_args(self, extracted, this_data, this_to, this_from_,
                     this_in_reply_to, this_flags, this_id):
         """Set our data from a msg.extract() tuple and optional arguments.
 
@@ -367,12 +367,12 @@ class Message(object):
 
         Note that 'data' must be:
 
-        1. an array.array('L',...) instance, or
+        1. an array.array('L', ...) instance, or
         2. a string, or something else compatible, which will be converted to
            the above, or
         3. None.
         """
-        (id,in_reply_to,to,from_,flags,name,data) = extracted
+        (id, in_reply_to, to, from_, flags, name, data) = extracted
         if this_data        is not None: data        = this_data
         if this_to          is not None: to          = this_to
         if this_from_       is not None: from_       = this_from_
@@ -427,7 +427,7 @@ class Message(object):
                              " (e.g., '$.*')"%name_len_bytes)
 
     def __repr__(self):
-        (id,in_reply_to,to,from_,flags,name,data) = self.extract()
+        (id, in_reply_to, to, from_, flags, name, data) = self.extract()
         args = [repr(name),
                 'data=%s'%_int_tuple_as_str(data),
                 'to='+repr(to),
@@ -437,19 +437,19 @@ class Message(object):
                 'id='+repr(id)]
         return 'Message(%s)'%(', '.join(args))
 
-    def __eq__(self,other):
-        if not isinstance(other,Message):
+    def __eq__(self, other):
+        if not isinstance(other, Message):
             return False
         else:
             return (self.msg == other.msg)
 
-    def __ne__(self,other):
-        if not isinstance(other,Message):
+    def __ne__(self, other):
+        if not isinstance(other, Message):
             return True
         else:
             return (self.msg != other.msg)
 
-    def equivalent(self,other):
+    def equivalent(self, other):
         """Returns true if the two messages are mostly the same.
 
         For purposes of this comparison, we ignore:
@@ -465,7 +465,7 @@ class Message(object):
                 self.msg.name     == other.msg.name and
                 self.msg._data_eq(other.msg))
 
-    def set_want_reply(self,value=True):
+    def set_want_reply(self, value=True):
         """Set or unset the 'we want a reply' flag.
         """
         if value:
@@ -473,7 +473,7 @@ class Message(object):
         else:
             self.msg.flags = _clear_bit(self.msg.flags, Message.WANT_A_REPLY)
 
-    def set_urgent(self,value=True):
+    def set_urgent(self, value=True):
         """Set or unset the 'urgent message' flag.
         """
         if value:
@@ -502,7 +502,7 @@ class Message(object):
         if network_id == 0 and serial_num == 0:
             return None
         else:
-            return MessageId(network_id,serial_num)
+            return MessageId(network_id, serial_num)
 
     def _get_in_reply_to(self):
         network_id = self.msg.in_reply_to.network_id
@@ -510,7 +510,7 @@ class Message(object):
         if network_id == 0 and serial_num == 0:
             return None
         else:
-            return MessageId(network_id,serial_num)
+            return MessageId(network_id, serial_num)
 
     def _get_to(self):
         return self.msg.to
@@ -544,7 +544,7 @@ class Message(object):
         The values are returned in something approximating the order
         within the message itself:
 
-            (id,in_reply_to,to,from_,flags,name,data_tuple)
+            (id, in_reply_to, to, from_, flags, name, data_tuple)
 
         This is not the same order as the keyword arguments to Message().
         """
@@ -591,7 +591,7 @@ class Announcement(Message):
 
     An Announcement can be created in a variety of ways. Perhaps most obviously:
 
-        >>> ann1 = Announcement('$.Fred',data=(0x1234,))
+        >>> ann1 = Announcement('$.Fred', data=(0x1234,))
         >>> ann1
         Announcement('$.Fred', data=(0x1234,), to=0L, from_=0L, flags=0x00000000, id=None)
 
@@ -615,14 +615,14 @@ class Announcement(Message):
 
     Since it's an Announcement, there's no 'in_reply_to' argument
 
-        >>> fail = Announcement('$.Fred',in_reply_to=None)
+        >>> fail = Announcement('$.Fred', in_reply_to=None)
         Traceback (most recent call last):
         ...
         TypeError: __init__() got an unexpected keyword argument 'in_reply_to'
 
     and the 'in_reply_to' value in Message objects is ignored:
 
-        >>> msg = Message('$.Fred',data=(0x1234,),in_reply_to=MessageId(1,2))
+        >>> msg = Message('$.Fred', data=(0x1234,), in_reply_to=MessageId(1, 2))
         >>> ann = Announcement(msg)
         >>> ann
         Announcement('$.Fred', data=(0x1234,), to=0L, from_=0L, flags=0x00000000, id=None)
@@ -677,11 +677,11 @@ class Announcement(Message):
     #
     # and then::
     #
-    #   super(Announcement,self).__init__(arg, **kwargs)
+    #   super(Announcement, self).__init__(arg, **kwargs)
     #
     # but then I wouldn't be able to do::
     #
-    #   r = Announcement('$.Fred','data')
+    #   r = Announcement('$.Fred', 'data')
     #
     # which I *can* do (and want to be able to do) with Message
 
@@ -689,18 +689,18 @@ class Announcement(Message):
         """Arguments are the same as for Message itself, absent 'in_reply_to'.
         """
         # Just do what the caller asked for directly
-        super(Announcement,self).__init__(arg, data=data, to=to,
-                                          from_=from_, flags=flags, id=id)
+        super(Announcement, self).__init__(arg, data=data, to=to,
+                                           from_=from_, flags=flags, id=id)
         # And, in case 'in_reply_to' got set by that
-        self.msg.in_reply_to = MessageId(0,0)
+        self.msg.in_reply_to = MessageId(0, 0)
 
-    def set_want_reply(self,value=True):
+    def set_want_reply(self, value=True):
         """Announcements are not Requests.
         """
         raise TypeError("Announcements are not Requests")
 
     def __repr__(self):
-        (id,in_reply_to,to,from_,flags,name,data) = self.extract()
+        (id, in_reply_to, to, from_, flags, name, data) = self.extract()
         args = [repr(name),
                 'data=%s'%_int_tuple_as_str(data),
                 'to='+repr(to),
@@ -717,7 +717,7 @@ class Request(Message):
 
     It doesn't take an 'in_reply_to' initialisation argument:
 
-        >>> fail = Request('$.Fred',in_reply_to=None)
+        >>> fail = Request('$.Fred', in_reply_to=None)
         Traceback (most recent call last):
         ...
         TypeError: __init__() got an unexpected keyword argument 'in_reply_to'
@@ -727,10 +727,10 @@ class Request(Message):
 
     For instance, consider:
 
-        >>> msg = Message('$.Fred',data=(0x1234,),flags=Message.WANT_A_REPLY)
+        >>> msg = Message('$.Fred', data=(0x1234,), flags=Message.WANT_A_REPLY)
         >>> msg
         Message('$.Fred', data=(0x1234,), to=0L, from_=0L, in_reply_to=None, flags=0x00000001, id=None)
-        >>> req = Request('$.Fred',data=(0x1234,))
+        >>> req = Request('$.Fred', data=(0x1234,))
         >>> req
         Request('$.Fred', data=(0x1234,), to=0L, from_=0L, flags=0x00000001, id=None)
         >>> req == msg
@@ -748,11 +748,11 @@ class Request(Message):
     #
     # and then::
     #
-    #   super(Request,self).__init__(arg, **kwargs)
+    #   super(Request, self).__init__(arg, **kwargs)
     #
     # but then I wouldn't be able to do::
     #
-    #   r = Request('$.Fred','data')
+    #   r = Request('$.Fred', 'data')
     #
     # which I *can* do (and want to be able to do) with Message
 
@@ -761,12 +761,12 @@ class Request(Message):
         """
         # First, just do what the caller asked for directly
         # but with 'in_reply_to' as 0
-        super(Request,self).__init__(arg,data,to,from_,0,flags,id)
+        super(Request, self).__init__(arg, data, to, from_, 0, flags, id)
         # But then make sure that the "wants a reply" flag is set
-        super(Request,self).set_want_reply(True)
+        super(Request, self).set_want_reply(True)
 
     def __repr__(self):
-        (id,in_reply_to,to,from_,flags,name,data) = self.extract()
+        (id, in_reply_to, to, from_, flags, name, data) = self.extract()
         args = [repr(name),
                 'data=%s'%_int_tuple_as_str(data),
                 'to='+repr(to),
@@ -788,26 +788,26 @@ class Reply(Message):
 
     Thus Reply can be used as, for instance:
 
-        >>> direct = Reply('$.Fred', to=27, in_reply_to=MessageId(0,132))
+        >>> direct = Reply('$.Fred', to=27, in_reply_to=MessageId(0, 132))
         >>> direct
-        Reply('$.Fred', data=(), to=27L, from_=0L, in_reply_to=MessageId(0,132), flags=0x00000000, id=None)
+        Reply('$.Fred', data=(), to=27L, from_=0L, in_reply_to=MessageId(0, 132), flags=0x00000000, id=None)
         >>> reply = Reply(direct)
         >>> direct == reply
         True
 
     Since a Reply is a Message with its 'in_reply_to' set, this *must* be provided:
 
-        >>> msg = Message('$.Fred',data=(0x1234,),from_=27,to=99,id=MessageId(0,132),flags=Message.WANT_A_REPLY)
+        >>> msg = Message('$.Fred', data=(0x1234,), from_=27, to=99, id=MessageId(0, 132), flags=Message.WANT_A_REPLY)
         >>> msg
-        Message('$.Fred', data=(0x1234,), to=99L, from_=27L, in_reply_to=None, flags=0x00000001, id=MessageId(0,132))
+        Message('$.Fred', data=(0x1234,), to=99L, from_=27L, in_reply_to=None, flags=0x00000001, id=MessageId(0, 132))
         >>> reply = Reply(msg)
         Traceback (most recent call last):
         ...
         ValueError: A Reply must specify in_reply_to
 
-        >>> reply = Reply(msg,in_reply_to=MessageId(0,5))
+        >>> reply = Reply(msg, in_reply_to=MessageId(0, 5))
         >>> reply
-        Reply('$.Fred', data=(0x1234,), to=99L, from_=27L, in_reply_to=MessageId(0,5), flags=0x00000001, id=MessageId(0,132))
+        Reply('$.Fred', data=(0x1234,), to=99L, from_=27L, in_reply_to=MessageId(0, 5), flags=0x00000001, id=MessageId(0, 132))
 
     It's also possible to construct a Reply in most of the other ways a Message
     can be constructed. For instance:
@@ -824,13 +824,13 @@ class Reply(Message):
         """Just do what the user asked, but they must give 'in_reply_to'.
         """
         
-        super(Reply,self).__init__(arg, data=data, to=to, from_=from_,
+        super(Reply, self).__init__(arg, data=data, to=to, from_=from_,
                                    in_reply_to=in_reply_to, flags=flags, id=id)
         if self.in_reply_to is None:
             raise ValueError("A Reply must specify in_reply_to")
 
     def __repr__(self):
-        (id,in_reply_to,to,from_,flags,name,data) = self.extract()
+        (id, in_reply_to, to, from_, flags, name, data) = self.extract()
         args = [repr(name),
                 'data=%s'%_int_tuple_as_str(data),
                 'to='+repr(to),
@@ -849,12 +849,12 @@ class Status(Message):
 
     For instance:
 
-        >>> msg = Message('$.KBUS.Dummy',from_=27,to=99,in_reply_to=MessageId(0,132))
+        >>> msg = Message('$.KBUS.Dummy', from_=27, to=99, in_reply_to=MessageId(0, 132))
         >>> msg
-        Message('$.KBUS.Dummy', data=(), to=99L, from_=27L, in_reply_to=MessageId(0,132), flags=0x00000000, id=None)
+        Message('$.KBUS.Dummy', data=(), to=99L, from_=27L, in_reply_to=MessageId(0, 132), flags=0x00000000, id=None)
         >>> status = Status(msg.to_string())
         >>> status
-        Status('$.KBUS.Dummy', data=(), to=99L, from_=27L, in_reply_to=MessageId(0,132), flags=0x00000000, id=None)
+        Status('$.KBUS.Dummy', data=(), to=99L, from_=27L, in_reply_to=MessageId(0, 132), flags=0x00000000, id=None)
 
     Note that:
 
@@ -866,10 +866,10 @@ class Status(Message):
         # Actually, this is slightly more forgiving than the docstring
         # suggests, but conversely I'm not going to hold the user's hand
         # if they do something that's not supported...
-        super(Status,self).__init__(original)
+        super(Status, self).__init__(original)
 
     def __repr__(self):
-        (id,in_reply_to,to,from_,flags,name,data) = self.extract()
+        (id, in_reply_to, to, from_, flags, name, data) = self.extract()
         args = [repr(name),
                 'data=%s'%_int_tuple_as_str(data),
                 'to='+repr(to),
@@ -886,12 +886,12 @@ def reply_to(original, data=None, flags=0):
 
     For instance:
 
-        >>> msg = Message('$.Fred',data=(0x1234,),from_=27,to=99,id=MessageId(0,132),flags=Message.WANT_A_REPLY)
+        >>> msg = Message('$.Fred', data=(0x1234,), from_=27, to=99, id=MessageId(0, 132), flags=Message.WANT_A_REPLY)
         >>> msg
-        Message('$.Fred', data=(0x1234,), to=99L, from_=27L, in_reply_to=None, flags=0x00000001, id=MessageId(0,132))
+        Message('$.Fred', data=(0x1234,), to=99L, from_=27L, in_reply_to=None, flags=0x00000001, id=MessageId(0, 132))
         >>> reply = reply_to(msg)
         >>> reply
-        Reply('$.Fred', data=(), to=27L, from_=0L, in_reply_to=MessageId(0,132), flags=0x00000000, id=None)
+        Reply('$.Fred', data=(), to=27L, from_=0L, in_reply_to=MessageId(0, 132), flags=0x00000000, id=None)
 
     Note that:
 
@@ -923,17 +923,17 @@ def reply_to(original, data=None, flags=0):
     such as Message.ALL_OR_WAIT, for instance), and 'data', allowing reply data
     to be added:
 
-        >>> rep4 = reply_to(msg,flags=Message.ALL_OR_WAIT,data=(0x1234,))
+        >>> rep4 = reply_to(msg, flags=Message.ALL_OR_WAIT, data=(0x1234,))
         >>> rep4
-        Reply('$.Fred', data=(0x1234,), to=27L, from_=0L, in_reply_to=MessageId(0,132), flags=0x00000100, id=None)
+        Reply('$.Fred', data=(0x1234,), to=27L, from_=0L, in_reply_to=MessageId(0, 132), flags=0x00000100, id=None)
     """
 
-    if not isinstance(original,Message):
+    if not isinstance(original, Message):
         # The lazy way of handling this case
         original = Message(original)
         # and then fall through into...
 
-    (id,in_reply_to,to,from_,original_flags,name,data_tuple) = original.extract()
+    (id, in_reply_to, to, from_, original_flags, name, data_tuple) = original.extract()
     # We reply to the original sender (to), indicating which message we're
     # responding to (in_reply_to).
     #
@@ -988,8 +988,8 @@ class KbusMessageHeaderStruct(ctypes.Structure):
                 self.name_len,
                 self.data_len)
 
-    def __eq__(self,other):
-        if not isinstance(other,KbusMessageHeaderStruct):
+    def __eq__(self, other):
+        if not isinstance(other, KbusMessageHeaderStruct):
             return False
         else:
             return (self.id == other.id and
@@ -1000,8 +1000,8 @@ class KbusMessageHeaderStruct(ctypes.Structure):
                     self.name_len == other.name_len and
                     self.data_len == other.data_len)
 
-    def __ne__(self,other):
-        if not isinstance(other,KbusMessageHeaderStruct):
+    def __ne__(self, other):
+        if not isinstance(other, KbusMessageHeaderStruct):
             return True
         else:
             return (self.id != other.id or
@@ -1042,34 +1042,34 @@ class KbusEntireMessageStructBaseclass(ctypes.Structure):
                 _int_tuple_as_str(self.data),
                 self.end_guard)
 
-    def __eq__(self,other):
-        if not isinstance(other,KbusEntireMessageStructBaseclass):
+    def __eq__(self, other):
+        if not isinstance(other, KbusEntireMessageStructBaseclass):
             return False
         else:
             return (self.header == other.header and
                     self.name == other.name and
                     self._data_eq(other))
 
-    def __ne__(self,other):
-        if not isinstance(other,KbusEntireMessageStructBaseclass):
+    def __ne__(self, other):
+        if not isinstance(other, KbusEntireMessageStructBaseclass):
             return True
         else:
             return (self.id != other.id or
                     self.name != other.name or
                     self._data_ne(other))
 
-    def _data_eq(self,other):
+    def _data_eq(self, other):
         if len(self.data) != len(other.data):
             return False
-        for (a,b) in itertools.izip(self.data, other.data):
+        for (a, b) in itertools.izip(self.data, other.data):
             if a != b:
                 return False
         return True
 
-    def _data_ne(self,other):
+    def _data_ne(self, other):
         if len(self.data) != len(other.data):
             return True
-        for (a,b) in itertools.izip(self.data, other.data):
+        for (a, b) in itertools.izip(self.data, other.data):
             if a != b:
                 return True
         return False
@@ -1097,7 +1097,7 @@ _specific_entire_message_struct_dict = {}
 def _specific_entire_message_struct(padded_name_len, data_len):
     """Return a specific subclass of KbusMessageHeaderStruct
     """
-    key = (padded_name_len,data_len)
+    key = (padded_name_len, data_len)
     if key in _specific_entire_message_struct_dict:
         return _specific_entire_message_struct_dict[key]
     else:
@@ -1107,14 +1107,14 @@ def _specific_entire_message_struct(padded_name_len, data_len):
                         ('data',       ctypes.c_uint32 * data_len),
                         ('end_guard',  ctypes.c_uint32)]
             # Allow the user to type '.to' instead of '.header.to'
-            _anonymous_ = ('header',)
+            _anonymous_ = ('header', )
         _specific_entire_message_struct_dict[key] = localKbusEntireMessageStruct
         return localKbusEntireMessageStruct
 
 def entire_message_from_parts(id, in_reply_to, to, from_, flags, name, data):
     """Return a new KbusEntireMessageStruct of the correct shape.
 
-    - 'id' and 'in_reply_to' are (network_id,serial_num) tuples
+    - 'id' and 'in_reply_to' are (network_id, serial_num) tuples
     - 'to', 'in_reply_to' and 'from_' are 0 or a KSock id
     - 'name' is a string
     - 'data' is a tuple of integers
@@ -1167,21 +1167,21 @@ class KSock(object):
     """
 
     IOC_MAGIC = 'k'
-    IOC_RESET    = _IO(IOC_MAGIC,   1)
-    IOC_BIND     = _IOW(IOC_MAGIC,  2, ctypes.sizeof(ctypes.c_char_p))
-    IOC_UNBIND   = _IOW(IOC_MAGIC,  3, ctypes.sizeof(ctypes.c_char_p))
-    IOC_KSOCKID  = _IOR(IOC_MAGIC,  4, ctypes.sizeof(ctypes.c_char_p))
-    IOC_REPLIER  = _IOWR(IOC_MAGIC, 5, ctypes.sizeof(ctypes.c_char_p))
-    IOC_NEXTMSG  = _IOR(IOC_MAGIC,  6, ctypes.sizeof(ctypes.c_char_p))
-    IOC_LENLEFT  = _IOR(IOC_MAGIC,  7, ctypes.sizeof(ctypes.c_char_p))
-    IOC_SEND     = _IOR(IOC_MAGIC,  8, ctypes.sizeof(ctypes.c_char_p))
-    IOC_DISCARD  = _IO(IOC_MAGIC,   9)
-    IOC_LASTSENT = _IOR(IOC_MAGIC, 10, ctypes.sizeof(ctypes.c_char_p))
-    IOC_MAXMSGS  = _IOWR(IOC_MAGIC,11, ctypes.sizeof(ctypes.c_char_p))
-    IOC_NUMMSGS  = _IOR(IOC_MAGIC, 12, ctypes.sizeof(ctypes.c_char_p))
+    IOC_RESET    = _IO(IOC_MAGIC,    1)
+    IOC_BIND     = _IOW(IOC_MAGIC,   2, ctypes.sizeof(ctypes.c_char_p))
+    IOC_UNBIND   = _IOW(IOC_MAGIC,   3, ctypes.sizeof(ctypes.c_char_p))
+    IOC_KSOCKID  = _IOR(IOC_MAGIC,   4, ctypes.sizeof(ctypes.c_char_p))
+    IOC_REPLIER  = _IOWR(IOC_MAGIC,  5, ctypes.sizeof(ctypes.c_char_p))
+    IOC_NEXTMSG  = _IOR(IOC_MAGIC,   6, ctypes.sizeof(ctypes.c_char_p))
+    IOC_LENLEFT  = _IOR(IOC_MAGIC,   7, ctypes.sizeof(ctypes.c_char_p))
+    IOC_SEND     = _IOR(IOC_MAGIC,   8, ctypes.sizeof(ctypes.c_char_p))
+    IOC_DISCARD  = _IO(IOC_MAGIC,    9)
+    IOC_LASTSENT = _IOR(IOC_MAGIC,  10, ctypes.sizeof(ctypes.c_char_p))
+    IOC_MAXMSGS  = _IOWR(IOC_MAGIC, 11, ctypes.sizeof(ctypes.c_char_p))
+    IOC_NUMMSGS  = _IOR(IOC_MAGIC,  12, ctypes.sizeof(ctypes.c_char_p))
 
-    def __init__(self,which=0,mode='r'):
-        if mode not in ('r','rw'):
+    def __init__(self, which=0, mode='r'):
+        if mode not in ('r', 'rw'):
             raise ValueError("KSock mode should be 'r' or 'rw', not '%s'"%mode)
         self.which = which
         self.name = '/dev/kbus%d'%which
@@ -1192,11 +1192,11 @@ class KSock(object):
             self.mode = 'read/write'
         # Although Unix doesn't mind whether a file is opened with a 'b'
         # for binary, it is possible that some version of Python may
-        self.fd = open(self.name,mode+'b')
+        self.fd = open(self.name, mode+'b')
 
     def __repr__(self):
         if self.fd:
-            return '<KSock %s open for %s>'%(self.name,self.mode)
+            return '<KSock %s open for %s>'%(self.name, self.mode)
         else:
             return '<KSock %s closed>'%(self.name)
 
@@ -1206,21 +1206,21 @@ class KSock(object):
         self.mode = None
         return ret
 
-    def bind(self,name,replier=False):
+    def bind(self, name, replier=False):
         """Bind the given name to the file descriptor.
 
         If 'replier', then we are binding as the only fd that can reply to this
         message name.
         """
-        arg = KbusBindStruct(replier,len(name),name)
+        arg = KbusBindStruct(replier, len(name), name)
         return fcntl.ioctl(self.fd, KSock.IOC_BIND, arg)
 
-    def unbind(self,name,replier=False):
+    def unbind(self, name, replier=False):
         """Unbind the given name from the file descriptor.
 
         The arguments need to match the binding that we want to unbind.
         """
-        arg = KbusBindStruct(replier,len(name),name)
+        arg = KbusBindStruct(replier, len(name), name)
         return fcntl.ioctl(self.fd, KSock.IOC_UNBIND, arg)
 
     def ksock_id(self):
@@ -1228,7 +1228,7 @@ class KSock(object):
         """
         # Instead of using a ctypes.Structure, we can retrieve homogenious
         # arrays of data using, well, arrays. This one is a bit minimalist.
-        id = array.array('L',[0])
+        id = array.array('L', [0])
         fcntl.ioctl(self.fd, KSock.IOC_KSOCKID, id, True)
         return id[0]
 
@@ -1237,7 +1237,7 @@ class KSock(object):
 
         Returns the length of said message, or 0 if there is no next message.
         """
-        id = array.array('L',[0])
+        id = array.array('L', [0])
         fcntl.ioctl(self.fd, KSock.IOC_NEXTMSG, id, True)
         return id[0]
 
@@ -1247,7 +1247,7 @@ class KSock(object):
         Returns 0 if there is no current message (i.e., 'next_msg()' has not
         been called), or if there are no bytes left.
         """
-        id = array.array('L',[0])
+        id = array.array('L', [0])
         fcntl.ioctl(self.fd, KSock.IOC_LENLEFT, id, True)
         return id[0]
 
@@ -1261,9 +1261,9 @@ class KSock(object):
 
         Raises IOError with errno ENOMSG if there was no message to send.
         """
-        arg = array.array('L',[0,0])
+        arg = array.array('L', [0, 0])
         fcntl.ioctl(self.fd, KSock.IOC_SEND, arg);
-        return MessageId(arg[0],arg[1])
+        return MessageId(arg[0], arg[1])
 
     def discard(self):
         """Discard the message being written.
@@ -1280,16 +1280,16 @@ class KSock(object):
 
         Returns 0 before any messages have been sent.
         """
-        id = array.array('L',[0,0])
+        id = array.array('L', [0, 0])
         fcntl.ioctl(self.fd, KSock.IOC_LASTSENT, id, True)
-        return MessageId(id[0],id[1])
+        return MessageId(id[0], id[1])
 
-    def find_replier(self,name):
+    def find_replier(self, name):
         """Find the id of the replier (if any) for this message.
 
         Returns None if there was no replier, otherwise the replier's id.
         """
-        arg = KbusListenerStruct(0,len(name),name)
+        arg = KbusListenerStruct(0, len(name), name)
         retval = fcntl.ioctl(self.fd, KSock.IOC_REPLIER, arg);
         if retval:
             return arg.return_id
@@ -1299,11 +1299,11 @@ class KSock(object):
     def max_messages(self):
         """Return the number of messages that can be queued on this KSock.
         """
-        id = array.array('L',[0])
+        id = array.array('L', [0])
         fcntl.ioctl(self.fd, KSock.IOC_MAXMSGS, id, True)
         return id[0]
 
-    def set_max_messages(self,count):
+    def set_max_messages(self, count):
         """Set the number of messages that can be queued on this KSock.
 
         A 'count' of 0 does not actually change the value - this may thus be
@@ -1315,18 +1315,18 @@ class KSock(object):
         Returns the number of message that are allowed to be queued on this
         KSock.
         """
-        id = array.array('L',[count])
+        id = array.array('L', [count])
         fcntl.ioctl(self.fd, KSock.IOC_MAXMSGS, id, True)
         return id[0]
 
     def num_messages(self):
         """Return the number of messages that are queued on this KSock.
         """
-        id = array.array('L',[0])
+        id = array.array('L', [0])
         fcntl.ioctl(self.fd, KSock.IOC_NUMMSGS, id, True)
         return id[0]
 
-    def write_msg(self,message):
+    def write_msg(self, message):
         """Write a Message. Doesn't send it.
         """
         # Message data is held in an array.array, and arrays know
@@ -1335,7 +1335,7 @@ class KSock(object):
         # But we are responsible for flushing
         self.fd.flush()
 
-    def send_msg(self,message):
+    def send_msg(self, message):
         """Write a Message, and then send it.
 
         Entirely equivalent to calling 'write_msg' and then 'send',
@@ -1344,7 +1344,7 @@ class KSock(object):
         self.write_msg(message)
         return self.send()
 
-    def write_data(self,data):
+    def write_data(self, data):
         """Write out (and flush) some data.
 
         Does not send it, does not imply that it is all of a message
@@ -1354,7 +1354,7 @@ class KSock(object):
         self.fd.flush()
         return ret
 
-    def read_msg(self,length):
+    def read_msg(self, length):
         """Read a Message of length 'length' bytes.
 
         It is assumed that 'length' was returned by a previous call
@@ -1387,7 +1387,7 @@ class KSock(object):
         else:
             return None
 
-    def read_data(self,count):
+    def read_data(self, count):
         """Read the next 'count' bytes, and return them.
 
         Returns '' (the empty string) if there was nothing to be read,
@@ -1433,11 +1433,11 @@ class KSock(object):
         This allows a KSock instance to be used in a call of select.select()
         - so, for instance, on should be able to do::
 
-            (r,w,x) = select.select([ksock1,ksock2,ksock3],None,None)
+            (r, w, x) = select.select([ksock1, ksock2, ksock3], None, None)
 
         instead of the (less friendly, but also valid)::
 
-            (r,w,x) = select.select([ksock1.fd,ksock2.fd,ksock3.fd],None,None)
+            (r, w, x) = select.select([ksock1.fd, ksock2.fd, ksock3.fd], None, None)
         """
         return self.fd.fileno()
 
@@ -1460,8 +1460,8 @@ def read_bindings(names):
 
     Thus with the above we would return a list of the form::
 
-        [ ('f1',True,'$.Fred'), ('f2',False,'$.Fred.Bob'),
-          (12,True,'$.William' ]
+        [ ('f1', True, '$.Fred'), ('f2', False, '$.Fred.Bob'),
+          (12, True, '$.William' ]
     """
     f = open('/proc/kbus/bindings')
     l = f.readlines()
@@ -1471,7 +1471,7 @@ def read_bindings(names):
         # 'dev' is the device index (default is 0, may be 0..9 depending on how
         # many /dev/kbus<N> devices there are).
         # For the moment, we're going to ignore it.
-        dev,id,rep,name = line.split()
+        dev, id, rep, name = line.split()
         id = int(id)
         if id in names:
             id = names[int(id)]
@@ -1480,8 +1480,8 @@ def read_bindings(names):
         elif rep == 'L':        # (just a) Listener
             rep = False
         else:
-            raise ValueError,"Got replier '%c' when expecting 'R' or 'L'"%rep
-        bindings.append((id,rep,name))
+            raise ValueError("Got replier '%c' when expecting 'R' or 'L'"%rep)
+        bindings.append((id, rep, name))
     return bindings
 
 # vim: set tabstop=8 shiftwidth=4 expandtab:
