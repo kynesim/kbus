@@ -93,7 +93,6 @@ def _clear_bit(value, which):
         value = value & mask
     return value
 
-
 class MessageId(ctypes.Structure):
     """A wrapper around a message id.
 
@@ -145,6 +144,196 @@ class MessageId(ctypes.Structure):
             return NotImplemented
         else:
             return MessageId(self.network_id, self.serial_num+other)
+
+class _MessageHeaderStruct(ctypes.Structure):
+    """The datastructure for a Message header.
+    """
+    _fields_ = [('start_guard', ctypes.c_uint32),
+                ('id',          MessageId),
+                ('in_reply_to', MessageId),
+                ('to',          ctypes.c_uint32),
+                ('from_',       ctypes.c_uint32), # named consistently with elsewhere
+                ('flags',       ctypes.c_uint32),
+                ('name_len',    ctypes.c_uint32),
+                ('data_len',    ctypes.c_uint32)]
+
+    def __repr__(self):
+        """For debugging, not construction of an instance of ourselves.
+        """
+        return "<%08x] %s %s %u %u %08x %u %u"%(
+                self.start_guard,
+                self.id._short_str(),
+                self.in_reply_to._short_str(),
+                self.to,
+                self.from_,
+                self.flags,
+                self.name_len,
+                self.data_len)
+
+    def __eq__(self, other):
+        if not isinstance(other, _MessageHeaderStruct):
+            return False
+        else:
+            return (self.id == other.id and
+                    self.in_reply_to == other.in_reply_to and
+                    self.to == other.to and
+                    self.from_ == other.from_ and
+                    self.flags == other.flags and
+                    self.name_len == other.name_len and
+                    self.data_len == other.data_len)
+
+    def __ne__(self, other):
+        if not isinstance(other, _MessageHeaderStruct):
+            return True
+        else:
+            return (self.id != other.id or
+                    self.in_reply_to != other.in_reply_to or
+                    self.to != other.to or
+                    self.from_ != other.from_ or
+                    self.flags != other.flags or
+                    self.name_len != other.name_len or
+                    self.data_len != other.data_len)
+
+def _struct_to_string(struct):
+    return ctypes.string_at(ctypes.addressof(struct), ctypes.sizeof(struct))
+
+def _struct_from_string(struct_class, data):
+    thing = struct_class()
+    ctypes.memmove(ctypes.addressof(thing), data, ctypes.sizeof(thing))
+    return thing
+
+class _EntireMessageStructBaseclass(ctypes.Structure):
+    """The baseclass for our "entire message structure".
+
+    Defined separately just to reduce the amount of code executed in the
+    functions that *build* the classes.
+
+    It is required that the fields defined be 'header', 'name', 'data'
+    and 'end_guard' -- but since I'm assuming this will only be (directly)
+    used internally to kbus.py, I'm happy with that.
+
+        (Specifically, see the ``_specific_entire_message_struct`` function)
+    """
+
+    def __repr__(self):
+        """For debugging, not construction of an instance of ourselves.
+        """
+        return "%s '%s' %s [%08x>"%(
+                self.header,
+                self.name[:self.name_len],
+                _int_tuple_as_str(self.data),
+                self.end_guard)
+
+    def __eq__(self, other):
+        if not isinstance(other, _EntireMessageStructBaseclass):
+            return False
+        else:
+            return (self.header == other.header and
+                    self.name == other.name and
+                    self._data_eq(other))
+
+    def __ne__(self, other):
+        if not isinstance(other, _EntireMessageStructBaseclass):
+            return True
+        else:
+            return (self.id != other.id or
+                    self.name != other.name or
+                    self._data_ne(other))
+
+    def _data_eq(self, other):
+        if len(self.data) != len(other.data):
+            return False
+        for (a, b) in itertools.izip(self.data, other.data):
+            if a != b:
+                return False
+        return True
+
+    def _data_ne(self, other):
+        if len(self.data) != len(other.data):
+            return True
+        for (a, b) in itertools.izip(self.data, other.data):
+            if a != b:
+                return True
+        return False
+
+def _int_tuple_as_str(data):
+    """Return a representation of a tuple of integers, as a string.
+    """
+    words = []
+    for w in data:
+        words.append('0x%x'%w)
+
+    if len(words) == 0:
+        return '()'
+    elif len(words) == 1:
+        return '(%s,)'%words[0]
+    else:
+        return '(%s)'%(', '.join(words))
+
+# Is this premature optimisation?
+# I don't think Python would cache the different classes for me,
+# and it seems wasteful to create a new class for *every* message,
+# given there will be a lot of messages that are very similar...
+_specific_entire_message_struct_dict = {}
+
+def _specific_entire_message_struct(padded_name_len, data_len):
+    """Return a specific subclass of _MessageHeaderStruct
+    """
+    key = (padded_name_len, data_len)
+    if key in _specific_entire_message_struct_dict:
+        return _specific_entire_message_struct_dict[key]
+    else:
+        class localEntireMessageStruct(_EntireMessageStructBaseclass):
+            _fields_ = [('header',     _MessageHeaderStruct),
+                        ('name',       ctypes.c_char   * padded_name_len),
+                        ('data',       ctypes.c_uint32 * data_len),
+                        ('end_guard',  ctypes.c_uint32)]
+            # Allow the user to type '.to' instead of '.header.to'
+            _anonymous_ = ('header', )
+        _specific_entire_message_struct_dict[key] = localEntireMessageStruct
+        return localEntireMessageStruct
+
+def entire_message_from_parts(id, in_reply_to, to, from_, flags, name, data):
+    """Return a new message structure of the correct shape.
+
+    - 'id' and 'in_reply_to' are (network_id, serial_num) tuples
+    - 'to', 'in_reply_to' and 'from_' are 0 or a KSock id
+    - 'name' is a string
+    - 'data' is a tuple of integers
+    """
+    name_len = len(name)
+    data_len = len(data)
+
+    # Remember that the message name itself needs padding out to 4-bytes
+    # ...this is about the nastiest way possible of doing it...
+    while len(name)%4:
+        name += '\0'
+
+    padded_name_len = len(name)
+
+    header = _MessageHeaderStruct(Message.START_GUARD,
+                                  id, in_reply_to,
+                                  to, from_, flags, name_len, data_len)
+
+    # We rather rely on 'data' "disappearing" (being of zero length)
+    # if 'data_len' is zero, and it appears that that just works.
+
+    local_class = _specific_entire_message_struct(padded_name_len, data_len)
+
+    return local_class(header, name, data, Message.END_GUARD)
+
+def entire_message_from_string(data):
+    """Return a message structure of a size that satisfies.
+
+    'data' is a string-like object (as, for instance, returned by 'read')
+    """
+    h = _struct_from_string(_MessageHeaderStruct, data)
+
+    padded_name_len = 4*((h.name_len + 3) / 4)
+
+    local_class = _specific_entire_message_struct(padded_name_len, h.data_len)
+
+    return _struct_from_string(local_class, data)
 
 class Message(object):
     """A wrapper for a KBUS message
@@ -287,7 +476,7 @@ class Message(object):
 
     Our internal values are:
 
-    - 'msg', which is the actual message data, as a KbusEntireMessageStruct
+    - 'msg', which is the actual message data
     - 'size', which is the size of that datastructure in bytes
     """
 
@@ -943,215 +1132,25 @@ def reply_to(original, data=None, flags=0):
     # any flags from the original message.
     return Reply(name, data=data, in_reply_to=id, to=from_, flags=flags)
 
-class KbusBindStruct(ctypes.Structure):
+class BindStruct(ctypes.Structure):
     """The datastucture we need to describe an IOC_BIND argument
     """
     _fields_ = [('is_replier', ctypes.c_uint32),
                 ('len',        ctypes.c_uint32),
                 ('name',       ctypes.c_char_p)]
 
-class KbusListenerStruct(ctypes.Structure):
+class ListenerStruct(ctypes.Structure):
     """The datastucture we need to describe an IOC_REPLIER argument
     """
     _fields_ = [('return_id', ctypes.c_uint32),
                 ('len',       ctypes.c_uint32),
                 ('name',      ctypes.c_char_p)]
 
-class KbusSendResultStruct(ctypes.Structure):
+class SendResultStruct(ctypes.Structure):
     """The datastucture we need to describe an IOC_SEND argument/return
     """
     _fields_ = [('retval',  ctypes.c_int32),
                 ('msg_id',  MessageId)]
-
-class KbusMessageHeaderStruct(ctypes.Structure):
-    """The datastructure for a Message header.
-    """
-    _fields_ = [('start_guard', ctypes.c_uint32),
-                ('id',          MessageId),
-                ('in_reply_to', MessageId),
-                ('to',          ctypes.c_uint32),
-                ('from_',       ctypes.c_uint32), # named consistently with elsewhere
-                ('flags',       ctypes.c_uint32),
-                ('name_len',    ctypes.c_uint32),
-                ('data_len',    ctypes.c_uint32)]
-
-    def __repr__(self):
-        """For debugging, not construction of an instance of ourselves.
-        """
-        return "<%08x] %s %s %u %u %08x %u %u"%(
-                self.start_guard,
-                self.id._short_str(),
-                self.in_reply_to._short_str(),
-                self.to,
-                self.from_,
-                self.flags,
-                self.name_len,
-                self.data_len)
-
-    def __eq__(self, other):
-        if not isinstance(other, KbusMessageHeaderStruct):
-            return False
-        else:
-            return (self.id == other.id and
-                    self.in_reply_to == other.in_reply_to and
-                    self.to == other.to and
-                    self.from_ == other.from_ and
-                    self.flags == other.flags and
-                    self.name_len == other.name_len and
-                    self.data_len == other.data_len)
-
-    def __ne__(self, other):
-        if not isinstance(other, KbusMessageHeaderStruct):
-            return True
-        else:
-            return (self.id != other.id or
-                    self.in_reply_to != other.in_reply_to or
-                    self.to != other.to or
-                    self.from_ != other.from_ or
-                    self.flags != other.flags or
-                    self.name_len != other.name_len or
-                    self.data_len != other.data_len)
-
-def _struct_to_string(struct):
-    return ctypes.string_at(ctypes.addressof(struct), ctypes.sizeof(struct))
-
-def _struct_from_string(struct_class, data):
-    thing = struct_class()
-    ctypes.memmove(ctypes.addressof(thing), data, ctypes.sizeof(thing))
-    return thing
-
-class KbusEntireMessageStructBaseclass(ctypes.Structure):
-    """The baseclass for our "entire message structure".
-
-    Defined separately just to reduce the amount of code executed in the
-    functions that *build* the classes.
-
-    It is required that the fields defined be 'header', 'name', 'data'
-    and 'end_guard' -- but since I'm assuming this will only be (directly)
-    used internally to kbus.py, I'm happy with that.
-
-        (Specifically, see the ``_specific_entire_message_struct`` function)
-    """
-
-    def __repr__(self):
-        """For debugging, not construction of an instance of ourselves.
-        """
-        return "%s '%s' %s [%08x>"%(
-                self.header,
-                self.name[:self.name_len],
-                _int_tuple_as_str(self.data),
-                self.end_guard)
-
-    def __eq__(self, other):
-        if not isinstance(other, KbusEntireMessageStructBaseclass):
-            return False
-        else:
-            return (self.header == other.header and
-                    self.name == other.name and
-                    self._data_eq(other))
-
-    def __ne__(self, other):
-        if not isinstance(other, KbusEntireMessageStructBaseclass):
-            return True
-        else:
-            return (self.id != other.id or
-                    self.name != other.name or
-                    self._data_ne(other))
-
-    def _data_eq(self, other):
-        if len(self.data) != len(other.data):
-            return False
-        for (a, b) in itertools.izip(self.data, other.data):
-            if a != b:
-                return False
-        return True
-
-    def _data_ne(self, other):
-        if len(self.data) != len(other.data):
-            return True
-        for (a, b) in itertools.izip(self.data, other.data):
-            if a != b:
-                return True
-        return False
-
-def _int_tuple_as_str(data):
-    """Return a representation of a tuple of integers, as a string.
-    """
-    words = []
-    for w in data:
-        words.append('0x%x'%w)
-
-    if len(words) == 0:
-        return '()'
-    elif len(words) == 1:
-        return '(%s,)'%words[0]
-    else:
-        return '(%s)'%(', '.join(words))
-
-# Is this premature optimisation?
-# I don't think Python would cache the different classes for me,
-# and it seems wasteful to create a new class for *every* message,
-# given there will be a lot of messages that are very similar...
-_specific_entire_message_struct_dict = {}
-
-def _specific_entire_message_struct(padded_name_len, data_len):
-    """Return a specific subclass of KbusMessageHeaderStruct
-    """
-    key = (padded_name_len, data_len)
-    if key in _specific_entire_message_struct_dict:
-        return _specific_entire_message_struct_dict[key]
-    else:
-        class localKbusEntireMessageStruct(KbusEntireMessageStructBaseclass):
-            _fields_ = [('header',     KbusMessageHeaderStruct),
-                        ('name',       ctypes.c_char   * padded_name_len),
-                        ('data',       ctypes.c_uint32 * data_len),
-                        ('end_guard',  ctypes.c_uint32)]
-            # Allow the user to type '.to' instead of '.header.to'
-            _anonymous_ = ('header', )
-        _specific_entire_message_struct_dict[key] = localKbusEntireMessageStruct
-        return localKbusEntireMessageStruct
-
-def entire_message_from_parts(id, in_reply_to, to, from_, flags, name, data):
-    """Return a new KbusEntireMessageStruct of the correct shape.
-
-    - 'id' and 'in_reply_to' are (network_id, serial_num) tuples
-    - 'to', 'in_reply_to' and 'from_' are 0 or a KSock id
-    - 'name' is a string
-    - 'data' is a tuple of integers
-    """
-    name_len = len(name)
-    data_len = len(data)
-
-    # Remember that the message name itself needs padding out to 4-bytes
-    # ...this is about the nastiest way possible of doing it...
-    while len(name)%4:
-        name += '\0'
-
-    padded_name_len = len(name)
-
-    header = KbusMessageHeaderStruct(Message.START_GUARD,
-                                     id, in_reply_to,
-                                     to, from_, flags, name_len, data_len)
-
-    # We rather rely on 'data' "disappearing" (being of zero length)
-    # if 'data_len' is zero, and it appears that that just works.
-
-    local_class = _specific_entire_message_struct(padded_name_len, data_len)
-
-    return local_class(header, name, data, Message.END_GUARD)
-
-def entire_message_from_string(data):
-    """Return a KbusEntireMessageStruct of a size that satisfies.
-
-    'data' is a string-like object (as, for instance, returned by 'read')
-    """
-    h = _struct_from_string(KbusMessageHeaderStruct, data)
-
-    padded_name_len = 4*((h.name_len + 3) / 4)
-
-    local_class = _specific_entire_message_struct(padded_name_len, h.data_len)
-
-    return _struct_from_string(local_class, data)
 
 class KSock(object):
     """A wrapper around a KBUS device, for purposes of message sending.
@@ -1212,7 +1211,7 @@ class KSock(object):
         If 'replier', then we are binding as the only fd that can reply to this
         message name.
         """
-        arg = KbusBindStruct(replier, len(name), name)
+        arg = BindStruct(replier, len(name), name)
         return fcntl.ioctl(self.fd, KSock.IOC_BIND, arg)
 
     def unbind(self, name, replier=False):
@@ -1220,7 +1219,7 @@ class KSock(object):
 
         The arguments need to match the binding that we want to unbind.
         """
-        arg = KbusBindStruct(replier, len(name), name)
+        arg = BindStruct(replier, len(name), name)
         return fcntl.ioctl(self.fd, KSock.IOC_UNBIND, arg)
 
     def ksock_id(self):
@@ -1289,7 +1288,7 @@ class KSock(object):
 
         Returns None if there was no replier, otherwise the replier's id.
         """
-        arg = KbusListenerStruct(0, len(name), name)
+        arg = ListenerStruct(0, len(name), name)
         retval = fcntl.ioctl(self.fd, KSock.IOC_REPLIER, arg);
         if retval:
             return arg.return_id

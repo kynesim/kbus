@@ -56,9 +56,9 @@ import nose
 
 from kbus import KSock, Message, MessageId, Announcement, \
                  Request, Reply, Status, reply_to
-from kbus import read_bindings, KbusBindStruct
+from kbus import read_bindings
 from kbus import _struct_to_string, _struct_from_string
-from kbus import KbusMessageHeaderStruct
+from kbus import _MessageHeaderStruct
 from kbus import entire_message_from_parts, entire_message_from_string
 
 NUM_DEVICES = 3
@@ -2289,14 +2289,14 @@ class TestKernelModule:
         """
         name = '$.Fred'
         data = '12345678'
-        header = KbusMessageHeaderStruct(Message.START_GUARD,
-                                         MessageId(0, 0),
-                                         MessageId(0, 27),
-                                         32,
-                                         0,
-                                         0,
-                                         len(name),
-                                         len(data)/4)
+        header = _MessageHeaderStruct(Message.START_GUARD,
+                                      MessageId(0, 0),
+                                      MessageId(0, 27),
+                                      32,
+                                      0,
+                                      0,
+                                      len(name),
+                                      len(data)/4)
         #print 'header', header
         assert header.start_guard == Message.START_GUARD
         assert header.id.network_id == 0
@@ -2316,12 +2316,12 @@ class TestKernelModule:
         #    print ' %02x'%ord(char),
         #print
 
-        h2 = _struct_from_string(KbusMessageHeaderStruct, strhdr)
+        h2 = _struct_from_string(_MessageHeaderStruct, strhdr)
         #print 'h2', h2
 
         assert h2==header
 
-        empty = KbusMessageHeaderStruct()
+        empty = _MessageHeaderStruct()
         #print 'empty', empty
         assert empty.start_guard == 0
         assert empty.id.network_id == 0
@@ -2339,14 +2339,14 @@ class TestKernelModule:
         """
         name = '$.Fred'
         data = (1234, 5678)
-        header = KbusMessageHeaderStruct(Message.START_GUARD,
-                                         MessageId(0, 0),
-                                         MessageId(0, 27),
-                                         32,
-                                         0,
-                                         0,
-                                         len(name),
-                                         len(data))
+        header = _MessageHeaderStruct(Message.START_GUARD,
+                                      MessageId(0, 0),
+                                      MessageId(0, 27),
+                                      32,
+                                      0,
+                                      0,
+                                      len(name),
+                                      len(data))
         end_guard = array.array('L', [Message.END_GUARD]).tostring()
         strhdr = _struct_to_string(header)
         strdata = array.array('L', data).tostring()
