@@ -1,0 +1,269 @@
+A crude to-do list
+==================
+
+.. note:: This TODO list is kept as a reStructuredText document.
+          If you are looking at an HTML file, then it is provided for your
+          convenience, and may not be up-to-date.
+
+-------------------------------------------------------------------------------
+
+Discussion on message datastructure
+-----------------------------------
+
+At the moment, the same datastructure is used for :
+
+1. creating a new message in userspace and writing it to KBUS
+2. reading a message from KBUS into userspace
+3. storing/manipulating the message within KBUS itself.
+
+For the purposes of this discussion, the third can be ignored, as it is known
+to be likely to change for all sorts of reasons, but also, importantly, since
+KBUS needs to copy data between user and kernel space for both of the first
+two, so conversion is not an issue.
+
+Ideally, the message as send and the message as read use the same
+datastructure.
+
+Ideally, C shouldn't have to "stuff" a string into the message datastructure.
+One "solution" to this is to use a message *code* instead of a message name.
+That then raises the question of whether one only allows a message code in a
+message, or if one still allows a string (which I personally prefer) how one
+tells if the message is named or coded. Which tends to be icky.
+
+In the future, it is believed that Richard will want to send messages with
+large amounts of data. Copying said data into the message (in userspace) and
+then out again (in kernel space) is at least one copy too many for comfort.
+
+Lastly, the message size if variable, because it contains a message name and
+optional data. This is a minor niggle, but still a niggle.
+
+The alternative is to have a datastrucure with pointers out to the name and
+data. I've tended to shy away from this, as it feels (to me) a little odd to
+use ``write`` to write a datastructure containing pointers. Of course, I've
+happily done exactly this with the ioctls for binding and umbinding, so that
+is perhaps inconsistent.
+
+What about reading? Since we're meant to use NEXTMSG to "pop" the next
+message, and then ``read`` to read it, it feels to me as if that operation
+should indeed read all of the data, into one place. But, as John points out,
+this can be done::
+
+        Header data
+        ptr to name --------------+
+        ptr to data ---------+    +
+        name        <--------|----+
+        ...                  |
+        data        <--------+
+        ...
+
+So, a proposal is to transform the message header into::
+
+    <start guard>
+    <various header fields>
+    name length
+    ptr to name
+    data length
+    ptr to data
+    <end guard>
+
+The name length may never be less that 3 ("$.x"). The name pointer must thus
+always be present.
+
+The data length may be zero, in which case the ptr-to-data shall also be zero,
+otherwise it shall not.
+
+A special macro or function shall be supplied by the kernel header file to
+*free* such a message. If the ptr-to-name is an "internal" pointer (see the
+first diagram) then it doesn't need to free it. If the ptr-to-data is an
+"internal" pointer, then it doesn't need to free it. It is quite likely that
+these case would *also* be indicated by having some sort of flag in the
+"flags" field.
+
+Hmm. Presumably, a writer might want to reuse the same name for multiple
+messages - they would presumably best *not* use this macro to free their
+datastructure!
+
+Given the above, *do* we need message codes? Since we're no longer copying the
+message name all over the place externally? If we do, then it's probably
+sufficient to set the name length to 0 and assert that this means that the
+name pointer is now a name code.
+
+    (Message name length is *definitely* illegal, and is enforced as such now,
+    so this seems a reasonable "escape clause". And we've now got a fixed size
+    datastructure, so we'd have the pointer field available anyway.)
+
+What about the end guard?
+
+One of the nice things about the current (monolithic) message datastructure is
+that the end guard sits, well, at the end of the (entire) message. Clearly in
+our new (writable) datastructure, it sits after the ptr/length pairs, and
+*not* after all of the other data. I'm not convinced this is a great problem,
+though. Perhaps the "all in one" (first diagram) idea should include an extra
+end guard after the end of the actual data, although I'm not convinced that
+this makes sense.
+
+Restrictions
+~~~~~~~~~~~~
+Clearly, whilst ``write``-ing a message, and until after it has been
+successfully SENT (which can be a while, if ALL_OR_WAIT or blocking is in
+force), the original pointers in the message must stay valid. This worries me
+a little.
+
+
+More thinking
+~~~~~~~~~~~~~
+I'm still not entirely sure I *like* this idea.
+
+*But* it does scale up nicely to the "messages with *lots* of data" problem,
+which I'd quite like to solve without needing to have a "special solution"  -
+in other words, it would feel even more wrong to have "small messages"
+(whatever that means) in one format and "large messages" in another. And what
+happens if someone uses "small messages" to send large amounts of data? Are we
+meant to get upset?
+
+On the other hand, if we go with the proposed scheme, is data length now in
+bytes? I assume so, as (a) the caller is presumably going to want to use
+``sizeof``, and (b) if their data is naturally an odd number of bytes long,
+they're not going to want to have to pad it out, just so an incorrect length
+can be passed.
+
+Why don't I like it? I think it really is (just?) down to the issue of
+``read`` and ``write`` being used to move a datastructure with dangling
+references. Which doesn't worry John (for instance) at all.
+
+-------------------------------------------------------------------------------
+
+In no particular order (well, except for the first):
+
+* REQ Always, update documentation.
+
+* REQ Make the comments in kbus.c and kbus.h follow the kernel documentation
+  rules.
+
+* REQ Use "const" in an appropriate manner, throughout. Really.
+
+* REQ Support blocking i/o
+
+* REQ Improve the output in /proc/kbus/<whatever> so it is not limited to a
+  single page.
+
+* OPT Ben suggested that I should be using mutexes instead of semaphores
+  (because that's now the way to do it). Which I take to refer to
+  ``linux/Documentation/mutex-design.txt``. Look into it. It sounds sensible.
+
+* OPT Make polling take account of urgent messages, so that (for instance) the
+  "exception" list in a ``select`` can detect them.
+
+* OPT Internally, split messages into
+
+      - header -- copy this between lists
+      - message name/id -- if we're doing message name ids, then those should
+        be copied prefererentially
+      - message data -- this should be reference counted
+
+* REQ Large message support -- allow message data to be large, held as a list
+  of data split properly over pages. Really requires reference counting of
+  message data.
+
+* REQ (LOW PRIORITY) Allow a KSock to say "I am a network bridge", which means
+  that messages going over it might be hard to follow -- one might not be sure
+  if they've been delivered or not, and so it may be sensible to be able to
+  tell that a message has "gone fuzzy" -- sending to such an interface should
+  maybe set some status on the "retval+status" from a send.
+
+  Thus "send" should tell the caller as much as it can about how successful
+  it has been (including, if it can tell, that delivery has definitely worked
+  or failed).
+
+* REQ (LOW PRIORITY) Provide a flag on file descriptors (hmm, perhaps better
+  on an individual message?) to say:
+
+  When I've sent a message, send me back a synthesised message when that
+  message has "left the system" -- i.e., when all listeners (that are going
+  to) have read it, when all repliers (that are going to) have replied to it,
+  and (if that isn't going to happen) when any exceptions regarding it have
+  been sent.
+
+  In other words, if the sender is remembering information about messages that
+  have been sent, this allows the sender to know that it can forget about the
+  message.
+
+-------------------------------------------------------------------------------
+
+* OPT Allow message name id to be used instead of message name in messages.
+  This would need:
+
+      - ability to look up message name and retrieve its id
+      - a way of indicating whether a message is storing message name (and
+        its length) or message name id
+      - some better terminology for "message name id"
+
+  Note that in the Python interface this is not a big deal to the user.
+
+* OPT Consider adding RESET functionality (the ioctl already exists):
+
+  1. Sends exactly one '$.KBUS.Reset.Start' message to each open interface
+     (so if one is listening and replying on an interface, one still only gets
+     a single such message on it).
+  2. Empties all of the queues -- this will generate any necessary synthetic
+     messages/exceptions relating to dropped requests/replies.
+  3. Resets all the internal ids (to start from 0 or 1 again).
+  4. Sends exactly one '$.KBUS.Reset.End' message to each open interface.
+
+  Consideration: this would mean that all interfaces were automatically bound
+  to '$.KBUS.Reset.*'.
+
+  Use case: This would be useful for testing, and if we have multiple
+  interacting internal lists (for instance, message queues on each interface,
+  but also a list of outstanding requests), then it allows for a "soft
+  restart" other than removing and reinstalling the module.
+
+* OPT Remove lots of the debugging 'printk's in ``kbus.c`` - there are way too
+  many.
+
+-------------------------------------------------------------------------------
+
+* DONE Implement sender ALL/WAIT flags:
+
+  - ALL_OR_WAIT -- add the message to all listener queues, and if that can't
+    be done because some queues are full, the sender should block on its SEND
+    until it can be done.
+
+  - ALL_OR_FAIL -- add the message to all listener queues, and if that
+    can't be done, fail (the message is not sent).
+
+  - (default) -- add the message to all listener queues that have room.
+
+  Remember that, in this context, and interpreted appropriately, repliers also
+  count as listeners.
+
+* DONE Support select/poll
+
+* DONE Keep a spare slot in the receiver queue, to allow for receiving
+  asynchronous error messages.
+
+  Actually, a single slot is not enough.
+
+  One definitely needs to reserve a slot per Request sent, so that there is
+  guaranteed to be room for the Reply or (if something goes wrong) Status
+  message. It is this latter that makes the case - if KBus generates a Status
+  message (for a failed Request), then it *must* be able to add it to the
+  sender's message queue, otherwise KBus might block (we don't care if a
+  Replier blocks waiting on being able to send to the original sender, of
+  course).
+
+  So we need to keep a list of the Requests that a KSock has made, that have
+  not yet had a response, and not allow the KSock to SEND (technically, not to
+  allow it to SEND a Request, but that may be too complicated a condition)
+  until it has read enough to make that space. Of course, this does admit the
+  case where a sender can't send because it has run out of message queue,
+  absolutely, and is thus stuck pending a Reply arriving, but that's a
+  user-space hangup, so (in this sense) OK.
+
+  It's then questionable whether we also need to reserve an extra slot - I
+  think at the moment the only Status messages generated are those for failed
+  Requests.
+
+* DONE Keep a list of all Requests that have not been replied to, and send the
+  sender a synthetic message when an interface has released, but has not
+  replied to a message, even though it *has* read it.
