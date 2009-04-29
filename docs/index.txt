@@ -1,0 +1,23 @@
+.. Kbus documentation master file, created by
+   sphinx-quickstart on Wed Apr 29 11:14:58 2009.
+   ...and amended shortly thereafter
+
+Welcome to the KBus documentation
+=================================
+
+Contents:
+
+.. toctree::
+   :maxdepth: 2
+
+   self
+   docs
+   TODO
+   kbus-kernel-module
+
+Indices and tables
+==================
+
+* :ref:`genindex`
+* :ref:`modindex`
+* :ref:`search`
