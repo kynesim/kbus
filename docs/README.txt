@@ -47,14 +47,18 @@ find out).
 
 Subversion gotchas
 ------------------
-If one does indeed do::
+Sphinx believes that the contents of ``_build`` are transitory - i.e., that it
+is free to delete them if it wishes. In particular, ``make clean`` will delete
+all of the contents of ``_build``.
 
-    make html
+Meanwhile, we've committed ``_build/html`` and its contents to Subversion,
+which has created ``.svn`` directories therein. Deleting these, and then
+recreating the directories without them (via ``make html``) will confuse
+Subversion when it notices this.
 
-*and* it actually alters any files within _build, and one then tries to do::
+The simplest solution is:
 
-    svn commit
+a. Don't use ``make clean`` (!)
+b. Do use ``svn update`` to retrieve the checked in files/directories if you
+   do - with luck the dependency tracking in the ``make`` process will cope.
 
-it would appear that Subversion gets upset about the Sphinx build process
-causing the ``.svn`` directories within _build to disappear. I'm working on
-it...
