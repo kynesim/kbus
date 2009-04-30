@@ -42,14 +42,23 @@ else
 	KERNELDIR ?= /lib/modules/$(shell uname -r)/build
 
 	PWD = $(shell pwd)
+	KREL_DIR = modules/$(shell uname -r)
 
+# Build the KBUS kernel module.
+# Copy it to a directory named after the kernel version used to so build
+# - this allows someone building multiple different versions of the module
+#   to have some hope of keeping track
+# We use a "modules/<uname -r>" because that mirrors /lib/modules/ in the
+# "real" Linux layout
 default:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules
+	mkdir -p $(KREL_DIR)
+	cp kbus.ko $(KREL_DIR)
 
 # On Ubuntu, if we want ordinary users (in the admin group) to be able to
 # read/write '/dev/kbus<n>' then we need to have a rules file to say so.
 # This target is provided as a convenience in this matter.
-RULES_NAME = "45-kbus.rules"
+RULES_NAME = 45-kbus.rules
 RULES_FILE = "/etc/udev/rules.d/$(RULES_NAME)"
 RULES_LINE = "KERNEL==\"kbus[0-9]*\",  MODE=\"0666\", GROUP=\"admin\""
 # The mechanism is a bit hacky (!) - first we make sure we've got a local
@@ -63,8 +72,14 @@ rules:
 	else sudo cp $(RULES_NAME) $(RULES_FILE) ; \
        	fi
 
+# Only remove "modules" if we're doing a bigger clean, as there might
+# be subdirectories from previous builds that we don't want to lose on
+# a normal clean
+distclean:
+	rm -rf modules
+
 clean:
 	rm -f kbus.mod.c *.o kbus.ko .kbus*.cmd Module.* modules.order 
 	rm -rf .tmp_versions
-	rm -rf *.pyc
+	rm -rf *.pyc $(RULES_NAME)
 endif
