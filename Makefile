@@ -46,6 +46,23 @@ else
 default:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules
 
+# On Ubuntu, if we want ordinary users (in the admin group) to be able to
+# read/write '/dev/kbus<n>' then we need to have a rules file to say so.
+# This target is provided as a convenience in this matter.
+RULES_NAME = "45-kbus.rules"
+RULES_FILE = "/etc/udev/rules.d/$(RULES_NAME)"
+RULES_LINE = "KERNEL==\"kbus[0-9]*\",  MODE=\"0666\", GROUP=\"admin\""
+# The mechanism is a bit hacky (!) - first we make sure we've got a local
+# copy of the file we want, then we copy it into place
+rules:
+	@ if [ ! -e $(RULES_NAME) ]; \
+	then echo $(RULES_LINE) > $(RULES_NAME); \
+	fi
+	@ if [ -e $(RULES_FILE) ]; \
+	then echo $(RULES_FILE) already exists ; \
+	else sudo cp $(RULES_NAME) $(RULES_FILE) ; \
+       	fi
+
 clean:
 	rm -f kbus.mod.c *.o kbus.ko .kbus*.cmd Module.* modules.order 
 	rm -rf .tmp_versions

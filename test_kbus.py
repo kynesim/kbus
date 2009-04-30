@@ -65,10 +65,19 @@ NUM_DEVICES = 3
 
 def setup_module():
     retcode = system('sudo insmod kbus.ko kbus_num_devices=%d'%NUM_DEVICES)
-    assert retcode == 0
-    # Via the magic of hotplugging, that should cause our device to exist
-    # ...eventually
-    time.sleep(1)
+    try:
+        assert retcode == 0
+        # Via the magic of hotplugging, that should cause our device to exist
+        # ...eventually
+        time.sleep(1)
+        # If the user has done the right magic, it should even have a predictable
+        # set of permissions. We check KBUS 0 because that's the one we should
+        # always find
+        mode = os.stat('/dev/kbus0').st_mode
+        assert mode == 020666
+    except:
+        system('sudo rmmod kbus')
+        raise
 
 def teardown_module():
     retcode = system('sudo rmmod kbus')
