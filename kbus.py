@@ -476,7 +476,7 @@ class Message(object):
 
     Our internal values are:
 
-    - 'msg', which is the actual message data
+    - 'msg', which is the actual message datastructure
     - 'size', which is the size of that datastructure in bytes
     """
 
@@ -727,6 +727,14 @@ class Message(object):
     name        = property(_get_name)
     data        = property(_get_data)
 
+    def data_as_string(self):
+        """Return the message data as a Python string.
+
+        The returned string will be data_len*4 bytes long.
+        """
+        d = array.array('L', self.data)
+        return d.tostring()
+
     def extract(self):
         """Return our parts as a tuple.
 
@@ -741,7 +749,9 @@ class Message(object):
                 self.flags, self.name, self.data)
 
     def to_string(self):
-        """Return our data as a string
+        """Return the message as a string.
+
+        This returns the entirety of the message as a Python string.
         """
         return _struct_to_string(self.msg)
 
@@ -1139,7 +1149,7 @@ class BindStruct(ctypes.Structure):
                 ('len',        ctypes.c_uint32),
                 ('name',       ctypes.c_char_p)]
 
-class ListenerStruct(ctypes.Structure):
+class ReplierStruct(ctypes.Structure):
     """The datastucture we need to describe an IOC_REPLIER argument
     """
     _fields_ = [('return_id', ctypes.c_uint32),
@@ -1288,7 +1298,7 @@ class KSock(object):
 
         Returns None if there was no replier, otherwise the replier's id.
         """
-        arg = ListenerStruct(0, len(name), name)
+        arg = ReplierStruct(0, len(name), name)
         retval = fcntl.ioctl(self.fd, KSock.IOC_REPLIER, arg);
         if retval:
             return arg.return_id

@@ -2460,4 +2460,15 @@ class TestKernelModule:
         assert Message('$.Freddy').size == (44+8)
         assert Message('$.Freddys').size == (44+12)
 
+    def test_message_data_as_string(self):
+        """Test that message data can be retrieved as a string
+        """
+        def check_str(data):
+            m = Message('$.Fred',data)
+            assert m.data_as_string() == data
+
+        check_str('1234')
+        check_str('12345678')
+        check_str('abcdefghijklmnopqrstuvwx')
+
 # vim: set tabstop=8 shiftwidth=4 expandtab:
