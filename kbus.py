@@ -613,7 +613,7 @@ class Message(object):
         assert self.msg.end_guard == self.END_GUARD
         if self.msg.name_len < 3:
             raise ValueError("Message name is %d long, minimum is 3"
-                             " (e.g., '$.*')"%name_len_bytes)
+                             " (e.g., '$.*')"%self.msg.name_len)
 
     def __repr__(self):
         (id, in_reply_to, to, from_, flags, name, data) = self.extract()
