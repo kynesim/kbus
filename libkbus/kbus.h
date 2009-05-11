@@ -56,9 +56,9 @@ extern "C" {
 typedef int ksock;
 
 /* KSock Funcitons */
-ksock kbus_ksock_open           (char *fname, int flags);
+ksock kbus_ksock_open           (const char *fname, int flags);
 int   kbus_ksock_close          (ksock ks);
-int   kbus_ksock_bind           (ksock ks, char *name);
+int   kbus_ksock_bind           (ksock ks, const char *name);
 int   kbus_ksock_id             (ksock ks, uint32_t *ksock_id);
 int   kbus_ksock_next_msg       (ksock ks, uint32_t *len);
 int   kbus_ksock_read_next_msg  (ksock ks, struct kbus_message_struct **kms);
@@ -74,9 +74,10 @@ int   kbus_ksock_send           (ksock ks, struct kbus_msg_id *msg_id);
 
 /* Message Functions*/
 int kbus_msg_create(struct kbus_message_struct **kms, 
-		    uint8_t *name, uint32_t name_len, /* bytes */
-		    uint8_t *data, uint32_t data_len, /* 32 bit words */
+		    const char *name, uint32_t name_len, /* bytes */
+		    const void *data, uint32_t data_len, /* bytes */
 		    uint32_t flags);
+
 size_t kbus_msg_sizeof(const struct kbus_message_struct *kms);
 void   kbus_msg_dump(const struct kbus_message_struct *kms, int dump_data);
 int    kbus_msg_get_data_p(const struct kbus_message_struct *kms, char **data);

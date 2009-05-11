@@ -41,7 +41,7 @@
 
 #define DEBUG 0
 
-ksock kbus_ksock_open(char *fname, int flags) 
+ksock kbus_ksock_open(const char *fname, int flags) 
 {
   int mask  = O_RDONLY | O_WRONLY | O_RDWR;
   flags = flags & mask;
@@ -54,7 +54,7 @@ int kbus_ksock_close(ksock ks)
   return close(ks);
 }
 
-int kbus_ksock_bind(ksock ks, char *name) 
+int kbus_ksock_bind(ksock ks, const char *name) 
 {
   struct  kbus_bind_struct kbs;
   int rv;
@@ -222,15 +222,15 @@ int kbus_ksock_send_msg(ksock ks, const struct kbus_message_struct *kms, struct 
 #define KBUS_BYTE_TO_WORD_LENGTH(x) ((x + 3) / 4)
 
 int kbus_msg_create(struct kbus_message_struct **kms, 
-		    uint8_t *name, uint32_t name_len, /* bytes  */
-		    uint8_t *data, uint32_t data_len, /* bytes! */
+		    const char *name, uint32_t name_len, /* bytes  */
+		    const void *data, uint32_t data_len, /* bytes! */
 		    uint32_t flags) 
 {
   int msg_len   = KBUS_MSG_LEN(name_len,data_len);
   int di        = KBUS_MSG_DATA_INDEX(name_len);
   int end_guard = KBUS_MSG_END_GUARD_INDEX(name_len, 
 					   KBUS_BYTE_TO_WORD_LENGTH(data_len));
-
+  *kms = NULL;
 
   struct kbus_message_struct *buf = malloc(msg_len);
 
@@ -264,6 +264,14 @@ int kbus_msg_create(struct kbus_message_struct **kms,
 
   return -1;
 }
+
+void kbus_msg_destroy(struct kbus_message_struct *kms) {
+  /* We allocated enough space all in one go so just free */
+  free(kms);
+
+  return;
+}
+
 
 size_t kbus_msg_sizeof(const struct kbus_message_struct *kms) {
   size_t tl;
