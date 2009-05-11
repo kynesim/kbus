@@ -1,3 +1,4 @@
+
 /* Kbus kernel module external headers
  *
  * This file provides the definitions (datastructures and ioctls) needed to
@@ -77,7 +78,7 @@ struct kbus_msg_id {
 struct kbus_bind_struct {
 	uint32_t	 is_replier;	/* are we a replier? */
 	uint32_t	 name_len;
-	char		*name;
+	const char	*name;
 };
 
 /* When the user requests the id of the replier to a message, they use: */
