@@ -105,11 +105,11 @@ Messages are made of the following parts:
 
 :start and end guards:
 
-  These are both unsigned 32-bit words. 'start_guard' is notionally "kbus",
+  These are unsigned 32-bit words. 'start_guard' is notionally "kbus",
   and 'end_guard' (the 32 bit word after the rest of the message) is
   notionally "subk". Obviously that depends on how one looks at the 32-bit
   word. Every message shall start with a start guard and end with an end
-  guard.
+  guard (but see `Message implementation`_ for details).
 	 
   These provide some help in checking that a message is well formed, and in
   particular the end guard helps to check for broken length fields.
@@ -127,7 +127,7 @@ The message header
 
   When replying to a message, copy this value into the 'In reply to' field.
 
-:in reply to: is the message id of the message that this is a reply to.
+:in_reply_to: is the message id of the message that this is a reply to.
 
   This shall be set to 0 unless this message *is* a reply to a previous
   message. In other words, if this value is non-0, then the message *is* a
@@ -166,36 +166,101 @@ The message header
   * a reply is wanted
   * a reply is wanted from the specific reader
 
-The message body
-~~~~~~~~~~~~~~~~
-:name length: is the length of the message name in bytes.
-
-  When writing a new message, this must be non-zero.
-
-  When replying to a message, this must be non-zero - i.e., the message name
-  must still be given - although it is possible that this may change in the
-  future.
+:name_length: is the length of the message name in bytes. This will always be
+  non-zero, as a message name must always be given.
 
       Note: in future implementations, a message name code (an integer
       representing the particular message name) may be used instead of a
       message name, and this field may be hijacked for that purpose, depending
       on flags, etc.
 
-:data length: is the length of the message data, in 32-bit words. It may be zero
+:data_length: is the length of the message data in bytes. It may be zero
   if there is no data associated with this message.
 
-.. warning:: Remember that the message name length is in *bytes* and the
-             message data length is in *32-bit words*.
+:name: The message name identifies the message. It must be terminated with a
+  zero byte (as is normal for C - in the Python binding a normal Python string
+  can be used, and the this will be done for you). Byte ordering is according
+  to that of the platform.
+ 
+  In an "entire" message (see `Message implementation`_ below) it shall be
+  padded out to a multiple of 4 bytes. Neither the terminating zero byte nor
+  the padding are included in the name length.  Padding should be with zero
+  bytes.
 
-These are followed by the message name and then the message data (if any).
+:data: The message data is optional. KBUS does not touch the content of the
+  data, but just copies it. Byte ordering is according to that of the
+  platform.
 
-* The message name must be padded out to a multiple of 4 bytes.  This is not
-  indicated in the message length, which should give the actual number of
-  characters in the message name. Padding should be with zero bytes (but it
-  is not necessary for there to be a zero byte at the end of the name). Byte
-  ordering is according to that of the platform.
+  In an "entire" message (see `Message implementation`_ below) it shall, if
+  present, be padded out to a multiple of 4 bytes. This padding is not
+  included in the data length, and the padding bytes may be whatever byte
+  values are convenient to the user. KBUS does not guarantee to copy the exact
+  given padding bytes.
 
-* The data is not touched by KBUS, and is just copied as given.
+Message implementation
+~~~~~~~~~~~~~~~~~~~~~~
+There are two ways in which a message may be stored, "pointy" and "entire".
+See the ``kbus_defns.h`` header file for details.
+
+.. note:: The Python binding hides most of the detail of the message
+   implementation from the user, so you may be able to skip this section.
+
+In a "pointy" message, the ``name`` and ``data`` fields in the message header
+are C pointers to the actual name and data. If there is no data, then the
+``data`` field is NULL. This is probably the simplest form of message for a C
+programmer to create. This might be represented as::
+
+        start_guard: 'kbus'
+        id:          (0,0)
+        in_reply_to: (0,0)
+        to:          0
+        from:        0
+        name_len:    6
+        data_len:    0
+        name:        ---------------------------> "$.Fred"
+        data:        NULL
+        end_guard:   'subk'
+
+.. warning:: When writing a "pointy" message in C, be very careful not to
+   free the name and data between the ``write`` and the SEND, as it is only
+   when the message is sent that KBUS actually follows the ``name`` and
+   ``data`` pointers.
+
+   *After* the SEND, KBUS will have taken its own copies of the name and (any)
+   data.
+
+In an "entire" message, both ``name`` and ``data`` fields are required to be
+NULL. The message header is followed by the message name (padded as described
+above), any message data (also padded), and another end guard. This might be
+represented as::
+
+        start_guard: 'kbus'
+        id:          (0,0)
+        in_reply_to: (0,0)
+        to:          0
+        from:        0
+        name_len:    6
+        data_len:    0
+        name:        NULL
+        data:        NULL
+        end_guard:   'subk'
+        name_data:   '$.Fred\x0\x0'
+        end_guard:   'subk'
+
+Note that in this example:
+
+1. The message name is padded out to 6 bytes of name, plus one of terminating
+   zero byte, plus another zero byte to make 8, but the message's ``name_len``
+   is still 6.
+2. Since there is no data, there is no "data data" after the name data.
+
+When writing/sending messages, either form may be used (again, the "pointy"
+form may be simpler for C programmers).
+
+When reading messages, however, the "entire" form is always returned - this
+removes questions about needing to free multiple returned datastructures (for
+instance, what to do if the user were to ask for the NEXTMSG, read a few
+bytes, and then DISCARD the rest).
 
 Message flags
 -------------
@@ -255,6 +320,8 @@ However, it does change:
 - the message id's serial number (but only if its network id is unset)
 - the 'from' id (to indicate the KSock this message was sent from)
 - the WANT_YOU_TO_REPLY bit in the flags (set or cleared as appropriate)
+- the SYNTHETIC bit, which will always be unset in a message sent by a
+  Sender
 
 Types of message
 ================
@@ -537,11 +604,11 @@ relevant KSock). A listener may make more than one binding on the same KSock
 
 Messages are received by:
 
-1. Using the NEXT_MSG ioctl to request the next message (this also returns the
+1. Using the NEXTMSG ioctl to request the next message (this also returns the
    messages length in bytes)
 2. Calling the standard ``read`` function to read the message data.
 
-If NEXT_MSG is called again, the next message will be readied for reading,
+If NEXTMSG is called again, the next message will be readied for reading,
 whether the previous message has been read (or partially read) or not.
 
 If a listener no longer wants to receive a particular message name, then they
@@ -802,6 +869,8 @@ The KBUS ioctls are:
 :NEXTMSG:       Pop the next message from the KSock's message queue, ready
                 for reading (with ``read``), and return its length (in bytes).
                 If there is no next message, return a length of 0.
+                The length is always the length of an "entire" message (see
+                `Message implementation`_).
 :LENLEFT:       Determine how many bytes of the message currently being read
                 are still to read.
 :SEND:          Send the current outstanding message for this KSock (i.e., the

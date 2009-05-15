@@ -56,11 +56,11 @@ int kbus_ksock_close(ksock ks)
 
 int kbus_ksock_bind(ksock ks, const char *name) 
 {
-  struct  kbus_bind_struct kbs;
+  struct  kbus_bind_request kbs;
   int rv;
 
   memset(&kbs, 0, sizeof(kbs));
-  kbs.name = name;
+  kbs.name = (char *) name;
   kbs.name_len = strlen(name);
 
   rv = ioctl(ks, KBUS_IOC_BIND, &kbs);
@@ -85,13 +85,12 @@ int kbus_ksock_next_msg(ksock ks, uint32_t *len)
   return rv;
 }
 
-static int check_message_sanity(const struct kbus_message_struct *kms)
+static int check_message_sanity(const struct kbus_message_header *kms)
 {
   int rv = 0;
-  int end_guard = KBUS_MSG_END_GUARD_INDEX(kms->name_len,kms->data_len);
   
   if (kms->start_guard != KBUS_MSG_START_GUARD || 
-      kms->rest[end_guard] != KBUS_MSG_END_GUARD )
+      kms->end_guard != KBUS_MSG_END_GUARD )
     rv = -1;
 
 
@@ -100,7 +99,7 @@ static int check_message_sanity(const struct kbus_message_struct *kms)
   return rv;
 }
 
-int kbus_ksock_read_msg(ksock ks, struct kbus_message_struct **kms, 
+int kbus_ksock_read_msg(ksock ks, struct kbus_message_header **kms, 
                         size_t len) 
 {
   int rv = 0;
@@ -131,7 +130,7 @@ int kbus_ksock_read_msg(ksock ks, struct kbus_message_struct **kms,
 
 
 
-  *kms = (struct kbus_message_struct *)buf;
+  *kms = (struct kbus_message_header *)buf;
 
   if (check_message_sanity(*kms)) {
 
@@ -155,7 +154,7 @@ int kbus_ksock_read_msg(ksock ks, struct kbus_message_struct **kms,
   return -1;
 }
 
-int kbus_ksock_read_next_msg(ksock ks, struct kbus_message_struct **kms)
+int kbus_ksock_read_next_msg(ksock ks, struct kbus_message_header **kms)
 {
   int rv;
   uint32_t m_stat;
@@ -175,13 +174,19 @@ int kbus_ksock_read_next_msg(ksock ks, struct kbus_message_struct **kms)
   return rv;
 }
 
-int kbus_ksock_write_msg(ksock ks, const struct kbus_message_struct *kms)
+int kbus_ksock_write_msg(ksock ks, const struct kbus_message_header *kms)
 {
-  int length = kbus_msg_sizeof(kms);
+  int length = sizeof(*kms);
   int written = 0;
   int rv;
   
   if (check_message_sanity(kms)) {
+    errno = EBADMSG;
+    return -1;
+  }
+
+  /* We don't support sending an "entire" message */
+  if (kms->name == NULL) {
     errno = EBADMSG;
     return -1;
   }
@@ -206,7 +211,7 @@ int kbus_ksock_send(ksock ks, struct kbus_msg_id *msg_id) {
   return rv;
 }
 
-int kbus_ksock_send_msg(ksock ks, const struct kbus_message_struct *kms, struct kbus_msg_id *msg_id)
+int kbus_ksock_send_msg(ksock ks, const struct kbus_message_header *kms, struct kbus_msg_id *msg_id)
 {
   int rv;
   rv = kbus_ksock_write_msg(ks, kms);
@@ -221,35 +226,31 @@ int kbus_ksock_send_msg(ksock ks, const struct kbus_message_struct *kms, struct 
 
 #define KBUS_BYTE_TO_WORD_LENGTH(x) ((x + 3) / 4)
 
-int kbus_msg_create(struct kbus_message_struct **kms, 
+int kbus_msg_create(struct kbus_message_header **kms, 
 		    const char *name, uint32_t name_len, /* bytes  */
-		    const void *data, uint32_t data_len, /* bytes! */
+		    const void *data, uint32_t data_len, /* bytes */
 		    uint32_t flags) 
 {
-  int msg_len   = KBUS_MSG_LEN(name_len,data_len);
-  int di        = KBUS_MSG_DATA_INDEX(name_len);
-  int end_guard = KBUS_MSG_END_GUARD_INDEX(name_len, 
-					   KBUS_BYTE_TO_WORD_LENGTH(data_len));
   *kms = NULL;
 
-  struct kbus_message_struct *buf = malloc(msg_len);
+  struct kbus_message_header *buf;
+ 
+  buf = malloc(sizeof(*buf));
 
   if (!buf) {
     errno = ENOMEM;
     goto fail;
   }
 
-  memset(buf, 0, msg_len);
+  memset(buf, 0, sizeof(*buf));
 
-  buf->start_guard     = KBUS_MSG_START_GUARD;
-  buf->rest[end_guard] = KBUS_MSG_END_GUARD;
-
-  buf->name_len = name_len;
-  buf->data_len = KBUS_BYTE_TO_WORD_LENGTH(data_len);
+  buf->start_guard = KBUS_MSG_START_GUARD;
   buf->flags    = flags;
-
-  memcpy(&buf->rest[0],  name, name_len);
-  memcpy(&buf->rest[di], data, data_len);
+  buf->name_len = name_len;
+  buf->data_len = data_len;
+  buf->name = (char *) name;
+  buf->data = (void *) data;
+  buf->end_guard = KBUS_MSG_END_GUARD;
   
   *kms = buf;
 
@@ -265,32 +266,15 @@ int kbus_msg_create(struct kbus_message_struct **kms,
   return -1;
 }
 
-void kbus_msg_destroy(struct kbus_message_struct *kms) {
+void kbus_msg_destroy(struct kbus_message_header *kms) {
   /* We allocated enough space all in one go so just free */
   free(kms);
 
   return;
 }
 
-
-size_t kbus_msg_sizeof(const struct kbus_message_struct *kms) {
-  size_t tl;
-  tl = KBUS_MSG_LEN(kms->name_len,kms->data_len);
-
-  return tl;
-}
-
-int kbus_msg_get_data_p(const struct kbus_message_struct *kms, char **data) {
-  int di = KBUS_MSG_DATA_INDEX(kms->name_len);
-  *data = (char *)(&kms->rest[di]);
-
-  return 0;
-}
-
-void kbus_msg_dump(const struct kbus_message_struct *kms, int dump_data) 
+void kbus_msg_dump(const struct kbus_message_header *kms, int dump_data) 
 {
-  int end_guard = KBUS_MSG_END_GUARD_INDEX(kms->name_len,kms->data_len);
-  int data      = KBUS_MSG_DATA_INDEX(kms->name_len) * 4;
   int i;
   int j;
 
@@ -298,7 +282,7 @@ void kbus_msg_dump(const struct kbus_message_struct *kms, int dump_data)
 
   printf("\tStart Guard:\t%08x\n\tEnd Guard:\t%08x\n",
 	 kms->start_guard, 
-	 kms->rest[end_guard]);
+	 kms->end_guard);
 
   printf("\tId:\t\t{%02d, %02d}\n", kms->id.network_id, kms->id.serial_num);
 
@@ -315,52 +299,32 @@ void kbus_msg_dump(const struct kbus_message_struct *kms, int dump_data)
   printf("\n");
   printf("\tDumping name:\n\t");
 
-  unsigned char *rest = (unsigned char *)kms->rest;
+  char *name_ptr = kbus_name_ptr((struct kbus_message_header *)kms);
+  uint32_t *data_ptr = kbus_data_ptr((struct kbus_message_header *)kms);
 
-  for (i = 0; i < kms->name_len; i += 16) {
-    for (j = i; j < i + 16 && j < kms->name_len; j++) {
-      if (rest[j] > ' ' && rest[j] < '~')
-	printf("%c", rest[j]);
-      else 
-	printf(".");
-    }
-
-    printf("  ");
-
-    for (j = i; j < i + 16 && j < kms->name_len; j++) {
-      if (!((j - i)%8))
-	printf(" ");
-
-      printf("%02x ", rest[j]);
-    }
-
-    printf("\n\t");    
+  for (i = 0; i < kms->name_len; i ++) {
+    if (name_ptr[j] > ' ' && name_ptr[j] < '~')
+      printf("%c", name_ptr[j]);
+    else 
+      printf(".");
   }
+  printf("\n");    
 
   printf("\n\tDumping data:\n\t");
 
-  int data_limit = (kms->data_len * 4) + data;
-  for (i = data; i < data_limit; i += 16) {
-    for (j = i; j < i + 16 && j < data_limit; j++) {
-       if (rest[j] >= ' ' && rest[j] <= '~')
-	printf("%c", rest[j]);
-      else 
-	printf(".");
-    }
-
-
-    printf("  ");
-
-    for (j = i; j < i + 16 && j < data_limit; j++) {
-      if (!((j - i)%8))
-	printf(" ");
-
-      printf("%02x ", rest[j]);
-    }
-
-    printf("\n\t");
+  int data_limit = (kms->data_len / 4);
+  for (i = 0; i < data_limit; i ++) {
+    printf("%08x ",data_ptr[i]);
   }
-  
+  printf("\n\t");
+
+  char *data_cptr = (char *)data_ptr;
+  for (i = 0; i < kms->data_len; i ++) {
+    if (data_cptr[j] > ' ' && data_cptr[j] < '~')
+      printf("%c", data_cptr[j]);
+    else 
+      printf(".");
+  }
   printf("\n");
 
 }

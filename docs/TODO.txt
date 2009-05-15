@@ -5,6 +5,141 @@ A crude to-do list
           If you are looking at an HTML file, then it is provided for your
           convenience, and may not be up-to-date.
 
+In no particular order (well, except for the first):
+
+* REQ Always, update documentation.
+
+* DONE The change to the new message datastructure ("pointy" and "entire"
+  messages) has been done. See the end of this file for the previous
+  discussion of this matter.
+ 
+  THIS IS A MAJOR INCOMPATIBLE CHANGE.
+
+  The one outstanding consideration is whether the ``rest`` array in the
+  "entire" message datastructure should be an array of bytes rather than an
+  array of words. I believe it probably should be.
+
+* REQ Make the comments in kbus.c and kbus.h follow the kernel documentation
+  rules.
+
+* REQ Use "const" in an appropriate manner, throughout. Really.
+
+* REQ Support blocking i/o
+
+* REQ Improve the output in /proc/kbus/<whatever> so it is not limited to a
+  single page.
+
+* OPT Ben suggested that I should be using mutexes instead of semaphores
+  (because that's now the way to do it). Which I take to refer to
+  ``linux/Documentation/mutex-design.txt``. Look into it. It sounds sensible.
+
+* OPT Make polling take account of urgent messages, so that (for instance) the
+  "exception" list in a ``select`` can detect them.
+
+* REQ Large message support -- allow message data to be large, held as a list
+  of data split properly over pages. Really requires reference counting of
+  message data.
+
+* REQ (LOW PRIORITY) Allow a KSock to say "I am a network bridge", which means
+  that messages going over it might be hard to follow -- one might not be sure
+  if they've been delivered or not, and so it may be sensible to be able to
+  tell that a message has "gone fuzzy" -- sending to such an interface should
+  maybe set some status on the "retval+status" from a send.
+
+  Thus "send" should tell the caller as much as it can about how successful
+  it has been (including, if it can tell, that delivery has definitely worked
+  or failed).
+
+* REQ (LOW PRIORITY) Provide a flag on file descriptors (hmm, perhaps better
+  on an individual message?) to say:
+
+  When I've sent a message, send me back a synthesised message when that
+  message has "left the system" -- i.e., when all listeners (that are going
+  to) have read it, when all repliers (that are going to) have replied to it,
+  and (if that isn't going to happen) when any exceptions regarding it have
+  been sent.
+
+  In other words, if the sender is remembering information about messages that
+  have been sent, this allows the sender to know that it can forget about the
+  message.
+
+-------------------------------------------------------------------------------
+
+* OPT Allow message name id to be used instead of message name in messages.
+  This would need:
+
+      - ability to look up message name and retrieve its id
+      - a way of indicating whether a message is storing message name (and
+        its length) or message name id
+      - some better terminology for "message name id"
+
+  Note that in the Python interface this is not a big deal to the user.
+
+* OPT Consider adding RESET functionality (the ioctl already exists):
+
+  1. Sends exactly one '$.KBUS.Reset.Start' message to each open interface
+     (so if one is listening and replying on an interface, one still only gets
+     a single such message on it).
+  2. Empties all of the queues -- this will generate any necessary synthetic
+     messages/exceptions relating to dropped requests/replies.
+  3. Resets all the internal ids (to start from 0 or 1 again).
+  4. Sends exactly one '$.KBUS.Reset.End' message to each open interface.
+
+  Consideration: this would mean that all interfaces were automatically bound
+  to '$.KBUS.Reset.*'.
+
+  Use case: This would be useful for testing, and if we have multiple
+  interacting internal lists (for instance, message queues on each interface,
+  but also a list of outstanding requests), then it allows for a "soft
+  restart" other than removing and reinstalling the module.
+
+-------------------------------------------------------------------------------
+
+* DONE Implement sender ALL/WAIT flags:
+
+  - ALL_OR_WAIT -- add the message to all listener queues, and if that can't
+    be done because some queues are full, the sender should block on its SEND
+    until it can be done.
+
+  - ALL_OR_FAIL -- add the message to all listener queues, and if that
+    can't be done, fail (the message is not sent).
+
+  - (default) -- add the message to all listener queues that have room.
+
+  Remember that, in this context, and interpreted appropriately, repliers also
+  count as listeners.
+
+* DONE Support select/poll
+
+* DONE Keep a spare slot in the receiver queue, to allow for receiving
+  asynchronous error messages.
+
+  Actually, a single slot is not enough.
+
+  One definitely needs to reserve a slot per Request sent, so that there is
+  guaranteed to be room for the Reply or (if something goes wrong) Status
+  message. It is this latter that makes the case - if KBus generates a Status
+  message (for a failed Request), then it *must* be able to add it to the
+  sender's message queue, otherwise KBus might block (we don't care if a
+  Replier blocks waiting on being able to send to the original sender, of
+  course).
+
+  So we need to keep a list of the Requests that a KSock has made, that have
+  not yet had a response, and not allow the KSock to SEND (technically, not to
+  allow it to SEND a Request, but that may be too complicated a condition)
+  until it has read enough to make that space. Of course, this does admit the
+  case where a sender can't send because it has run out of message queue,
+  absolutely, and is thus stuck pending a Reply arriving, but that's a
+  user-space hangup, so (in this sense) OK.
+
+  It's then questionable whether we also need to reserve an extra slot - I
+  think at the moment the only Status messages generated are those for failed
+  Requests.
+
+* DONE Keep a list of all Requests that have not been replied to, and send the
+  sender a synthetic message when an interface has released, but has not
+  replied to a message, even though it *has* read it.
+
 -------------------------------------------------------------------------------
 
 Discussion on message datastructure
@@ -61,8 +196,8 @@ So, a proposal is to transform the message header into::
     <start guard>
     <various header fields>
     name length
-    ptr to name
     data length
+    ptr to name
     ptr to data
     <end guard>
 
@@ -131,139 +266,11 @@ Why don't I like it? I think it really is (just?) down to the issue of
 ``read`` and ``write`` being used to move a datastructure with dangling
 references. Which doesn't worry John (for instance) at all.
 
--------------------------------------------------------------------------------
+``rest``
+~~~~~~~~
+In an "entire" message datastructure, the ``rest`` of the data is a
+``uint32_t`` array of variable length. Questions:
 
-In no particular order (well, except for the first):
-
-* REQ Always, update documentation.
-
-* REQ Make the comments in kbus.c and kbus.h follow the kernel documentation
-  rules.
-
-* REQ Use "const" in an appropriate manner, throughout. Really.
-
-* REQ Support blocking i/o
-
-* REQ Improve the output in /proc/kbus/<whatever> so it is not limited to a
-  single page.
-
-* OPT Ben suggested that I should be using mutexes instead of semaphores
-  (because that's now the way to do it). Which I take to refer to
-  ``linux/Documentation/mutex-design.txt``. Look into it. It sounds sensible.
-
-* OPT Make polling take account of urgent messages, so that (for instance) the
-  "exception" list in a ``select`` can detect them.
-
-* OPT Internally, split messages into
-
-      - header -- copy this between lists
-      - message name/id -- if we're doing message name ids, then those should
-        be copied prefererentially
-      - message data -- this should be reference counted
-
-* REQ Large message support -- allow message data to be large, held as a list
-  of data split properly over pages. Really requires reference counting of
-  message data.
-
-* REQ (LOW PRIORITY) Allow a KSock to say "I am a network bridge", which means
-  that messages going over it might be hard to follow -- one might not be sure
-  if they've been delivered or not, and so it may be sensible to be able to
-  tell that a message has "gone fuzzy" -- sending to such an interface should
-  maybe set some status on the "retval+status" from a send.
-
-  Thus "send" should tell the caller as much as it can about how successful
-  it has been (including, if it can tell, that delivery has definitely worked
-  or failed).
-
-* REQ (LOW PRIORITY) Provide a flag on file descriptors (hmm, perhaps better
-  on an individual message?) to say:
-
-  When I've sent a message, send me back a synthesised message when that
-  message has "left the system" -- i.e., when all listeners (that are going
-  to) have read it, when all repliers (that are going to) have replied to it,
-  and (if that isn't going to happen) when any exceptions regarding it have
-  been sent.
-
-  In other words, if the sender is remembering information about messages that
-  have been sent, this allows the sender to know that it can forget about the
-  message.
-
--------------------------------------------------------------------------------
-
-* OPT Allow message name id to be used instead of message name in messages.
-  This would need:
-
-      - ability to look up message name and retrieve its id
-      - a way of indicating whether a message is storing message name (and
-        its length) or message name id
-      - some better terminology for "message name id"
-
-  Note that in the Python interface this is not a big deal to the user.
-
-* OPT Consider adding RESET functionality (the ioctl already exists):
-
-  1. Sends exactly one '$.KBUS.Reset.Start' message to each open interface
-     (so if one is listening and replying on an interface, one still only gets
-     a single such message on it).
-  2. Empties all of the queues -- this will generate any necessary synthetic
-     messages/exceptions relating to dropped requests/replies.
-  3. Resets all the internal ids (to start from 0 or 1 again).
-  4. Sends exactly one '$.KBUS.Reset.End' message to each open interface.
-
-  Consideration: this would mean that all interfaces were automatically bound
-  to '$.KBUS.Reset.*'.
-
-  Use case: This would be useful for testing, and if we have multiple
-  interacting internal lists (for instance, message queues on each interface,
-  but also a list of outstanding requests), then it allows for a "soft
-  restart" other than removing and reinstalling the module.
-
-* OPT Remove lots of the debugging 'printk's in ``kbus.c`` - there are way too
-  many.
-
--------------------------------------------------------------------------------
-
-* DONE Implement sender ALL/WAIT flags:
-
-  - ALL_OR_WAIT -- add the message to all listener queues, and if that can't
-    be done because some queues are full, the sender should block on its SEND
-    until it can be done.
-
-  - ALL_OR_FAIL -- add the message to all listener queues, and if that
-    can't be done, fail (the message is not sent).
-
-  - (default) -- add the message to all listener queues that have room.
-
-  Remember that, in this context, and interpreted appropriately, repliers also
-  count as listeners.
-
-* DONE Support select/poll
-
-* DONE Keep a spare slot in the receiver queue, to allow for receiving
-  asynchronous error messages.
-
-  Actually, a single slot is not enough.
-
-  One definitely needs to reserve a slot per Request sent, so that there is
-  guaranteed to be room for the Reply or (if something goes wrong) Status
-  message. It is this latter that makes the case - if KBus generates a Status
-  message (for a failed Request), then it *must* be able to add it to the
-  sender's message queue, otherwise KBus might block (we don't care if a
-  Replier blocks waiting on being able to send to the original sender, of
-  course).
-
-  So we need to keep a list of the Requests that a KSock has made, that have
-  not yet had a response, and not allow the KSock to SEND (technically, not to
-  allow it to SEND a Request, but that may be too complicated a condition)
-  until it has read enough to make that space. Of course, this does admit the
-  case where a sender can't send because it has run out of message queue,
-  absolutely, and is thus stuck pending a Reply arriving, but that's a
-  user-space hangup, so (in this sense) OK.
-
-  It's then questionable whether we also need to reserve an extra slot - I
-  think at the moment the only Status messages generated are those for failed
-  Requests.
-
-* DONE Keep a list of all Requests that have not been replied to, and send the
-  sender a synthetic message when an interface has released, but has not
-  replied to a message, even though it *has* read it.
+1. Should it actually be ``uint8_t``, to match the data that is being held in
+   it.
+2. How to deal with the end guard at the end of it.
