@@ -1,4 +1,3 @@
-
 /* Kbus kernel module external headers
  *
  * This file provides the definitions (datastructures and ioctls) needed to
@@ -75,36 +74,34 @@ struct kbus_msg_id {
 };
 
 /* When the user asks to bind a message name to an interface, they use: */
-struct kbus_bind_struct {
+struct kbus_bind_request {
 	uint32_t	 is_replier;	/* are we a replier? */
 	uint32_t	 name_len;
-	const char	*name;
+	char		*name;
 };
 
 /* When the user requests the id of the replier to a message, they use: */
-struct kbus_bind_query_struct {
+struct kbus_bind_query {
 	uint32_t	 return_id;
 	uint32_t	 name_len;
 	char		*name;
 };
 
 /* When the user writes/reads a message, they use: */
-struct kbus_message_struct {
+struct kbus_message_header {
 	/*
 	 * The guards
 	 * ----------
 	 *
 	 * * 'start_guard' is notionally "kbus", and 'end_guard' (the 32 bit
-	 *   word after the rest of the message) is notionally "subk". Obviously
-	 *   that depends on how one looks at the 32-bit word. Every message
-	 *   shall start with a start guard and end with an end guard.
+	 *   word after the rest of the message datastructure) is notionally
+	 *   "subk". Obviously that depends on how one looks at the 32-bit
+	 *   word. Every message datastructure shall start with a start guard
+	 *   and end with an end guard.
 	 *
 	 * These provide some help in checking that a message is well formed,
 	 * and in particular the end guard helps to check for broken length
 	 * fields.
-	 *
-	 * The message header
-	 * ------------------
 	 *
 	 * - 'id' identifies this particular message.
 	 *
@@ -163,49 +160,147 @@ struct kbus_message_struct {
 	 *
 	 *   When writing a reply, set this field to 0 (I think).
 	 *
-	 * The message body
-	 * ----------------
-	 *
 	 * - 'name_len' is the length of the message name in bytes.
 	 *
-	 *   When writing a new message, this must be non-zero.
+	 *   This must be non-zero.
 	 *
-	 *   When replying to a message, this must be non-zero - i.e., the
-	 *   message name must still be given - although it is possible
-	 *   that this may change in the future.
+	 * - 'data_len' is the length of the message data in bytes. It may be
+	 *   zero if there is no data.
 	 *
-	 * - 'data_len' is the length of the message data, in 32-bit
-	 *   words. It may be zero.
+	 * - 'name' is a pointer to the message name. This should be null
+	 *   terminated, as is the normal case for C strings.
 	 *
-	 * - 'name_and_data' is the bytes of message name immediately
-	 *   followed by the bytes of message data.
+	 *   NB: If this is zero, then the name will be present, but after
+	 *   the end of this datastructure, and padded out to a multiple of
+	 *   four bytes (see kbus_entire_message). When doing this padding,
+	 *   remember to allow for the terminating null byte. If this field is
+	 *   zero, then 'data' shall also be zero.
 	 *
-	 *   * The message name must be padded out to a multiple of 4 bytes.
-	 *     This is not indicated by the message length. Padding should be
-	 *     with zero bytes (but it is not necessary for there to be a zero
-	 *     byte at the end of the name). Byte ordering is according to that
-	 *     of the platform, treating msg->name_and_data[0] as the start of
-	 *     an array of bytes.
+	 * - 'data' is a pointer to the data. If there is no data (if
+	 *   'data_len' is zero), then this shall also be zero. The data is
+	 *   not touched by KBUS, and may include any values.
 	 *
-	 *   * The data is not touched by KBUS, and may include any values.
+	 *   NB: If this is zero, then the data will occur immediately
+	 *   after the message name, padded out to a multiple of four bytes.
+	 *   See the note for 'name' above.
 	 *
-	 * The last element of 'name_and_data' must always be an end guard,
-	 * with value 0x7375626B ('subk') (so the *actual* data is always one
-	 * 32-bit word shorter than that indicated).
 	 */
-	uint32_t		start_guard;
-	struct kbus_msg_id	id;	     /* Unique to this message */
-	struct kbus_msg_id	in_reply_to; /* Which message this is a reply to */
-	uint32_t		to;	     /* 0 (normally) or a replier id */
-	uint32_t		from;	     /* 0 (KBUS) or the sender's id */
-	uint32_t		flags;	     /* Message type/flags */
-	uint32_t		name_len;    /* Message name's length, in bytes */
-	uint32_t		data_len;    /* Message length, as 32 bit words */
-	uint32_t		rest[];	     /* Message name, data and end_guard */
+	uint32_t		 start_guard;
+	struct kbus_msg_id	 id;	      /* Unique to this message */
+	struct kbus_msg_id	 in_reply_to; /* Which message this is a reply to */
+	uint32_t		 to;	      /* 0 (normally) or a replier id */
+	uint32_t		 from;	      /* 0 (KBUS) or the sender's id */
+	uint32_t		 flags;	      /* Message type/flags */
+	uint32_t		 name_len;    /* Message name's length, in bytes */
+	uint32_t		 data_len;    /* Message length, also in bytes */
+	char			*name;
+	void			*data;
+	uint32_t		 end_guard;
 };
 
 #define KBUS_MSG_START_GUARD	0x7375626B
 #define KBUS_MSG_END_GUARD	0x6B627573
+
+/*
+ * When a message is returned by 'read', it is actually returned using the
+ * following datastructure, in which:
+ *
+ * - 'header.name' will point to 'rest[0]'
+ * - 'header.data' will point to 'rest[(header.name_len+3)/4]'
+ *
+ * Followed by the name (padded to 4 bytes, remembering to allow for the
+ * terminating null byte), followed by the data (padded to 4 bytes) followed by
+ * (another) end_guard.
+ */
+struct kbus_entire_message {
+	struct	kbus_message_header	header;
+	uint32_t			rest[];
+};
+
+/*
+ * The length (in bytes) of the name after padding, allowing for a terminating
+ * null byte.
+ */
+#define KBUS_PADDED_NAME_LEN(name_len)   (4 * ((name_len + 1 + 3) / 4))
+
+/*
+ * The length (in bytes) of the data after padding
+ */
+#define KBUS_PADDED_DATA_LEN(data_len)   (4 * ((data_len + 3) / 4))
+
+/*
+ * Given name_len (in bytes) and data_len (in bytes), return the
+ * length of the appropriate kbus_entire_message_struct, in bytes
+ *
+ * Note that we're allowing for a zero byte after the end of the message name.
+ *
+ * Remember that "sizeof" doesn't count the 'rest' field in our message
+ * structure.
+ */
+#define KBUS_ENTIRE_MSG_LEN(name_len,data_len)    \
+	(sizeof(struct kbus_entire_message) + \
+	 KBUS_PADDED_NAME_LEN(name_len) + \
+	 KBUS_PADDED_DATA_LEN(data_len) + 4)
+
+/*
+ * The message name starts at entire->rest[0].
+ * The message data starts after the message name - given the message
+ * name's length (in bytes), that is at index:
+ */
+#define KBUS_ENTIRE_MSG_DATA_INDEX(name_len)     ((name_len+1+3)/4)
+/*
+ * Given the message name length (in bytes) and the message data length (also
+ * in bytes), the index of the entire message end guard is thus:
+ */
+#define KBUS_ENTIRE_MSG_END_GUARD_INDEX(name_len,data_len)  ((name_len+1+3)/4 + (data_len+3)/4)
+
+/*
+ * Find a pointer to the name.
+ *
+ * It's either the given name pointer, or just after the header (if the pointer
+ * is NULL)
+ */
+static inline char *kbus_name_ptr(struct kbus_message_header  *hdr)
+{
+	if (hdr->name) {
+		return hdr->name;
+	} else {
+		struct kbus_entire_message	*entire;
+		entire = (struct kbus_entire_message *)hdr;
+		return (char *) &entire->rest[0];
+	}
+}
+
+/*
+ * Find a pointer to the data.
+ *
+ * It's either the given data pointer, or just after the name (if the pointer
+ * is NULL)
+ */
+static inline void *kbus_data_ptr(struct kbus_message_header  *hdr)
+{
+	if (hdr->data) {
+		return hdr->data;
+	} else {
+		struct kbus_entire_message	*entire;
+		uint32_t			 data_idx;
+
+		entire = (struct kbus_entire_message *)hdr;
+		data_idx = KBUS_ENTIRE_MSG_DATA_INDEX(hdr->name_len);
+		return (void *) &entire->rest[data_idx];
+	}
+}
+
+/*
+ * Find a pointer to the (second/final) end guard.
+ */
+static inline uint32_t *kbus_end_ptr(struct kbus_entire_message  *entire)
+{
+	uint32_t	end_guard_idx;
+	end_guard_idx = KBUS_ENTIRE_MSG_END_GUARD_INDEX(entire->header.name_len,
+							entire->header.data_len);
+	return (uint32_t *) &entire->rest[end_guard_idx];
+}
 
 /*
  * Things KBUS changes in a message
@@ -217,6 +312,7 @@ struct kbus_message_struct {
  * - the from id (to indicate the KSock this message was sent from)
  * - the KBUS_BIT_WANT_YOU_TO_REPLY bit in the flags (set or cleared
  *   as appropriate)
+ * - the SYNTHETIC bit, which KBUS will always unset in a user message
  */
 
 /*
@@ -287,32 +383,8 @@ struct kbus_message_struct {
 #define KBUS_BIT_ALL_OR_WAIT		BIT(8)
 #define KBUS_BIT_ALL_OR_FAIL		BIT(9)
 
-/*
- * Given name_len (in bytes) and data_len (in 32-bit words), return the
- * length of the appropriate kbus_message_struct, in bytes
- *
- * Don't forget the end guard at the end...
- *
- * Remember that "sizeof" doesn't count the 'rest' field in our message
- * structure.
- *
- * (it's sensible to use "sizeof" so that we don't need to amend the macro
- * if the message datastructure changes)
- */
-#define KBUS_MSG_LEN(name_len,data_len)    (sizeof(struct kbus_message_struct) + \
-					    4 * ((name_len+3)/4 + data_len + 1))
 
-/*
- * The message name starts at msg->rest[0].
- * The message data starts after the message name - given the message
- * name's length (in bytes), that is at index:
- */
-#define KBUS_MSG_DATA_INDEX(name_len)     ((name_len+3)/4)
-/*
- * Given the message name length (in bytes) and the message data length (in
- * 32-bit words), the index of the end guard is thus:
- */
-#define KBUS_MSG_END_GUARD_INDEX(name_len,data_len)  ((name_len+3)/4 + data_len)
+
 
 #define KBUS_IOC_MAGIC	'k'	/* 0x6b - which seems fair enough for now */
 /*
@@ -321,13 +393,13 @@ struct kbus_message_struct {
 #define KBUS_IOC_RESET	  _IO(  KBUS_IOC_MAGIC,  1)
 /*
  * BIND - bind a KSock to a message name
- * arg: struct kbus_m_bind_struct, indicating what to bind to
+ * arg: struct kbus_bind_request, indicating what to bind to
  * retval: 0 for success, negative for failure
  */
 #define KBUS_IOC_BIND	  _IOW( KBUS_IOC_MAGIC,  2, char *)
 /*
  * UNBIND - unbind a KSock from a message id
- * arg: struct kbus_m_bind_struct, indicating what to unbind from
+ * arg: struct kbus_bind_request, indicating what to unbind from
  * retval: 0 for success, negative for failure
  */
 #define KBUS_IOC_UNBIND	  _IOW( KBUS_IOC_MAGIC,  3, char *)
@@ -339,7 +411,7 @@ struct kbus_message_struct {
 #define KBUS_IOC_KSOCKID  _IOR( KBUS_IOC_MAGIC,  4, char *)
 /*
  * REPLIER - determine the KSock id of the replier for a message name
- * arg: struct kbus_m_bind_query_struct
+ * arg: struct kbus_bind_query
  *
  *    - on input, specify the message name and replier flag to ask about
  *    - on output, KBUS fills in the relevant KSock id in the return_value,

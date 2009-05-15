@@ -42,6 +42,7 @@ import fcntl
 import ctypes
 import array
 import itertools
+import string
 
 # Kernel definitions for ioctl commands
 # Following closely from #include <asm[-generic]/ioctl.h>
@@ -145,116 +146,116 @@ class MessageId(ctypes.Structure):
         else:
             return MessageId(self.network_id, self.serial_num+other)
 
-class _MessageHeaderStruct(ctypes.Structure):
-    """The datastructure for a Message header.
+def _same_message_struct(this, that):
+    """Returns true if the two message structures are the same.
+
+    Copes with both "plain" and "entire" messages (i.e., those
+    which are a _MessageHeaderStruct with pointers to name and data,
+    and also those which are an 'EntireMessageStruct', with the
+    name and (any) data concatenated after the header).
     """
-    _fields_ = [('start_guard', ctypes.c_uint32),
-                ('id',          MessageId),
-                ('in_reply_to', MessageId),
-                ('to',          ctypes.c_uint32),
-                ('from_',       ctypes.c_uint32), # named consistently with elsewhere
-                ('flags',       ctypes.c_uint32),
-                ('name_len',    ctypes.c_uint32),
-                ('data_len',    ctypes.c_uint32)]
-
-    def __repr__(self):
-        """For debugging, not construction of an instance of ourselves.
-        """
-        return "<%08x] %s %s %u %u %08x %u %u"%(
-                self.start_guard,
-                self.id._short_str(),
-                self.in_reply_to._short_str(),
-                self.to,
-                self.from_,
-                self.flags,
-                self.name_len,
-                self.data_len)
-
-    def __eq__(self, other):
-        if not isinstance(other, _MessageHeaderStruct):
-            return False
-        else:
-            return (self.id == other.id and
-                    self.in_reply_to == other.in_reply_to and
-                    self.to == other.to and
-                    self.from_ == other.from_ and
-                    self.flags == other.flags and
-                    self.name_len == other.name_len and
-                    self.data_len == other.data_len)
-
-    def __ne__(self, other):
-        if not isinstance(other, _MessageHeaderStruct):
-            return True
-        else:
-            return (self.id != other.id or
-                    self.in_reply_to != other.in_reply_to or
-                    self.to != other.to or
-                    self.from_ != other.from_ or
-                    self.flags != other.flags or
-                    self.name_len != other.name_len or
-                    self.data_len != other.data_len)
-
-def _struct_to_string(struct):
-    return ctypes.string_at(ctypes.addressof(struct), ctypes.sizeof(struct))
-
-def _struct_from_string(struct_class, data):
-    thing = struct_class()
-    ctypes.memmove(ctypes.addressof(thing), data, ctypes.sizeof(thing))
-    return thing
-
-class _EntireMessageStructBaseclass(ctypes.Structure):
-    """The baseclass for our "entire message structure".
-
-    Defined separately just to reduce the amount of code executed in the
-    functions that *build* the classes.
-
-    It is required that the fields defined be 'header', 'name', 'data'
-    and 'end_guard' -- but since I'm assuming this will only be (directly)
-    used internally to kbus.py, I'm happy with that.
-
-        (Specifically, see the ``_specific_entire_message_struct`` function)
-    """
-
-    def __repr__(self):
-        """For debugging, not construction of an instance of ourselves.
-        """
-        return "%s '%s' %s [%08x>"%(
-                self.header,
-                self.name[:self.name_len],
-                _int_tuple_as_str(self.data),
-                self.end_guard)
-
-    def __eq__(self, other):
-        if not isinstance(other, _EntireMessageStructBaseclass):
-            return False
-        else:
-            return (self.header == other.header and
-                    self.name == other.name and
-                    self._data_eq(other))
-
-    def __ne__(self, other):
-        if not isinstance(other, _EntireMessageStructBaseclass):
-            return True
-        else:
-            return (self.id != other.id or
-                    self.name != other.name or
-                    self._data_ne(other))
-
-    def _data_eq(self, other):
-        if len(self.data) != len(other.data):
-            return False
-        for (a, b) in itertools.izip(self.data, other.data):
-            if a != b:
-                return False
-        return True
-
-    def _data_ne(self, other):
-        if len(self.data) != len(other.data):
-            return True
-        for (a, b) in itertools.izip(self.data, other.data):
-            if a != b:
-                return True
+    if not isinstance(this, _MessageHeaderStruct) and \
+       not isinstance(this, _EntireMessageStructBaseclass):
         return False
+
+    if not isinstance(that, _MessageHeaderStruct) and \
+       not isinstance(that, _EntireMessageStructBaseclass):
+        return False
+
+    if (this.id != that.id or
+        this.in_reply_to != that.in_reply_to or
+        this.to != that.to or
+        this.from_ != that.from_ or
+        this.flags != that.flags or
+        this.name_len != that.name_len or
+        this.data_len != that.data_len or
+        this.name != that.name):
+        return False
+    if this.data_len:
+        for ii in range(this.data_len):
+            if this.data[ii] != that.data[ii]:
+                return False
+    return True
+
+def _equivalent_message_struct(this, that):
+    """Returns true if the two messages are mostly the same.
+
+    For purposes of this comparison, we ignore:
+
+    * 'id',
+    * 'flags',
+    * 'in_reply_to' and
+    * 'from'
+
+    Copes with both "plain" and "entire" messages (i.e., those
+    which are a _MessageHeaderStruct with pointers to name and data,
+    and also those which are an 'EntireMessageStruct', with the
+    name and (any) data concatenated after the header).
+    """
+    if not isinstance(this, _MessageHeaderStruct) and \
+       not isinstance(this, _EntireMessageStructBaseclass):
+        return False
+
+    if not isinstance(that, _MessageHeaderStruct) and \
+       not isinstance(that, _EntireMessageStructBaseclass):
+        return False
+
+    if (this.to != that.to or
+        this.name_len != that.name_len or
+        this.data_len != that.data_len or
+        this.name != that.name):
+        return False
+    if this.data_len:
+        for ii in range(this.data_len):
+            if this.data[ii] != that.data[ii]:
+                return False
+    return True
+
+def hexdata(data):
+    r"""Return a representation of a 'string' in printable form.
+
+    Doesn't use whitespace or anything not in letters, digits or punctuation.
+    Thus, the resultant string should be entirely equivalent in "meaning" to
+    the input.
+
+    For instance:
+
+        >>> hexdata('1234')
+        '1234'
+        >>> hexdata('')
+        ''
+        >>> hexdata(' ')
+        '\\x20'
+        >>> hexdata('\x27')
+        "'"
+        >>> hexdata('\x03')
+        '\\x03'
+    """
+    pretty = string.letters + string.digits + string.punctuation
+    words = []
+    for ch in data:
+        if ch in pretty:
+            words.append(ch)
+        else:
+            words.append('\\x%02x'%ord(ch))
+    return ''.join(words)
+
+def hexify(data):
+    r"""Return a representation of a 'string' as hex values.
+
+    For instance:
+
+        >>> hexify('1234')
+        '31 32 33 34'
+        >>> hexify('')
+        ''
+        >>> hexify('\x27')
+        '27'
+    """
+    words = []
+    for ch in data:
+        words.append('%02x'%ord(ch))
+    return ' '.join(words)
 
 def _int_tuple_as_str(data):
     """Return a representation of a tuple of integers, as a string.
@@ -270,55 +271,321 @@ def _int_tuple_as_str(data):
     else:
         return '(%s)'%(', '.join(words))
 
-# Is this premature optimisation?
-# I don't think Python would cache the different classes for me,
-# and it seems wasteful to create a new class for *every* message,
-# given there will be a lot of messages that are very similar...
-_specific_entire_message_struct_dict = {}
+class _MessageHeaderStruct(ctypes.Structure):
+    """The datastructure for a Message header.
 
-def _specific_entire_message_struct(padded_name_len, data_len):
-    """Return a specific subclass of _MessageHeaderStruct
+    A "plain" message is represented as a Message header with pointers
+    to its name and (any) data.
     """
-    key = (padded_name_len, data_len)
-    if key in _specific_entire_message_struct_dict:
-        return _specific_entire_message_struct_dict[key]
-    else:
-        class localEntireMessageStruct(_EntireMessageStructBaseclass):
-            _fields_ = [('header',     _MessageHeaderStruct),
-                        ('name',       ctypes.c_char   * padded_name_len),
-                        ('data',       ctypes.c_uint32 * data_len),
-                        ('end_guard',  ctypes.c_uint32)]
-            # Allow the user to type '.to' instead of '.header.to'
-            _anonymous_ = ('header', )
-        _specific_entire_message_struct_dict[key] = localEntireMessageStruct
-        return localEntireMessageStruct
+    _fields_ = [('start_guard', ctypes.c_uint32),
+                ('id',          MessageId),
+                ('in_reply_to', MessageId),
+                ('to',          ctypes.c_uint32),
+                ('from_',       ctypes.c_uint32), # named consistently with elsewhere
+                ('flags',       ctypes.c_uint32),
+                ('name_len',    ctypes.c_uint32),
+                ('data_len',    ctypes.c_uint32),
+                ('name',        ctypes.c_char_p),
+                ('data',        ctypes.c_char_p),
+                ('end_guard',   ctypes.c_uint32)]
 
-def entire_message_from_parts(id, in_reply_to, to, from_, flags, name, data):
-    """Return a new message structure of the correct shape.
+    def __repr__(self):
+        """For debugging, not construction of an instance of ourselves.
+        """
+        if self.name == None:
+            nn = 'None'
+        else:
+            nn = repr(hexdata(self.name))
+        if self.data == None:
+            dd = 'None'
+        else:
+            dd = repr(hexdata(self.data))
+        return "<%08x] %s %s %u %u %08x %u %u %s %s [%08x>"%(
+                self.start_guard,
+                self.id._short_str(),
+                self.in_reply_to._short_str(),
+                self.to,
+                self.from_,
+                self.flags,
+                self.name_len,
+                self.data_len,
+                nn,
+                dd,
+                self.end_guard)
+
+    def __eq__(self, other):
+        return _same_message_struct(self, other)
+
+    def __ne__(self, other):
+        return not _same_message_struct(self, other)
+
+    def equivalent(self, other):
+        """Returns true if the two messages are mostly the same.
+
+        For purposes of this comparison, we ignore:
+
+        * 'id',
+        * 'flags',
+        * 'in_reply_to' and
+        * 'from'
+
+        Copes with both "plain" and "entire" messages (i.e., those
+        which are a _MessageHeaderStruct with pointers to name and data,
+        and also those which are an 'EntireMessageStruct', with the
+        name and (any) data concatenated after the header).
+        """
+        return _equivalent_message_struct(self, other)
+
+def _struct_to_string(struct):
+    return ctypes.string_at(ctypes.addressof(struct), ctypes.sizeof(struct))
+
+def _struct_from_string(struct_class, data):
+    thing = struct_class()
+    ctypes.memmove(ctypes.addressof(thing), data, ctypes.sizeof(thing))
+    return thing
+
+def message_from_parts(id, in_reply_to, to, from_, flags, name, data):
+    """Return a new Message header structure, with name and data attached.
 
     - 'id' and 'in_reply_to' are (network_id, serial_num) tuples
     - 'to', 'in_reply_to' and 'from_' are 0 or a KSock id
     - 'name' is a string
-    - 'data' is a tuple of integers
+    - 'data' is a string or None
     """
     name_len = len(name)
-    data_len = len(data)
 
-    # Remember that the message name itself needs padding out to 4-bytes
+    if data:
+        data_len = len(data)
+    else:
+        data_len = 0
+
+    # C wants us to have a terminating 0 byte
+    name += '\0'
+    # And we want to pad the result out to a multiple of 4 bytes
     # ...this is about the nastiest way possible of doing it...
     while len(name)%4:
         name += '\0'
 
     padded_name_len = len(name)
 
+    # We want to pad the data out in the same manner
+    # (but without the terminating 0 byte)
+    if data:
+        while len(data)%4:
+            data += '\0'
+        padded_data_len = len(data)
+    else:
+        padded_data_len = 0
+
+    name_ptr = ctypes.c_char_p(name)
+    if data:
+        data_ptr = ctypes.c_char_p(data)
+    else:
+        data_ptr = None
+
+    return _MessageHeaderStruct(Message.START_GUARD,
+                                id, in_reply_to,
+                                to, from_, flags, name_len, data_len,
+                                name_ptr, data_ptr, Message.END_GUARD)
+
+def message_from_string(msg_data):
+    """Return a "pointy" message structure from the given data.
+
+    'data' is a string-like object (as, for instance, returned by 'read')
+    """
+    h = _struct_from_string(_MessageHeaderStruct, msg_data)
+
+    # Don't forget that the string will be terminated with a 0 byte
+    padded_name_len = 4*((h.name_len +1 + 3) / 4)
+
+    # But not so the data
+    padded_data_len = 4*((h.data_len + 3) / 4)
+
+    h.name = msg_data[52:52+h.name_len]
+
+    if h.data_len == 0:
+        h.data = None
+    else:
+        data = msg_data[52+padded_name_len:52+padded_name_len+h.data_len]
+
+        h.data = ctypes.c_char_p(data)
+
+    final_end_guard = msg_data[52+padded_name_len+padded_data_len:]
+    return h
+
+class _EntireMessageStructBaseclass(ctypes.Structure):
+    """The baseclass for our "entire" message structure.
+
+    Defined separately just to reduce the amount of code executed in the
+    functions that *build* the classes.
+
+    It is required that the fields defined be 'header', 'rest_name',
+    'rest_data' and 'rest_end_guard' -- but since I'm assuming this will only
+    be (directly) used internally to kbus.py, I'm happy with that.
+
+        (Specifically, see the ``_specific_entire_message_struct`` function)
+    """
+
+    def __repr__(self):
+        """For debugging, not construction of an instance of ourselves.
+        """
+        if self.name_len:
+            name_repr = repr(hexdata(self.rest_name[:self.name_len]))
+        else:
+            name_repr = 'None'
+        if self.data_len:
+            data_repr = repr(hexdata(self.rest_data[:self.data_len]))
+        else:
+            data_repr = None
+        return "%s %s %s [%08x>"%(
+                self.header,
+                name_repr,
+                data_repr,
+                self.rest_end_guard)
+
+    # If we didn't have the problem of trying to look for the
+    # message name and data in the "rest" of the structure, we
+    # could use the "anonymous" capability to make the "header"
+    # names be used directly. But that would not allow us to
+    # fudge "name" and "data", so...
+
+    @property
+    def start_guard(self):
+        return self.header.start_guard
+
+    @property
+    def id(self):
+        return self.header.id
+
+    # Announcement wants to be able to overwrite in_reply_to
+    def get_in_reply_to(self):
+        return self.header.in_reply_to
+
+    def set_in_reply_to(self, value):
+        self.header.in_reply_to = value
+
+    in_reply_to = property(get_in_reply_to, set_in_reply_to)
+
+    @property
+    def to(self):
+        return self.header.to
+
+    @property
+    def from_(self):
+        return self.header.from_
+
+    # It's useful to be able to set flags
+    def get_flags(self):
+        return self.header.flags
+
+    def set_flags(self, value):
+        self.header.flags = value
+
+    flags = property(get_flags, set_flags)
+
+    @property
+    def name_len(self):
+        return self.header.name_len
+
+    @property
+    def data_len(self):
+        return self.header.data_len
+
+    @property
+    def end_guard(self):
+        return self.header.end_guard
+
+    @property
+    def name(self):
+        name_len = self.header.name_len
+        return self.rest_name[:name_len]
+
+    @property
+    def data(self):
+        data_len = self.header.data_len
+        if data_len:
+            return self.rest_data[:data_len]
+        else:
+            return None
+
+    def __eq__(self, other):
+        return _same_message_struct(self, other)
+
+    def __ne__(self, other):
+        return not _same_message_struct(self, other)
+
+    def equivalent(self, other):
+        return _equivalent_message_struct(self, other)
+
+# Is this premature optimisation?
+# I don't think Python would cache the different classes for me,
+# and it seems wasteful to create a new class for *every* message,
+# given there will be a lot of messages that are very similar...
+_specific_entire_message_struct_dict = {}
+
+def _specific_entire_message_struct(padded_name_len, padded_data_len):
+    """Return a specific subclass of _MessageHeaderStruct
+    """
+    key = (padded_name_len, padded_data_len)
+    if key in _specific_entire_message_struct_dict:
+        return _specific_entire_message_struct_dict[key]
+    else:
+        class localEntireMessageStruct(_EntireMessageStructBaseclass):
+            _fields_ = [('header',     _MessageHeaderStruct),
+                        ('rest_name',  ctypes.c_char  * padded_name_len),
+                        #('rest_data',  ctypes.c_uint8 * padded_data_len),
+                        ('rest_data',  ctypes.c_char * padded_data_len),
+                        ('rest_end_guard',  ctypes.c_uint32)]
+        _specific_entire_message_struct_dict[key] = localEntireMessageStruct
+        return localEntireMessageStruct
+
+def entire_message_from_parts(id, in_reply_to, to, from_, flags, name, data):
+    """Return a new message structure of the correct shape.
+
+    - 'id' and 'in_reply_to' are None or (network_id, serial_num) tuples
+    - 'to', 'in_reply_to' and 'from_' are 0 or a KSock id
+    - 'name' is a string
+    - 'data' is a string or None
+    """
+
+    if id is None:
+        id = MessageId(0,0)
+
+    if in_reply_to is None:
+        in_reply_to = MessageId(0,0)
+
+    name_len = len(name)
+
+    if data is None:
+        data = ''
+
+    data_len = len(data)
+
+    # C wants us to have a terminating 0 byte
+    name += '\0'
+    # And we want to pad the result out to a multiple of 4 bytes
+    # ...this is about the nastiest way possible of doing it...
+    while len(name)%4:
+        name += '\0'
+
+    padded_name_len = len(name)
+
+    # We want to pad the data out in the same manner
+    # (but without the terminating 0 byte)
+    while len(data)%4:
+        data += '\0'
+    padded_data_len = len(data)
+
     header = _MessageHeaderStruct(Message.START_GUARD,
                                   id, in_reply_to,
-                                  to, from_, flags, name_len, data_len)
+                                  to, from_, flags, name_len, data_len,
+                                  None, None, Message.END_GUARD)
 
     # We rather rely on 'data' "disappearing" (being of zero length)
     # if 'data_len' is zero, and it appears that that just works.
 
-    local_class = _specific_entire_message_struct(padded_name_len, data_len)
+    local_class = _specific_entire_message_struct(padded_name_len,
+                                                  padded_data_len)
 
     return local_class(header, name, data, Message.END_GUARD)
 
@@ -329,9 +596,14 @@ def entire_message_from_string(data):
     """
     h = _struct_from_string(_MessageHeaderStruct, data)
 
-    padded_name_len = 4*((h.name_len + 3) / 4)
+    # Don't forget that the string will be terminated with a 0 byte
+    padded_name_len = 4*((h.name_len +1 + 3) / 4)
 
-    local_class = _specific_entire_message_struct(padded_name_len, h.data_len)
+    # But not so the data
+    padded_data_len = 4*((h.data_len + 3) / 4)
+
+    local_class = _specific_entire_message_struct(padded_name_len,
+                                                  padded_data_len)
 
     return _struct_from_string(local_class, data)
 
@@ -342,22 +614,19 @@ class Message(object):
 
         >>> msg = Message('$.Fred')
         >>> msg
-        Message('$.Fred', data=(), to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
+        Message('$.Fred', data=None, to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
 
-        >>> msg = Message('$.Fred', (0x1234,))
+        >>> msg = Message('$.Fred', '1234')
         >>> msg
-        Message('$.Fred', data=(0x1234,), to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
+        Message('$.Fred', data='1234', to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
 
-        >>> msg = Message('$.Fred', (0x1234, 0xFFFF00FF))
+        >>> msg = Message('$.Fred', '12345678')
         >>> msg
-        Message('$.Fred', data=(0x1234, 0xffff00ff), to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
+        Message('$.Fred', data='12345678', to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
 
-        >>> msg1 = Message('$.Fred', data=(0x1234,))
+        >>> msg1 = Message('$.Fred', data='1234')
         >>> msg1
-        Message('$.Fred', data=(0x1234,), to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
-
-    Yes, that's a tuple as the "data" argument. It should be either None or a
-    tuple of unsigned 32-bit integers.
+        Message('$.Fred', data='1234', to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
 
     A Message can be constructed from another message directly:
 
@@ -390,7 +659,7 @@ class Message(object):
 
         >>> msg5 = Message(msg1, to=9, in_reply_to=MessageId(0, 3))
         >>> msg5
-        Message('$.Fred', data=(0x1234,), to=9L, from_=0L, in_reply_to=MessageId(0, 3), flags=0x00000000, id=None)
+        Message('$.Fred', data='1234', to=9L, from_=0L, in_reply_to=MessageId(0, 3), flags=0x00000000, id=None)
 
         >>> msg5a = Message(msg1, to=9, in_reply_to=MessageId(0, 3))
         >>> msg5a == msg5
@@ -400,21 +669,21 @@ class Message(object):
 
         >>> msg6 = Message(msg5, to=0)
         >>> msg6
-        Message('$.Fred', data=(0x1234,), to=0L, from_=0L, in_reply_to=MessageId(0, 3), flags=0x00000000, id=None)
+        Message('$.Fred', data='1234', to=0L, from_=0L, in_reply_to=MessageId(0, 3), flags=0x00000000, id=None)
 
     (and the same for any of the integer fields), it is not possible to set any
     of the message id fields to None:
 
         >>> msg6 = Message(msg5, in_reply_to=None)
         >>> msg6
-        Message('$.Fred', data=(0x1234,), to=9L, from_=0L, in_reply_to=MessageId(0, 3), flags=0x00000000, id=None)
+        Message('$.Fred', data='1234', to=9L, from_=0L, in_reply_to=MessageId(0, 3), flags=0x00000000, id=None)
 
     If you need to do that, go via the 'extract()' method:
 
         >>> (id, in_reply_to, to, from_, flags, name, data) = msg5.extract()
         >>> msg6 = Message(name, data, to, from_, None, flags, id)
         >>> msg6
-        Message('$.Fred', data=(0x1234,), to=9L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
+        Message('$.Fred', data='1234', to=9L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
 
     For convenience, the parts of a Message may be retrieved as properties:
 
@@ -430,34 +699,28 @@ class Message(object):
         None
         >>> msg1.flags
         0L
-        >>> msg1.data[0]
-        4660L
-        >>> msg1.data[:]
-        [4660L]
-        >>> tuple(msg1.data)
-        (4660L,)
+        >>> msg1.data
+        '1234'
 
     Message ids are objects if set:
 
-        >>> msg1 = Message('$.Fred', data=(0x1234,), id=MessageId(0, 33))
+        >>> msg1 = Message('$.Fred', data='1234', id=MessageId(0, 33))
         >>> msg1
-        Message('$.Fred', data=(0x1234,), to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=MessageId(0, 33))
+        Message('$.Fred', data='1234', to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=MessageId(0, 33))
         >>> msg1.id
         MessageId(0, 33)
 
     The arguments to Message() are:
 
     - 'arg' -- this is the initial argument, and is a message name (a string
-      that starts '$.'), a Message, some data that may be interpreted as a
-      message (e.g., an array.array of unsigned 32-bit words, or a string of
-      the right form), or a tuple from the .extract() method of another
-      Message.
+      that starts '$.'), a Message, or a string representing an "entire"
+      message.
 
-    If 'arg' is a message name, then the keyword arguments may be used (if
-    'arg' is not a messsage name, they will be ignored):
+    If 'arg' is a message name, or another Message then the keyword arguments
+    may be used (for another Message, they override the values in that Message).
+    if 'arg' is a message-as-a-string, they will be ignored):
 
-    - 'data' is data for the Message, either None or a tuple of unsigned 32-bit
-      integers, or an array of such, or a string that can be converted to such
+    - 'data' is data for the Message, either None or a Python string.
     - 'to' is the KSock id for the destination, for use in replies or in
       stateful messaging. Normally it should be left 0.
     - 'from_' is the KSock id of the sender. Normally this should be left
@@ -477,7 +740,6 @@ class Message(object):
     Our internal values are:
 
     - 'msg', which is the actual message datastructure
-    - 'size', which is the size of that datastructure in bytes
     """
 
     START_GUARD = 0x7375626B
@@ -510,16 +772,6 @@ class Message(object):
         All named arguments are meant to be "unset" by default.
         """
 
-        if data:
-            if isinstance(data, str):
-                d = array.array('L', data)
-                data = tuple(d.tolist())
-            elif isinstance(data, array.array):
-                if data.typecode != 'L':
-                    raise ValueError("Message 'data' is an array.array('%c'), not 'L'"%\
-                                     data.typecode)
-                data = tuple(data.tolist())
-
         if isinstance(arg, Message):
             self._merge_args(arg.extract(), data, to, from_, in_reply_to, flags, id)
         elif isinstance(arg, tuple) or isinstance(arg, list):
@@ -529,23 +781,23 @@ class Message(object):
                         " 7 values, not %d"%len(arg))
             else:
                 self._merge_args(arg, data, to, from_, in_reply_to, flags, id)
-        elif isinstance(arg, str) and arg.startswith('$.'):
-            # It looks like a message name
-            name = arg
-            self._from_data(name, data, to, from_, in_reply_to, flags, id)
-        elif arg and data is None and to is None and from_ is None and \
-                in_reply_to is None and flags is None and id is None:
+        elif isinstance(arg, str):
+            if arg.startswith('$.'):
+                # It looks like a message name
+                name = arg
+                self._from_data(name, data, to, from_, in_reply_to, flags, id)
+            elif data is None and to is None and from_ is None and \
+                    in_reply_to is None and flags is None and id is None:
                 # Assume it's sensible data...
-                # (is this only allowed to be a "string"?)
                 self.msg = entire_message_from_string(arg)
+            else:
+                raise ValueError('If message data is given as a string,'
+                                 ' no other arguments are allowed')
         else:
             raise ValueError('Argument %s does not seem to make sense'%repr(arg))
 
         # Make sure the result *looks* like a message
         self._check()
-
-        # And I personally find it useful to have the length available
-        self.size = ctypes.sizeof(self.msg)
 
     def _merge_args(self, extracted, this_data, this_to, this_from_,
                     this_in_reply_to, this_flags, this_id):
@@ -556,10 +808,8 @@ class Message(object):
 
         Note that 'data' must be:
 
-        1. an array.array('L', ...) instance, or
-        2. a string, or something else compatible, which will be converted to
-           the above, or
-        3. None.
+        1. a string, or something else compatible.
+        2. None.
         """
         (id, in_reply_to, to, from_, flags, name, data) = extracted
         if this_data        is not None: data        = this_data
@@ -575,11 +825,8 @@ class Message(object):
 
         Note that, if given, 'id' and 'in_reply_to' must be MessageId
         instances.
-
-        Note that 'data' must be a tuple of (unsigned, 32-bit) integers, or
-        None.
         """
-                                         
+
         if id:
             id_tuple = (id.network_id, id.serial_num)
         else:
@@ -599,11 +846,8 @@ class Message(object):
         if not flags:
             flags = 0
 
-        if data is None:
-            data = ()
-
-        self.msg = entire_message_from_parts(id_tuple, in_reply_to_tuple,
-                                             to, from_, flags, name, data)
+        self.msg = message_from_parts(id_tuple, in_reply_to_tuple,
+                                      to, from_, flags, name, data)
 
     def _check(self):
         """Perform some basic sanity checks on our data.
@@ -617,8 +861,12 @@ class Message(object):
 
     def __repr__(self):
         (id, in_reply_to, to, from_, flags, name, data) = self.extract()
+        if data is None:
+            data_repr = 'None'
+        else:
+            data_repr = repr(hexdata(data))
         args = [repr(name),
-                'data=%s'%_int_tuple_as_str(data),
+                'data=%s'%data_repr,
                 'to='+repr(to),
                 'from_='+repr(from_),
                 'in_reply_to='+repr(in_reply_to),
@@ -638,6 +886,34 @@ class Message(object):
         else:
             return (self.msg != other.msg)
 
+    def total_length(self):
+        """Return the total length of this message.
+
+        A Message may be held in one of two ways:
+
+        * "pointy" - this is a message header, with references to the
+          message name and data.
+        * "entire" - this is a message header with the message name
+          and data (and an extra end guard) appended to it.
+
+        Message construction may produce either of these (although
+        construction of a message from a string will always produce
+        an "entire" message). Reading a message from a KSock returns
+        an "entire" message string.
+
+        The actual "pointy" or "entire" message data is held in the
+        'msg' value of the Message instance.
+
+        The 'to_string()' method returns the data for an "entire" message.
+
+        This function calculates the length of the equivalent "entire"
+        message for this Message.
+        """
+        # And we're going to do it the slow and wasteful way
+        #
+        # XXX Just calculate this, instead of copying stuff...
+        return len(self.to_string())
+
     def equivalent(self, other):
         """Returns true if the two messages are mostly the same.
 
@@ -648,11 +924,8 @@ class Message(object):
         * 'in_reply_to' and
         * 'from'
         """
-        return (self.msg.to       == other.msg.to and
-                self.msg.name_len == other.msg.name_len and
-                self.msg.data_len == other.msg.data_len and
-                self.msg.name     == other.msg.name and
-                self.msg._data_eq(other.msg))
+        return self.msg.equivalent(other.msg)
+        #return _equivalent_message_struct(self, other)
 
     def set_want_reply(self, value=True):
         """Set or unset the 'we want a reply' flag.
@@ -685,7 +958,8 @@ class Message(object):
         """
         return self.msg.flags & Message.URGENT
 
-    def _get_id(self):
+    @property
+    def id(self):
         network_id = self.msg.id.network_id
         serial_num = self.msg.id.serial_num
         if network_id == 0 and serial_num == 0:
@@ -693,7 +967,8 @@ class Message(object):
         else:
             return MessageId(network_id, serial_num)
 
-    def _get_in_reply_to(self):
+    @property
+    def in_reply_to(self):
         network_id = self.msg.in_reply_to.network_id
         serial_num = self.msg.in_reply_to.serial_num
         if network_id == 0 and serial_num == 0:
@@ -701,39 +976,36 @@ class Message(object):
         else:
             return MessageId(network_id, serial_num)
 
-    def _get_to(self):
+    @property
+    def to(self):
         return self.msg.to
 
-    def _get_from(self):
+    @property
+    def from_(self):
         return self.msg.from_
 
-    def _get_flags(self):
+    @property
+    def flags(self):
         return self.msg.flags
 
-    def _get_name(self):
+    @property
+    def name(self):
         name_len = self.msg.name_len
         # Make sure we remove the padding bytes (although they *should* be
         # '\0', and so "reasonably safe")
         return self.msg.name[:name_len]
 
-    def _get_data(self):
+    @property
+    def data(self):
         return self.msg.data
 
-    id          = property(_get_id)
-    in_reply_to = property(_get_in_reply_to)
-    to          = property(_get_to)
-    from_       = property(_get_from)
-    flags       = property(_get_flags)
-    name        = property(_get_name)
-    data        = property(_get_data)
-
-    def data_as_string(self):
-        """Return the message data as a Python string.
-
-        The returned string will be data_len*4 bytes long.
-        """
-        d = array.array('L', self.data)
-        return d.tostring()
+    #def data_as_string(self):
+    #    """Return the message data as a Python string.
+    #
+    #    The returned string will be data_len*4 bytes long.
+    #    """
+    #    d = array.array('L', self.data)
+    #    return d.tostring()
 
     def extract(self):
         """Return our parts as a tuple.
@@ -741,7 +1013,7 @@ class Message(object):
         The values are returned in something approximating the order
         within the message itself:
 
-            (id, in_reply_to, to, from_, flags, name, data_tuple)
+            (id, in_reply_to, to, from_, flags, name, data)
 
         This is not the same order as the keyword arguments to Message().
         """
@@ -752,8 +1024,15 @@ class Message(object):
         """Return the message as a string.
 
         This returns the entirety of the message as a Python string.
+
+        In order to do this, it first coerces the mesage to an "entire"
+        message (so that we don't have any dangling "pointers" to the
+        name or data).
         """
-        return _struct_to_string(self.msg)
+        (id, in_reply_to, to, from_, flags, name, data) = self.extract()
+        tmp = entire_message_from_parts(id, in_reply_to, to, from_, flags,
+                                        name, data)
+        return _struct_to_string(tmp)
 
     def cast(self):
         """Return (a copy of) ourselves as an appropriate subclass of Message
@@ -790,13 +1069,9 @@ class Announcement(Message):
 
     An Announcement can be created in a variety of ways. Perhaps most obviously:
 
-        >>> ann1 = Announcement('$.Fred', data=(0x1234,))
+        >>> ann1 = Announcement('$.Fred', data='1234')
         >>> ann1
-        Announcement('$.Fred', data=(0x1234,), to=0L, from_=0L, flags=0x00000000, id=None)
-
-    Note that if the 'data' is specified as a string, there must be a multiple
-    of 4 characters -- i.e., it must "fill out" an array of unsigned int-32
-    words.
+        Announcement('$.Fred', data='1234', to=0L, from_=0L, flags=0x00000000, id=None)
 
     Since Announcement is a "plain" Message, we expect to be able to use the
     normal ways of instantiating a Message for an Announcement.
@@ -821,10 +1096,10 @@ class Announcement(Message):
 
     and the 'in_reply_to' value in Message objects is ignored:
 
-        >>> msg = Message('$.Fred', data=(0x1234,), in_reply_to=MessageId(1, 2))
+        >>> msg = Message('$.Fred', data='1234', in_reply_to=MessageId(1, 2))
         >>> ann = Announcement(msg)
         >>> ann
-        Announcement('$.Fred', data=(0x1234,), to=0L, from_=0L, flags=0x00000000, id=None)
+        Announcement('$.Fred', data='1234', to=0L, from_=0L, flags=0x00000000, id=None)
         >>> print ann.in_reply_to
         None
 
@@ -861,8 +1136,8 @@ class Announcement(Message):
         None
         >>> ann1.flags
         0L
-        >>> ann1.data[0]
-        4660L
+        >>> ann1.data
+        '1234'
 
     Note that:
 
@@ -900,8 +1175,12 @@ class Announcement(Message):
 
     def __repr__(self):
         (id, in_reply_to, to, from_, flags, name, data) = self.extract()
+        if data is None:
+            data_repr = 'None'
+        else:
+            data_repr = repr(hexdata(data))
         args = [repr(name),
-                'data=%s'%_int_tuple_as_str(data),
+                'data=%s'%data_repr,
                 'to='+repr(to),
                 'from_='+repr(from_),
                 'flags=0x%08x'%flags,
@@ -926,12 +1205,12 @@ class Request(Message):
 
     For instance, consider:
 
-        >>> msg = Message('$.Fred', data=(0x1234,), flags=Message.WANT_A_REPLY)
+        >>> msg = Message('$.Fred', data='1234', flags=Message.WANT_A_REPLY)
         >>> msg
-        Message('$.Fred', data=(0x1234,), to=0L, from_=0L, in_reply_to=None, flags=0x00000001, id=None)
-        >>> req = Request('$.Fred', data=(0x1234,))
+        Message('$.Fred', data='1234', to=0L, from_=0L, in_reply_to=None, flags=0x00000001, id=None)
+        >>> req = Request('$.Fred', data='1234')
         >>> req
-        Request('$.Fred', data=(0x1234,), to=0L, from_=0L, flags=0x00000001, id=None)
+        Request('$.Fred', data='1234', to=0L, from_=0L, flags=0x00000001, id=None)
         >>> req == msg
         True
 
@@ -966,8 +1245,12 @@ class Request(Message):
 
     def __repr__(self):
         (id, in_reply_to, to, from_, flags, name, data) = self.extract()
+        if data is None:
+            data_repr = 'None'
+        else:
+            data_repr = repr(hexdata(data))
         args = [repr(name),
-                'data=%s'%_int_tuple_as_str(data),
+                'data=%s'%data_repr,
                 'to='+repr(to),
                 'from_='+repr(from_),
                 'flags=0x%08x'%flags,
@@ -989,16 +1272,16 @@ class Reply(Message):
 
         >>> direct = Reply('$.Fred', to=27, in_reply_to=MessageId(0, 132))
         >>> direct
-        Reply('$.Fred', data=(), to=27L, from_=0L, in_reply_to=MessageId(0, 132), flags=0x00000000, id=None)
+        Reply('$.Fred', data=None, to=27L, from_=0L, in_reply_to=MessageId(0, 132), flags=0x00000000, id=None)
         >>> reply = Reply(direct)
         >>> direct == reply
         True
 
     Since a Reply is a Message with its 'in_reply_to' set, this *must* be provided:
 
-        >>> msg = Message('$.Fred', data=(0x1234,), from_=27, to=99, id=MessageId(0, 132), flags=Message.WANT_A_REPLY)
+        >>> msg = Message('$.Fred', data='1234', from_=27, to=99, id=MessageId(0, 132), flags=Message.WANT_A_REPLY)
         >>> msg
-        Message('$.Fred', data=(0x1234,), to=99L, from_=27L, in_reply_to=None, flags=0x00000001, id=MessageId(0, 132))
+        Message('$.Fred', data='1234', to=99L, from_=27L, in_reply_to=None, flags=0x00000001, id=MessageId(0, 132))
         >>> reply = Reply(msg)
         Traceback (most recent call last):
         ...
@@ -1006,7 +1289,7 @@ class Reply(Message):
 
         >>> reply = Reply(msg, in_reply_to=MessageId(0, 5))
         >>> reply
-        Reply('$.Fred', data=(0x1234,), to=99L, from_=27L, in_reply_to=MessageId(0, 5), flags=0x00000001, id=MessageId(0, 132))
+        Reply('$.Fred', data='1234', to=99L, from_=27L, in_reply_to=MessageId(0, 5), flags=0x00000001, id=MessageId(0, 132))
 
     It's also possible to construct a Reply in most of the other ways a Message
     can be constructed. For instance:
@@ -1030,8 +1313,12 @@ class Reply(Message):
 
     def __repr__(self):
         (id, in_reply_to, to, from_, flags, name, data) = self.extract()
+        if data is None:
+            data_repr = 'None'
+        else:
+            data_repr = repr(hexdata(data))
         args = [repr(name),
-                'data=%s'%_int_tuple_as_str(data),
+                'data=%s'%data_repr,
                 'to='+repr(to),
                 'from_='+repr(from_),
                 'in_reply_to='+repr(in_reply_to),
@@ -1050,10 +1337,10 @@ class Status(Message):
 
         >>> msg = Message('$.KBUS.Dummy', from_=27, to=99, in_reply_to=MessageId(0, 132))
         >>> msg
-        Message('$.KBUS.Dummy', data=(), to=99L, from_=27L, in_reply_to=MessageId(0, 132), flags=0x00000000, id=None)
+        Message('$.KBUS.Dummy', data=None, to=99L, from_=27L, in_reply_to=MessageId(0, 132), flags=0x00000000, id=None)
         >>> status = Status(msg.to_string())
         >>> status
-        Status('$.KBUS.Dummy', data=(), to=99L, from_=27L, in_reply_to=MessageId(0, 132), flags=0x00000000, id=None)
+        Status('$.KBUS.Dummy', data=None, to=99L, from_=27L, in_reply_to=MessageId(0, 132), flags=0x00000000, id=None)
 
     Note that:
 
@@ -1069,8 +1356,12 @@ class Status(Message):
 
     def __repr__(self):
         (id, in_reply_to, to, from_, flags, name, data) = self.extract()
+        if data is None:
+            data_repr = 'None'
+        else:
+            data_repr = repr(hexdata(data))
         args = [repr(name),
-                'data=%s'%_int_tuple_as_str(data),
+                'data=%s'%data_repr,
                 'to='+repr(to),
                 'from_='+repr(from_),
                 'in_reply_to='+repr(in_reply_to),
@@ -1085,12 +1376,12 @@ def reply_to(original, data=None, flags=0):
 
     For instance:
 
-        >>> msg = Message('$.Fred', data=(0x1234,), from_=27, to=99, id=MessageId(0, 132), flags=Message.WANT_A_REPLY)
+        >>> msg = Message('$.Fred', data='1234', from_=27, to=99, id=MessageId(0, 132), flags=Message.WANT_A_REPLY)
         >>> msg
-        Message('$.Fred', data=(0x1234,), to=99L, from_=27L, in_reply_to=None, flags=0x00000001, id=MessageId(0, 132))
+        Message('$.Fred', data='1234', to=99L, from_=27L, in_reply_to=None, flags=0x00000001, id=MessageId(0, 132))
         >>> reply = reply_to(msg)
         >>> reply
-        Reply('$.Fred', data=(), to=27L, from_=0L, in_reply_to=MessageId(0, 132), flags=0x00000000, id=None)
+        Reply('$.Fred', data=None, to=27L, from_=0L, in_reply_to=MessageId(0, 132), flags=0x00000000, id=None)
 
     Note that:
 
@@ -1122,9 +1413,9 @@ def reply_to(original, data=None, flags=0):
     such as Message.ALL_OR_WAIT, for instance), and 'data', allowing reply data
     to be added:
 
-        >>> rep4 = reply_to(msg, flags=Message.ALL_OR_WAIT, data=(0x1234,))
+        >>> rep4 = reply_to(msg, flags=Message.ALL_OR_WAIT, data='1234')
         >>> rep4
-        Reply('$.Fred', data=(0x1234,), to=27L, from_=0L, in_reply_to=MessageId(0, 132), flags=0x00000100, id=None)
+        Reply('$.Fred', data='1234', to=27L, from_=0L, in_reply_to=MessageId(0, 132), flags=0x00000100, id=None)
     """
 
     if not isinstance(original, Message):

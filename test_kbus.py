@@ -52,6 +52,7 @@ import time
 import array
 import errno
 import select
+import ctypes
 import nose
 
 from kbus import KSock, Message, MessageId, Announcement, \
@@ -60,6 +61,7 @@ from kbus import read_bindings
 from kbus import _struct_to_string, _struct_from_string
 from kbus import _MessageHeaderStruct
 from kbus import entire_message_from_parts, entire_message_from_string
+from kbus import message_from_string
 
 NUM_DEVICES = 3
 
@@ -319,7 +321,7 @@ class TestKernelModule:
             assert f.read_data(1) == ''
 
             # We can't write to it, by any of the obvious means
-            msg2 = Message('$.Fred', (0xdada,))
+            msg2 = Message('$.Fred', 'dada')
             check_IOError(errno.EBADF, f.write_data, msg2.to_string())
             check_IOError(errno.EBADF, f.write_msg, msg2)
             check_IOError(errno.EBADF, f.send_msg, msg2)
@@ -340,18 +342,18 @@ class TestKernelModule:
             self._check_read(f, None)
 
             # We can send a message and read it back
-            msg1 = Message('$.B', (0xdada,))
+            msg1 = Message('$.B', 'dada')
             f.send_msg(msg1)
             self._check_read(f, msg1)
 
             # We can send a message and read it back, again
-            msg2 = Message('$.C', (0xfead,))
+            msg2 = Message('$.C', 'fead')
             f.send_msg(msg2)
             self._check_read(f, msg2)
 
             # If we try to send a message that nobody is listening for,
             # it just disappears into the void
-            msg3 = Message('$.D', (0xfead,))
+            msg3 = Message('$.D', 'fead')
             f.send_msg(msg3)
 
         finally:
@@ -371,18 +373,18 @@ class TestKernelModule:
             self._check_read(f, None)
 
             # We can send a message and read it back
-            msg1 = Announcement('$.B', (0xdada,))
+            msg1 = Announcement('$.B', 'dada')
             f.send_msg(msg1)
             self._check_read(f, msg1)
 
             # We can send a message and read it back, again
-            msg2 = Announcement('$.C', (0xfead,))
+            msg2 = Announcement('$.C', 'fead')
             f.send_msg(msg2)
             self._check_read(f, msg2)
 
             # If we try to send a message that nobody is listening for,
             # it just disappears into the void
-            msg3 = Announcement('$.D', (0xfead,))
+            msg3 = Announcement('$.D', 'fead')
             f.send_msg(msg3)
 
         finally:
@@ -408,12 +410,12 @@ class TestKernelModule:
                 self._check_read(f2, None)
 
                 # If we write, we can read appropriately
-                msg1 = Message('$.B', (0xdada,))
+                msg1 = Message('$.B', 'dada')
                 f1.send_msg(msg1)
                 self._check_read(f2, msg1)
                 self._check_read(f1, msg1)
 
-                msg2 = Message('$.C', (0xdada,))
+                msg2 = Message('$.C', 'dada')
                 f2.send_msg(msg2)
                 self._check_read(f1, msg2)
                 self._check_read(f2, msg2)
@@ -561,10 +563,10 @@ class TestKernelModule:
         try:
 
             name1 = '$.Fred.Jim'
-            data1 = array.array('L', 'datadata')
+            data1 = array.array('L', 'datadata').tostring()
 
             name2 = '$.Fred.Bob.William'
-            data2 = array.array('L', 'This is surely some data')
+            data2 = array.array('L', 'This is surely some data').tostring()
 
             # Bind so that we can write/read the first, but not the second
             f.bind(name1, False)
@@ -616,35 +618,37 @@ class TestKernelModule:
                 f2.send_msg(msgW)
 
                 # Writing to $.Fred on f1 - writes message id N
-                msgF = Message('$.Fred', (0xdada,))
+                msgF = Message('$.Fred', 'dada')
+                total_length = len(msgF.to_string())
+
                 n0 = f1.send_msg(msgF)
 
                 # Writing to $.Jim on f1 - writes message N+1
-                msgJ = Message('$.Jim', (0x1234, 0x5678))
+                msgJ = Message('$.Jim', '12345678')
                 n1 = f1.send_msg(msgJ)
                 assert n1 == n0+1
 
                 # Reading f1 - message N
                 length = f1.next_msg()
-                assert length == msgF.size
+                assert length == msgF.total_length()
                 data = f1.read_msg(length)
                 assert n0 == data.id
 
                 # Reading f2 - should be message N+1
                 length = f2.next_msg()
-                assert length == msgJ.size
+                assert length == msgJ.total_length()
                 data = f2.read_msg(length)
                 assert data.id == n0+1
 
                 # Reading f1 - should be message N again
                 length = f1.next_msg()
-                assert length == msgF.size
+                assert length == msgF.total_length()
                 data = f1.read_msg(length)
                 assert data.id == n0
 
                 # Reading f1 - should be message N again
                 length = f1.next_msg()
-                assert length == msgF.size
+                assert length == msgF.total_length()
                 data = f1.read_msg(length)
                 assert data.id == n0
 
@@ -716,7 +720,7 @@ class TestKernelModule:
         try:
             # I don't necessarily know how much data will be "too long",
             # but we can make a good guess as to a silly sort of length
-            m = Message('$.Fred', data=(1, 2)*1000)
+            m = Message('$.Fred', data='12345678'*1000)
             f.bind('$.Fred')
             check_IOError(errno.EMSGSIZE, f.send_msg, m)
         finally:
@@ -1295,7 +1299,7 @@ class TestKernelModule:
 
                 # Low level reading, using explicit next_msg() and byte reading
                 length = f1.next_msg()
-                assert length == m1.size
+                assert length == len(m1.to_string())
                 data = f1.read_data(length)
                 assert len(data) == length
                 msg = Message(data)
@@ -1307,7 +1311,7 @@ class TestKernelModule:
                 # level, as the file system will be doing larger reads under us
                 # and buffering stuff)
                 length = f1.next_msg()
-                assert length == m2.size
+                assert length == m2.total_length()
                 # So, when we haven't read anything, we've still got all of the
                 # message data left
                 assert f1.len_left() == length
@@ -1360,7 +1364,7 @@ class TestKernelModule:
             with RecordingKSock(0, 'r', self.bindings) as f1:
                 f1.bind('$.Fred')
 
-                m = Message('$.Fred', (0xdada,))
+                m = Message('$.Fred', 'dada')
 
                 # We can do it all in one go (the convenient way)
                 f0.send_msg(m)
@@ -1413,7 +1417,7 @@ class TestKernelModule:
                     f2.bind('$.Hello')
 
                     # f1 says 'Hello' to anyone listening
-                    m = Message('$.Hello', (0xdada,))
+                    m = Message('$.Hello', 'dada')
                     f1.send_msg(m)
 
                     # We read the next message - it's a 'Hello'
@@ -1429,7 +1433,7 @@ class TestKernelModule:
                     # doing so
                     target_id = r.from_
                     print 'Hello from %d'%target_id
-                    m2 = Request('$.Response', data=(0xfead,), to=target_id)
+                    m2 = Request('$.Response', data='fead', to=target_id)
                     f2.send_msg(m2)
 
                     # So, both recipients should "see" it
@@ -1456,7 +1460,7 @@ class TestKernelModule:
             f1_id = f1.ksock_id()
             f2_id = 0
 
-            m = Request('$.Fred', (0xdada,))
+            m = Request('$.Fred', 'dada')
             print m
 
             with KSock(0, 'rw') as f2:
@@ -1487,7 +1491,7 @@ class TestKernelModule:
             f1_id = f1.ksock_id()
             f2_id = 0
 
-            m = Request('$.Fred', (0xdada,))
+            m = Request('$.Fred', 'dada')
 
             with KSock(0, 'rw') as f2:
                 f2_id = f2.ksock_id()
@@ -1509,7 +1513,7 @@ class TestKernelModule:
             assert e.in_reply_to == m_id
             assert e.name == '$.KBUS.Replier.GoneAway'
             assert e.is_synthetic()
-            assert len(e.data) == 0
+            assert e.data is None
             assert f1.next_msg() == 0
 
     def test_request_with_replier_absconding_2(self):
@@ -1519,7 +1523,7 @@ class TestKernelModule:
             f1_id = f1.ksock_id()
             f2_id = 0
 
-            m = Request('$.Fred', (0xdada,))
+            m = Request('$.Fred', 'dada')
 
             with KSock(0, 'rw') as f2:
                 f2_id = f2.ksock_id()
@@ -1539,7 +1543,7 @@ class TestKernelModule:
             assert e.in_reply_to == m_id
             assert e.name == '$.KBUS.Replier.GoneAway'
             assert e.is_synthetic()
-            assert len(e.data) == 0
+            assert e.data is None
 
             assert f1.next_msg() == 0
 
@@ -1550,9 +1554,9 @@ class TestKernelModule:
             f1_id = f1.ksock_id()
             f2_id = 0
 
-            r1 = Request('$.Fred', (0xdada,))
+            r1 = Request('$.Fred', 'dada')
             r2 = Request('$.Fred', 'more')
-            m1 = Message('$.Fred', (0xdada,))
+            m1 = Message('$.Fred', 'dada')
             m2 = Message('$.Fred', 'more')
 
             with KSock(0, 'rw') as f2:
@@ -1578,7 +1582,7 @@ class TestKernelModule:
             assert e.in_reply_to == r1_id
             assert e.name == '$.KBUS.Replier.GoneAway'
             assert e.is_synthetic()
-            assert len(e.data) == 0
+            assert e.data is None
 
             e = f1.read_next_msg()
 
@@ -1587,18 +1591,18 @@ class TestKernelModule:
             assert e.in_reply_to == r2_id
             assert e.name == '$.KBUS.Replier.GoneAway'
             assert e.is_synthetic()
-            assert len(e.data) == 0
+            assert e.data is None
 
             assert f1.next_msg() == 0
 
     def test_request_with_replier_unbinding(self):
-        """Send a request, but the replier goes unbinds.
+        """Send a request, but the replier unbinds.
         """
         with KSock(0, 'rw') as f1:
             f1_id = f1.ksock_id()
             f2_id = 0
 
-            m = Request('$.Fred', (0xdada,))
+            m = Request('$.Fred', 'dada')
 
             with KSock(0, 'rw') as f2:
                 f2_id = f2.ksock_id()
@@ -1622,9 +1626,9 @@ class TestKernelModule:
                 assert e.in_reply_to == m_id
                 assert e.name == '$.KBUS.Replier.Unbound'
                 assert e.is_synthetic()
-                assert len(e.data) == 0
-                assert f1.next_msg() == 0
+                assert e.data is None
 
+                assert f1.next_msg() == 0
                 assert f2.next_msg() == 0
 
     def test_request_with_replier_unbinding_2(self):
@@ -1634,7 +1638,7 @@ class TestKernelModule:
             f1_id = f1.ksock_id()
             f2_id = 0
 
-            m = Request('$.Fred', (0xdada,))
+            m = Request('$.Fred', 'dada')
 
             with KSock(0, 'rw') as f2:
                 f2_id = f2.ksock_id()
@@ -1656,7 +1660,7 @@ class TestKernelModule:
                 assert e.in_reply_to == m_id
                 assert e.name == '$.KBUS.Replier.Unbound'
                 assert e.is_synthetic()
-                assert len(e.data) == 0
+                assert e.data is None
 
                 assert f1.next_msg() == 0
 
@@ -1673,11 +1677,11 @@ class TestKernelModule:
             f1_id = f1.ksock_id()
             f2_id = 0
 
-            r1 = Request('$.Fred', (0xdada,))
+            r1 = Request('$.Fred', 'dada')
             r2 = Request('$.Fred', 'more')
             r3 = Request('$.Jim', 'that')
 
-            m1 = Message('$.Fred', (0xdada,))
+            m1 = Message('$.Fred', 'dada')
             m2 = Message('$.Fred', 'more')
             m3 = Message('$.Jim', 'what')
 
@@ -1717,7 +1721,7 @@ class TestKernelModule:
                 assert e.in_reply_to == r1_id
                 assert e.name == '$.KBUS.Replier.Unbound'
                 assert e.is_synthetic()
-                assert len(e.data) == 0
+                assert e.data is None
 
                 e = f1.read_next_msg()
 
@@ -1726,7 +1730,7 @@ class TestKernelModule:
                 assert e.in_reply_to == r2_id
                 assert e.name == '$.KBUS.Replier.Unbound'
                 assert e.is_synthetic()
-                assert len(e.data) == 0
+                assert e.data is None
 
                 assert f1.next_msg() == 0
 
@@ -2123,7 +2127,7 @@ class TestKernelModule:
 
                 # Conversely
                 listener1.bind('$.Fred')
-                msg = Announcement('$.Fred', (0xdada,))
+                msg = Announcement('$.Fred', 'dada')
                 sender.send_msg(msg)
 
                 assert listener1.num_messages() == 1
@@ -2212,7 +2216,7 @@ class TestKernelModule:
 
                     listener1.bind('$.Fred')
                     listener2.bind('$.Fred')
-                    msg = Message('$.Fred', (0xdada,))
+                    msg = Message('$.Fred', 'dada')
                     msg_id = sender.send_msg(msg)
 
                     (r, w, x) = select.select(read_list, write_list, [], 0)
@@ -2298,6 +2302,8 @@ class TestKernelModule:
         """
         name = '$.Fred'
         data = '12345678'
+        name_ptr = ctypes.c_char_p(name)
+        data_ptr = ctypes.c_char_p(data)
         header = _MessageHeaderStruct(Message.START_GUARD,
                                       MessageId(0, 0),
                                       MessageId(0, 27),
@@ -2305,7 +2311,10 @@ class TestKernelModule:
                                       0,
                                       0,
                                       len(name),
-                                      len(data)/4)
+                                      len(data),
+                                      name_ptr,
+                                      data_ptr,
+                                      Message.END_GUARD)
         #print 'header', header
         assert header.start_guard == Message.START_GUARD
         assert header.id.network_id == 0
@@ -2316,7 +2325,7 @@ class TestKernelModule:
         assert header.from_ == 0
         assert header.flags == 0
         assert header.name_len == len(name)
-        assert header.data_len == len(data)/4
+        assert header.data_len == len(data)
 
         # and whilst we're at it
         strhdr = _struct_to_string(header)
@@ -2343,55 +2352,16 @@ class TestKernelModule:
         assert empty.name_len == 0
         assert empty.data_len == 0
 
-    def test_building_entire_message(self):
-        """Some more testing of building messages in odd ways.
-        """
-        name = '$.Fred'
-        data = (1234, 5678)
-        header = _MessageHeaderStruct(Message.START_GUARD,
-                                      MessageId(0, 0),
-                                      MessageId(0, 27),
-                                      32,
-                                      0,
-                                      0,
-                                      len(name),
-                                      len(data))
-        end_guard = array.array('L', [Message.END_GUARD]).tostring()
-        strhdr = _struct_to_string(header)
-        strdata = array.array('L', data).tostring()
-
-        fred = entire_message_from_string(strhdr + name+'  ' + strdata + end_guard)
-        assert fred.start_guard == Message.START_GUARD
-        assert fred.id.network_id == 0
-        assert fred.id.serial_num == 0
-        assert fred.in_reply_to.network_id == 0
-        assert fred.in_reply_to.serial_num == 27
-        assert fred.to == 32
-        assert fred.from_ == 0
-        assert fred.flags == 0
-        assert fred.name_len == len(name)
-        assert fred.data_len == len(data)
-        # Remember that fred.name may be longer than the *actual* name
-        assert fred.name[:fred.name_len] == '$.Fred'
-        assert fred.data[0] == 1234
-        assert fred.data[1] == 5678
-
     def test_odd_message_creation(self):
         """Test some of the more awkward ways of making messages.
         """
-        simple = Message('$.Jim.Bob', data=(1, 2, 3, 4, 5, 6), to=32,
+        simple = Message('$.Jim.Bob', data='123456', to=32,
                          in_reply_to=MessageId(0, 27))
         #print simple
         #print simple.msg
 
         latest = entire_message_from_parts((0, 0), (0, 27), 32, 0, 0, '$.Jim.Bob',
-                                           (1, 2, 3, 4, 5, 6))
-        #print latest
-        assert latest == simple.msg
-
-        # For added ickiness
-        latest = entire_message_from_parts((0, 0), (0, 27), 32, 0, 0, '$.Jim.Bob',
-                                           tuple(array.array('L', (1, 2, 3, 4, 5, 6)).tolist()))
+                                           '123456')
         #print latest
         assert latest == simple.msg
 
@@ -2399,36 +2369,27 @@ class TestKernelModule:
         """Tests comparing equality of two messages.
         """
         a = Message('$.Fred')
-        #print a
         b = Message('$.Fred')
-        #print b
-        assert a.msg.name == b.msg.name
-        #print a.msg.header
-        #print b.msg.header
-        assert a.msg.header == b.msg.header
 
-        #import kbus
-        #print kbus._int_tuple_as_str(a.msg.data)
-        #print kbus._int_tuple_as_str(b.msg.data)
-
-        # The 'data' field is a (ctypes) array of integers, and
-        # as such they don't compare with each other directly in
-        # any useful manner. So we know that doing::
-        #
-        #    assert a.msg.data == b.msg.data
-        #
-        # would fail (and not really tell us anything). However,
-        # the message datastructure itself knows how to compare
-        # its own innards, including said data field, so:
-        assert a.msg == b.msg
-        # And at the next level up, we can do the same thing:
         assert a == b
+        assert a.name == b.name
+        assert a.data == b.data
+
+        # Also, somewhat naughtily (do we *guarantee* the innards?)
+        assert a.msg == b.msg
+        assert a.msg.name == b.msg.name
+        assert a.msg.data == b.msg.data
 
         # And with some data
-        c = Message('$.JimBob', (0x1234, 0x56780000))
-        d = Message('$.JimBob', (0x1234, 0x56780000))
-        assert c.msg == d.msg
+        c = Message('$.JimBob', '123456780000')
+        d = Message('$.JimBob', '123456780000')
         assert c == d
+        assert c.name == d.name
+        assert c.data == d.data
+
+        assert c.msg == d.msg
+        assert c.msg.name == d.msg.name
+        assert c.msg.data == d.msg.data
 
         # And for completeness
         assert a == a
@@ -2437,38 +2398,133 @@ class TestKernelModule:
         assert not (c != d)
         assert a != c
 
-    def test_message_length(self):
-        """Test that message size is what we expect.
-
-        This checks that the underlying ctypes structure is the size we want.
-
-        - The header is 40 bytes (10*4).
-        - Message names get rounded up to the nearest 4 bytes, with no
-          0 terminator
-        - Message data is in units of 4 bytes
-        - The end guard is 4 bytes
-
-        ...so all messages are 44 bytes + message-name-rounded + data
+    def test_message_length_name(self):
+        """Test that message size is what we expect (name).
         """
-        # Minimal message length
-        assert Message('$.F').size == (44+4)
-        # Testing the rounding of message name
-        assert Message('$.Fr').size == (44+4)
-        assert Message('$.Fre').size == (44+8)
-        assert Message('$.Fred').size == (44+8)
-        assert Message('$.Fredd').size == (44+8)
-        assert Message('$.Freddy').size == (44+8)
-        assert Message('$.Freddys').size == (44+12)
+        basename = '$.Freddys'
+        # The first 3 incremental sizes are dummies...
+        #   name len: .  .  .  3  4  5  6  7   8   9
+        increments = (0, 0, 0, 4, 8, 8, 8, 8, 12, 12)
+
+        for length in range(3,len(basename)+1):
+            name = basename[:length]
+
+            print 'Name',name
+            m = Message(name)
+
+            # Because we constructed a "pointy" message, the message
+            # size is just the size of the header, without the name
+            assert ctypes.sizeof(m.msg) == 52
+
+            # But if we convert it to a string (which will be an
+            # "entire" message), then the length will include the
+            # message name, appropriately padded (as well as the
+            # extra end guard at the very end, of course)
+            s = m.to_string()
+            assert len(s) == 56 + increments[length]
+            assert len(s) == m.total_length()
+
+    def test_message_length_data(self):
+        """Test that message size is what we expect (data).
+        """
+        basedata = '123456789'
+        #   data len: 0  1  2  3  4  5  6  7   8   9
+        increments = (0, 4, 4, 4, 4, 8, 8, 8,  8, 12)
+
+        for length in range(len(basedata)+1):
+            data = basedata[:length]
+
+            print 'Data',data
+            m = Message('$.F',data=data)
+
+            # Because we constructed a "pointy" message, the message
+            # size is just the size of the header, without the name
+            assert ctypes.sizeof(m.msg) == 52
+
+            # But if we convert it to a string (which will be an "entire"
+            # message), then the length will include the message name,
+            # appropriately padded, the extra end guard at the very end,
+            # and the data itself, also padded
+            s = m.to_string()
+            assert len(s) == 56 + 4 + increments[length]
+            assert len(s) == m.total_length()
 
     def test_message_data_as_string(self):
-        """Test that message data can be retrieved as a string
+        """Test that message data can be retrieved (as a string)
         """
         def check_str(data):
             m = Message('$.Fred',data)
-            assert m.data_as_string() == data
+            assert m.data == data
 
         check_str('1234')
         check_str('12345678')
         check_str('abcdefghijklmnopqrstuvwx')
+
+
+
+    def test_new_message_implementation(self):
+        """Test 'new' (well, it was) "entire"/"pointy" Message implementation
+
+        I changed Message implementation to have "entire" and "pointy" messages.
+        The following were some tests that I used to check that this was working
+        - it seems sensible to retain them...
+        """
+        def _check_message(sender, listener, description, message):
+            sender.write_data(message)
+            sender.send()
+
+            length = listener.next_msg()
+            data = listener.read_data(length)
+
+            entire = entire_message_from_string(data)
+            assert message.equivalent(entire)
+
+            m = message_from_string(data)
+            assert message.equivalent(m)
+
+            return entire
+
+        with KSock(0,'rw') as sender:
+            with KSock(0,'rw') as listener:
+                listener.bind('$.Fred')
+
+                name = '$.Fred'
+                data = 'somedata'
+                name_ptr = ctypes.c_char_p(name)
+                data_ptr = ctypes.c_char_p(data)
+
+                # Without data
+                pointy1 = _MessageHeaderStruct(Message.START_GUARD,
+                                               MessageId(0,0),
+                                               MessageId(0,0),
+                                               0,
+                                               0,
+                                               0,
+                                               6,
+                                               0,
+                                               name_ptr,
+                                               None,
+                                               Message.END_GUARD)
+
+                entire1 = _check_message(sender, listener, 'Pointy, no data', pointy1)
+
+                # With data
+                pointy2 = _MessageHeaderStruct(Message.START_GUARD,
+                                               MessageId(0,0),
+                                               MessageId(0,0),
+                                               0,
+                                               0,
+                                               0,
+                                               6,
+                                               8,
+                                               name_ptr,
+                                               data_ptr,
+                                               Message.END_GUARD)
+
+                entire2 = _check_message(sender, listener, 'Pointy, with data', pointy2)
+
+                # The data back from the first two messages represent entire messages
+                entire3 = _check_message(sender, listener, 'Entire, no data', entire1)
+                entire4 = _check_message(sender, listener, 'Entire, with data', entire2)
 
 # vim: set tabstop=8 shiftwidth=4 expandtab:
