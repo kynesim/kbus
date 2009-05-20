@@ -262,6 +262,40 @@ removes questions about needing to free multiple returned datastructures (for
 instance, what to do if the user were to ask for the NEXTMSG, read a few
 bytes, and then DISCARD the rest).
 
+Limits
+~~~~~~
+Message names may not be shorter than 3 characters (since they must be at
+least "$." plus another character). An arbitrary limit is also placed on the
+maximum message length - this is currently 1000 characters, but may be
+reviewed in the future.
+
+Message data may, of course, be of zero length.
+
+When writing/sending a "pointy" message, any size of message data is allowed
+(although be aware that it will be copied into kernel space and then back into
+user space as part of sending the message).
+
+When writing an "entire" message, there is an absolute limit on how long the
+entire message may be, of 2000 bytes - this is to ensure that the entire
+message, when copied into kernel space, is less than a page.
+
+When reading a message, an "entire" message is always returned, but since this
+is constructed in user space from an (internal, kernel space) "pointy"
+messsage, there is no limit on its size (i.e., it can cope with any message
+that was legally sent).
+
+These restrictions do mean that it is not always possible to read a message
+from KBUS and then immediately write it back again. If you need to do this for
+very large messages, convert the "entire" message to a "pointy" message by
+inserting the appropriate pointers (into the datastructure itself) in the
+"name" and "data" fields - for instance (in C)::
+
+    msg->name = kbus_name_ptr(msg);
+    msg->data = kbus_data_ptr(msg);
+
+remembering that this will not work if ``msg`` changes memory location (and,
+particularly, if it changes address before SEND).
+
 Message flags
 -------------
 The WANT_A_REPLY bit is set by the sender to indicate that a
