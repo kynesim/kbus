@@ -712,17 +712,36 @@ class TestKernelModule:
         finally:
             assert f.close() is None
 
-    def test_data_too_long(self):
-        """Test for message name legality.
+    def test_name_too_long(self):
+        """Test for a message name being too long.
         """
-        f = RecordingKSock(0, 'rw', self.bindings)
+        f = KSock(0, 'rw')
         assert f != None
         try:
-            # I don't necessarily know how much data will be "too long",
-            # but we can make a good guess as to a silly sort of length
-            m = Message('$.Fred', data='12345678'*1000)
+            # There's a maximum length for a message name
+            name = '$.' + 'x'*1000
+            check_IOError(errno.ENAMETOOLONG, f.bind, name)
+            # (which is what we generate by default)
+            m = Message(name)
+            check_IOError(errno.ENAMETOOLONG, f.send_msg, m)
+        finally:
+            assert f.close() is None
+
+    def test_data_too_long(self):
+        """Test for a message being too long, or not.
+        """
+        f = KSock(0, 'rw')
+        assert f != None
+        try:
             f.bind('$.Fred')
-            check_IOError(errno.EMSGSIZE, f.send_msg, m)
+            # There's no limit on the size of a "pointy" message
+            # (which is what we generate by default)
+            m = Message('$.Fred', data='12345678'*1000)
+            f.send_msg(m)
+
+            # But there is a limit on the size of an "entire" message
+            d = m.to_string()
+            check_IOError(errno.EMSGSIZE, f.write_data, d)
         finally:
             assert f.close() is None
 

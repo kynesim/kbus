@@ -753,19 +753,6 @@ class Message(object):
     ALL_OR_WAIT         = _BIT(8)
     ALL_OR_FAIL         = _BIT(9)
 
-    # Header offsets (in case I change them again)
-    IDX_START_GUARD            = 0
-    IDX_ID_NETWORK_ID          = 1
-    IDX_ID_SERIAL_NUM          = 2
-    IDX_IN_REPLY_TO_NETWORK_ID = 3
-    IDX_IN_REPLY_TO_SERIAL_NUM = 4
-    IDX_TO                     = 5
-    IDX_FROM                   = 6
-    IDX_FLAGS                  = 7
-    IDX_NAME_LEN               = 8
-    IDX_DATA_LEN               = 9     # required to be the last fixed item
-    IDX_END_GUARD              = -1
-
     def __init__(self, arg, data=None, to=None, from_=None, in_reply_to=None, flags=None, id=None):
         """Initialise a Message.
 

@@ -91,10 +91,6 @@ struct kbus_message_binding {
 	char			 *name;		/* the message name */
 };
 
-/* XXX REVIEW THESE VALUES XXX */
-#define KBUS_MAX_NAME_LEN	1000	/* Maximum message name length (bytes) */
-#define KBUS_MAX_DATA_LEN	1000	/* Maximum message data length (bytes) */
-
 /*
  * For both keeping track of requests sent (to which we still want replies)
  * and replies read (to which we haven't yet sent a reply), we need some
@@ -318,6 +314,14 @@ struct kbus_message_queue_item {
 	struct kbus_message_header	*msg;
 };
 
+/*
+ * A reference counting wrapper for a pointer - used for a message's data
+ */
+struct kbus_ref_ptr {
+	void		*ptr;
+	int		 refcnt;
+};
+
 /* ========================================================================= */
 /* This is to allow *me* to see where the definitions end and code starts    */
 
@@ -327,6 +331,64 @@ static struct kbus_private_data *kbus_find_open_ksock(struct kbus_dev	*dev,
 
 static void kbus_discard(struct kbus_private_data	*priv);
 /* ========================================================================= */
+
+/*
+ * Wrap a pointer in a reference
+ *
+ * Note: if the 'ptr' is NULL, then this will *reutrn* NULL, so that we don't
+ * end up with reference counted NULL pointers.
+ */
+static struct kbus_ref_ptr *kbus_build_ref(void *ptr)
+{
+	struct kbus_ref_ptr *new = NULL;
+	
+	if (ptr == NULL)
+		return NULL;
+
+	new = kmalloc(sizeof(*new), GFP_KERNEL);
+	if (!new) return NULL;
+
+	new->ptr = ptr;
+	new->refcnt = 1;
+
+	printk(KERN_DEBUG "kbus:   <00 ref %p now %d>\n",new->ptr,new->refcnt);
+	return new;
+}
+
+/*
+ * Increment the reference count for our pointer.
+ *
+ * Returns the (same) reference, for convenience.
+ */
+static struct kbus_ref_ptr *kbus_reference(struct kbus_ref_ptr *ref)
+{
+	if (ref != NULL) {
+		ref->refcnt ++;
+		printk(KERN_DEBUG "kbus:   <UP ref %p now %d>\n",ref->ptr,ref->refcnt);
+	}
+	return ref;
+}
+
+/* Forget a reference to our pointer, and if no-one cares anymore, free it */
+static void kbus_dereference(struct kbus_ref_ptr *ref)
+{
+	if (ref == NULL)
+		return;
+
+	ref->refcnt --;
+
+	printk(KERN_DEBUG "kbus:   <DN ref %p now %d>\n",ref->ptr,ref->refcnt);
+
+	if (ref->refcnt == 0) {
+		if (ref->ptr == NULL) {
+			printk(KERN_ERR "kbus: Removing reference, but ptr already freed\n");
+		} else {
+			kfree(ref->ptr);
+			ref->ptr = NULL;
+		}
+		kfree(ref);
+	 }
+}
 
 /*
  * Return a stab at the next size for an array
@@ -656,17 +718,19 @@ static int kbus_check_message(struct kbus_message_header	*msg)
 		       " more than %u\n", msg->name_len, KBUS_MAX_NAME_LEN);
 		return -ENAMETOOLONG;
 	}
-	if (msg->data_len > KBUS_MAX_DATA_LEN) {
-		printk(KERN_ERR "kbus: message data length is %u,"
-		       " more than %u\n", msg->data_len, KBUS_MAX_DATA_LEN);
-		return -EMSGSIZE;
-	}
 
 	if (msg->name == NULL) {
+		uint32_t entire_size = KBUS_ENTIRE_MSG_LEN(msg->name_len,
+							   msg->data_len);
 		/* Inline message name and (if necessary) data */
 		if (msg->data != NULL) {
 			printk(KERN_ERR "kbus: Message name is inline, data is not\n");
 			return -EINVAL;
+		}
+		if (entire_size > KBUS_MAX_ENTIRE_LEN) {
+			printk(KERN_ERR "kbus: message length is %u,"
+			       " more than %u\n", entire_size, KBUS_MAX_ENTIRE_LEN);
+			return -EMSGSIZE;
 		}
 	} else {
 		if (msg->data == NULL && msg->data_len != 0) {
@@ -748,7 +812,8 @@ static void kbus_report_message(char				*kern_prefix,
  * Copy a message, doing whatever is deemed necessary.
  *
  * Copies the message header, and also copies the message name and any
- * data. Does *not* cope with an "entire" message.
+ * data. The message must be a 'pointy' message with reference counted
+ * data.
  */
 static struct kbus_message_header *
 	kbus_copy_message(struct kbus_message_header  *old_msg)
@@ -780,6 +845,9 @@ static struct kbus_message_header *
 	new_msg->name[new_msg->name_len] = 0;
 
 	if (new_msg->data_len) {
+		/* Take a new reference to the data */
+		new_msg->data = kbus_reference(old_msg->data);
+#if 0
 		new_msg->data = kmalloc(new_msg->data_len, GFP_KERNEL);
 		if (!new_msg->data) {
 			printk(KERN_ERR "kbus: Cannot kmalloc copy of message data\n");
@@ -794,6 +862,7 @@ static struct kbus_message_header *
 			kfree(new_msg);
 			return NULL;
 		}
+#endif
 	}
 	return new_msg;
 }
@@ -833,8 +902,10 @@ static struct kbus_entire_message *
 	/* We already know that will be zero terminated, after the memset */
 
 	if (old_msg->data_len) {
+		struct kbus_ref_ptr *ref = old_msg->data;
+
 		uint32_t data_idx = KBUS_ENTIRE_MSG_DATA_INDEX(old_msg->name_len);
-		if (!memcpy(&entire->rest[data_idx], old_msg->data, old_msg->data_len)) {
+		if (!memcpy(&entire->rest[data_idx], ref->ptr, old_msg->data_len)) {
 			printk(KERN_ERR "kbus: Cannot copy (entire) message's data\n");
 			return NULL;
 		}
@@ -849,7 +920,8 @@ static struct kbus_entire_message *
 /*
  * Free a message.
  * 
- * If 'deep', then also free the message name and any message data.
+ * If 'deep', then also free the message name and (dereference) any message
+ * data.
  */
 static void kbus_free_message(struct kbus_message_header *msg,
 			      int			  deep)
@@ -861,7 +933,10 @@ static void kbus_free_message(struct kbus_message_header *msg,
 		msg->name= NULL;
 
 		if (msg->data_len && msg->data) {
+			kbus_dereference(msg->data);
+#if 0
 			kfree(msg->data);
+#endif
 		}
 		msg->data_len = 0;
 		msg->data= NULL;
@@ -871,9 +946,6 @@ static void kbus_free_message(struct kbus_message_header *msg,
 
 /*
  * Copy the given message, and add it to the end of the queue.
- *
- * XXX At the moment, takes a copy of the message name and (if present) data.
- * XXX At some point in the future, we will hopefully optimise that...
  *
  * This is the *only* way of adding a message to a queue. It shall remain so.
  *
@@ -2305,19 +2377,14 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 	}
 
 	/*
-	 * XXX Note for the future
-	 * XXX ===================
-	 * XXX At the moment, messages are hard-limited to be fairly
-	 * XXX short (as MAX_DATA_LEN is only 1000). Ultimately we don't
-	 * XXX *want* a maximum data length, so this could be quite large.
-	 * XXX However, at the size of a page (4096?) things get awkward
-	 * XXX if we're using kmalloc.
+	 * When the user is writing a message to us, we insist that it
+	 * not be "too long". If the user wants to write a large amount
+	 * of data in the message, then they should use the "pointy" form,
+	 * which won't trigger this...
 	 */
-
-	/* XXX So, for the moment, honour a maximum message length */
-	if ( (count + priv->write_msg_len) >
-	     KBUS_ENTIRE_MSG_LEN(KBUS_MAX_NAME_LEN,KBUS_MAX_DATA_LEN) ) {
-		printk(KERN_ERR "kbus: Message appears to be too long\n");
+	if ( (count + priv->write_msg_len) > KBUS_MAX_ENTIRE_LEN) {
+		printk(KERN_ERR "kbus: Message appears to be too long (max %d)\n",
+			KBUS_MAX_ENTIRE_LEN);
 		kbus_empty_write_msg(priv);
 		retval = -EMSGSIZE;
 		goto done;
@@ -2648,6 +2715,82 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 }
 
 /*
+ * Make an incoming message "pointy", and in kernel space.
+ *
+ * If there is data, this *always* copies it, even if it was already in kernel
+ * space (because of being part of an "entire" message). This is guaranteed to
+ * be inefficient for long messages. So try not to do that.
+ *
+ * Note that after this, the internal message header uses a reference to the
+ * data, rather than a simple pointer.
+ */
+static int kbus_make_message_pointy(struct kbus_message_header   **original)
+{
+	struct kbus_message_header *msg = *original;
+	char  *new_name = NULL;
+	void  *new_data = NULL;
+	/*
+	 * NB: We know that if the message name pointer is NULL, then the
+	 *     data pointer must also be NULL (kbus_check_message() will have
+	 *     checked for this)
+	 */
+	if (msg->name == NULL) {
+		new_name = kmalloc(msg->name_len + 1, GFP_KERNEL);
+		if (!new_name) {
+			return -ENOMEM;
+		}
+		strncpy(new_name, kbus_name_ptr(msg), msg->name_len);
+		new_name[msg->name_len] = 0;
+
+		if (msg->data_len) {
+			new_data = kmalloc(msg->data_len, GFP_KERNEL);
+			if (!new_data) {
+				kfree(new_name);
+				return -ENOMEM;
+			}
+			memcpy(new_data, kbus_data_ptr(msg), msg->data_len);
+		}
+
+		/* I'd rather the header now *be* the right size */
+		msg = krealloc(msg, sizeof(struct kbus_message_header), GFP_KERNEL);
+		if (!msg) {
+			kfree(new_name);
+			kfree(new_data);
+			return -EFAULT;
+		}
+		printk(KERN_DEBUG "kbus:   'entire' message normalised\n");
+	} else {
+		new_name = kmalloc(msg->name_len + 1, GFP_KERNEL);
+		if (!new_name) {
+			return -ENOMEM;
+		}
+		if (copy_from_user(new_name, (void *)msg->name, msg->name_len+1)) {
+			kfree(new_name);
+			return -EFAULT;
+		}
+
+		if (msg->data) {
+			new_data = kmalloc(msg->data_len, GFP_KERNEL);
+			if (!new_data) {
+				kfree(new_name);
+				return -ENOMEM;
+			}
+			if (copy_from_user(new_data, (void *)msg->data, msg->data_len)) {
+				kfree(new_name);
+				kfree(new_data);
+				return -EFAULT;
+			}
+		}
+		printk(KERN_DEBUG "kbus:   'pointy' message normalised\n");
+	}
+	msg->name = new_name;
+	msg->data = kbus_build_ref(new_data);
+
+	*original = msg;
+	return 0;
+}
+
+/*
  * Return: negative for bad message, etc., 0 for "general success",
  * and 1 for "we happen to know it got added to the target KSock queues"
  */
@@ -2703,78 +2846,12 @@ static int kbus_send(struct kbus_private_data	*priv,
 	 *
 	 * Note that we *always* end up with a message header containing
 	 * pointers to (copies of) the name and (if given) data.
-	 *
-	 * NB: We know that if the message name pointer is NULL, then the
-	 *     data pointer must also be NULL (kbus_check_message() will have
-	 *     checked for this)
-	 *
-	 * XXX This is getting a bit long - at leisure, refactor to a function
 	 */
-	if (msg->name == NULL) {
-		void *new_data = NULL;
-		char *new_name = kmalloc(msg->name_len + 1, GFP_KERNEL);
-		if (!new_name) {
-			retval = -ENOMEM;
-			goto done;
-		}
-		strncpy(new_name, kbus_name_ptr(msg), msg->name_len);
-		new_name[msg->name_len] = 0;
-
-		if (msg->data_len) {
-			new_data = kmalloc(msg->data_len, GFP_KERNEL);
-			if (!new_data) {
-				kfree(new_name);
-				retval = -ENOMEM;
-				goto done;
-			}
-			memcpy(new_data, kbus_data_ptr(msg), msg->data_len);
-		}
-
-		/* I'd rather the thing now *be* the right size */
-		msg = krealloc(msg, sizeof(struct kbus_message_header), GFP_KERNEL);
-		if (!msg) {
-			kfree(new_name);
-			kfree(new_data);
-			retval = -EFAULT;
-			goto done;
-		}
-		msg->name = new_name;
-		msg->data = new_data;
-		pointers_are_local = true;
-		printk(KERN_DEBUG "kbus:   'entire' message normalised\n");
+        retval = kbus_make_message_pointy(&msg);
+	if (retval) {
+		goto done;
 	} else {
-		void *new_data = NULL;
-		char *new_name = kmalloc(msg->name_len + 1, GFP_KERNEL);
-		if (!new_name) {
-			retval = -ENOMEM;
-			goto done;
-		}
-		if (copy_from_user(new_name, (void *)msg->name, msg->name_len+1)) {
-			retval = -EFAULT;
-			kfree(new_name);
-			goto done;
-		}
-
-		if (msg->data) {
-			new_data = kmalloc(msg->data_len, GFP_KERNEL);
-			if (!new_data) {
-				kfree(new_name);
-				retval = -ENOMEM;
-				goto done;
-			}
-			if (copy_from_user(new_data, (void *)msg->data, msg->data_len)) {
-				kfree(new_name);
-				kfree(new_data);
-				retval = -EFAULT;
-				goto done;
-			}
-			msg->data = new_data;
-			pointers_are_local = true;
-		}
-		msg->name = new_name;
-		msg->data = new_data;
 		pointers_are_local = true;
-		printk(KERN_DEBUG "kbus:   message normalised\n");
 	}
 
 	/*
@@ -2887,7 +2964,7 @@ done:
 		if (pointers_are_local) {
 			kfree(msg->name);
 			if (msg->data)
-				kfree(msg->data);
+				kbus_dereference(msg->data);
 		}
 	}
 
