@@ -44,15 +44,16 @@ To get the doctests (for instance, in kbus.py's Message) as well, try::
 
 from __future__ import with_statement
 
-import sys
-import os
-import subprocess
-import fcntl
-import time
 import array
-import errno
-import select
 import ctypes
+import errno
+import fcntl
+import itertools
+import os
+import select
+import subprocess
+import sys
+import time
 import nose
 
 from kbus import KSock, Message, MessageId, Announcement, \
@@ -2545,5 +2546,112 @@ class TestKernelModule:
                 # The data back from the first two messages represent entire messages
                 entire3 = _check_message(sender, listener, 'Entire, no data', entire1)
                 entire4 = _check_message(sender, listener, 'Entire, with data', entire2)
+
+    # =========================================================================
+    # Large message (data) tests. These will take a while...
+
+    def test_many_large_messages(self):
+        """Test sending a variety of large messages
+        """
+        with KSock(0, 'rw') as sender:
+            with KSock(0, 'rw') as listener:
+
+                PAGE_SIZE = 4096
+                lengths = [PAGE_SIZE/2 - 1,
+                           PAGE_SIZE/2,
+                           PAGE_SIZE/2 + 1,
+                           PAGE_SIZE-1,
+                           PAGE_SIZE,
+                           PAGE_SIZE+1,
+                           2*PAGE_SIZE-1,
+                           2*PAGE_SIZE,
+                           2*PAGE_SIZE+1]
+
+                cycler = itertools.cycle(lengths)
+
+                listener.bind('$.Fred')
+
+                for ii in range(100):
+                    data = 'x'*cycler.next()
+
+                    msg = Announcement('$.Fred', data=data)
+                    sender.send_msg(msg)
+
+                    ann = listener.read_next_msg()
+                    assert msg.equivalent(ann)
+
+    def test_quite_large_message(self):
+        """Test sending quite a large message
+        """
+        with KSock(0, 'rw') as sender:
+            with KSock(0, 'rw') as listener:
+
+                listener.bind('$.Fred')
+
+                data = 'x' * (64*1024 + 27)
+
+                msg = Announcement('$.Fred', data=data)
+                sender.send_msg(msg)
+
+                ann = listener.read_next_msg()
+                assert msg.equivalent(ann)
+
+    def test_limit_on_entire_messages(self):
+        """Test how big an entire message may be.
+        """
+        with KSock(0, 'rw') as sender:
+            with KSock(0, 'rw') as listener:
+
+                listener.bind('$.Fred')
+
+                # The maximum size of an entire "entire" message is 2000 bytes
+                MAX_SIZE = 2000
+                max_data_len = MAX_SIZE - 64
+
+                data = 'x' * (max_data_len -1)
+                msg = Announcement('$.Fred', data=data)
+                msg_string = msg.to_string()
+                print 'Message length is',len(msg_string)
+                sender.write_data(msg_string)
+                sender.send()
+
+                ann = listener.read_next_msg()
+                assert msg.equivalent(ann)
+
+                data = 'x' * max_data_len
+                msg = Announcement('$.Fred', data=data)
+                msg_string = msg.to_string()
+                print 'Message length is',len(msg_string)
+                sender.write_data(msg_string)
+                sender.send()
+
+                ann = listener.read_next_msg()
+                assert msg.equivalent(ann)
+
+                data = 'x' * (max_data_len +1)
+                msg = Announcement('$.Fred', data=data)
+                msg_string = msg.to_string()
+                print 'Message length is',len(msg_string)
+                check_IOError(errno.EMSGSIZE, sender.write_data, msg_string)
+
+    def test_many_listeners_biggish_data(self):
+        """Test that queuing a largish message to many listeners doesn't crash
+
+        (reference counting should be used internally to stop there being many
+        copies)
+        """
+        with KSock(0, 'rw') as sender:
+            listeners = []
+            for ii in range(1000):
+                l = KSock(0, 'rw')
+                l.bind('$.Fred')
+                listeners.append(l)
+
+            a = Announcement('$.Fred', 'x'*4099)        # just over one page
+            a_id = sender.send_msg(a)
+
+            # Reading back would be slow, for so many, so just close them
+            for l in listeners:
+                l.close()
 
 # vim: set tabstop=8 shiftwidth=4 expandtab:
