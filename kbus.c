@@ -2934,6 +2934,129 @@ static uint32_t kbus_lenleft(struct kbus_private_data	*priv)
 }
 
 /*
+ * Does what it says on the box - take the user data and promote it to kernel
+ * space, as a reference counted quantity, possibly spread over multiple pages.
+ */
+static int kbus_wrap_data(struct kbus_private_data	 *priv,
+			  struct kbus_message_header	 *msg,
+			  int				  original_is_pointy,
+			  void				**new_data)
+{
+#define PART_LEN	PAGE_SIZE
+#define PAGE_THRESHOLD	(PAGE_SIZE >> 1)
+
+	int            num_parts = (msg->data_len + PART_LEN-1)/PART_LEN;
+
+	unsigned long *parts = NULL;
+	unsigned      *lengths = NULL;
+	int            as_pages;
+	int            ii;
+	unsigned long  data_ptr;
+
+	printk(KERN_DEBUG "kbus:   @@ part len %lu, threshold %lu, data_len %u -> num_parts %d\n",
+	       PART_LEN, PAGE_THRESHOLD, msg->data_len, num_parts);
+
+	parts = kmalloc(sizeof(*parts)*num_parts, GFP_KERNEL);
+	if (!parts)
+		return -ENOMEM;
+	lengths = kmalloc(sizeof(*lengths)*num_parts, GFP_KERNEL);
+	if (!parts) {
+		kfree(parts);
+		return -ENOMEM;
+	}
+
+	if (num_parts == 1 && msg->data_len < PAGE_THRESHOLD) {
+		/* A single part in "simple" memory */
+		as_pages = false;
+		parts[0] = (unsigned long)kmalloc(msg->data_len, GFP_KERNEL);
+		if (!parts[0]) {
+			kfree(lengths);
+			kfree(parts);
+			return -ENOMEM;
+		}
+	} else {
+		/*
+		 * One or more pages
+		 * We (deliberately) do not care if the last page has
+		 * much data in it or not...
+		 */
+		as_pages = true;
+		for (ii = 0; ii < num_parts; ii++) {
+			parts[ii] = __get_free_page(GFP_KERNEL);
+			if (!parts[ii]) {
+				int jj;
+				for (jj=0; jj<ii; jj++)
+					free_page(parts[jj]);
+				kfree(lengths);
+				kfree(parts);
+				return -ENOMEM;
+			}
+		}
+	}
+	printk(KERN_DEBUG "kbus:   @@ copying %s, original is %s\n",
+	       as_pages?"as pages":"with memcpy", original_is_pointy?"pointy":"entire");
+	if (original_is_pointy) {
+		data_ptr = (unsigned long) msg->data;
+		for (ii=0; ii<num_parts; ii++) {
+			unsigned len;
+			if (ii == num_parts-1)
+				len = msg->data_len - (num_parts-1)*PART_LEN;
+			else
+				len = PART_LEN;
+			printk(KERN_DEBUG "kbus:   @@ %d: copy %d bytes from user address %lu\n",
+			       ii, len, parts[ii]);
+			if (copy_from_user((void *)parts[ii],
+					   (void *)data_ptr, len)) {
+				int jj;
+				if (as_pages)
+					for (jj=0; jj<num_parts; jj++)
+						free_page(parts[jj]);
+				else
+					kfree((void *)parts[0]);
+				kfree(lengths);
+				kfree(parts);
+				return -EFAULT;
+			}
+			lengths[ii] = len;
+			data_ptr += PART_LEN;
+		}
+	} else {
+		/*
+		 * For an "entire" message, the user is not allowed
+		 * a very large amount of data - definitely less than
+		 * a page - so this can be simple.
+		 */
+		data_ptr = (unsigned long) kbus_data_ptr(msg);
+		for (ii=0; ii<num_parts; ii++) {
+			unsigned len;
+			if (ii == num_parts-1)
+				len = msg->data_len - (num_parts-1)*PART_LEN;
+			else
+				len = PART_LEN;
+			printk(KERN_DEBUG "kbus:   @@ %d: copy %d bytes from kernel address %lu\n",
+			       ii, len, parts[ii]);
+			memcpy((void *)parts[ii], (void *)data_ptr, len);
+			lengths[ii] = len;
+			data_ptr += PART_LEN;
+		}
+	}
+	/* Wrap the result up in a reference */
+	*new_data = kbus_new_data_ref(priv,as_pages,num_parts,parts,lengths);
+	if (!*new_data) {
+		int jj;
+		if (as_pages)
+			for (jj=0; jj<num_parts; jj++)
+				free_page(parts[jj]);
+		else
+			kfree((void *)parts[0]);
+		kfree(lengths);
+		kfree(parts);
+		return -EFAULT;
+	}
+	return 0;
+}
+
+/*
  * Make an incoming message "pointy", and in kernel space.
  *
  * If there is data, this *always* copies it, even if it was already in kernel
@@ -3006,125 +3129,10 @@ static int kbus_make_message_pointy(struct kbus_private_data	  *priv,
 	 */
 
 	if (msg->data_len) {
-#define PART_LEN	PAGE_SIZE
-#define PAGE_THRESHOLD	(PAGE_SIZE >> 1)
-		int            num_parts = (msg->data_len + PART_LEN-1)/PART_LEN;
-		unsigned long *parts = NULL;
-		unsigned      *lengths = NULL;
-		int            as_pages;
-		int            ii;
-		unsigned long  data_ptr;
-
-		printk(KERN_DEBUG "kbus:   @@ part len %lu, threshold %lu, data_len %u -> num_parts %d\n",
-		       PART_LEN, PAGE_THRESHOLD, msg->data_len, num_parts);
-
-		parts = kmalloc(sizeof(*parts)*num_parts, GFP_KERNEL);
-		if (!parts) {
+		int retval = kbus_wrap_data(priv, msg, original_is_pointy, &new_data);
+		if (retval) {
 			kfree(new_name);
-			return -ENOMEM;
-		}
-		lengths = kmalloc(sizeof(*lengths)*num_parts, GFP_KERNEL);
-		if (!parts) {
-			kfree(new_name);
-			kfree(parts);
-			return -ENOMEM;
-		}
-
-		if (num_parts == 1 && msg->data_len < PAGE_THRESHOLD) {
-			/* A single part in "simple" memory */
-			as_pages = false;
-			parts[0] = (unsigned long)kmalloc(msg->data_len, GFP_KERNEL);
-			if (!parts[0]) {
-				kfree(new_name);
-				kfree(lengths);
-				kfree(parts);
-				return -ENOMEM;
-			}
-		} else {
-			/*
-			 * One or more pages
-			 * We (deliberately) do not care if the last page has
-			 * much data in it or not...
-			 */
-			as_pages = true;
-			for (ii = 0; ii < num_parts; ii++) {
-				parts[ii] = __get_free_page(GFP_KERNEL);
-				if (!parts[ii]) {
-					int jj;
-					for (jj=0; jj<ii; jj++)
-						free_page(parts[jj]);
-					kfree(new_name);
-					kfree(lengths);
-					kfree(parts);
-					return -ENOMEM;
-				}
-			}
-		}
-		printk(KERN_DEBUG "kbus:   @@ copying %s, original is %s\n",
-		       as_pages?"as pages":"with memcpy", original_is_pointy?"pointy":"entire");
-		if (original_is_pointy) {
-			data_ptr = (unsigned long) msg->data;
-			for (ii=0; ii<num_parts; ii++) {
-				unsigned len;
-				if (ii == num_parts-1)
-					len = msg->data_len - (num_parts-1)*PART_LEN;
-				else
-					len = PART_LEN;
-				printk(KERN_DEBUG "kbus:   @@ %d: copy %d bytes from user address %lu\n",
-		       ii, len, parts[ii]);
-				if (copy_from_user((void *)parts[ii],
-						   (void *)data_ptr, len)) {
-					int jj;
-					if (as_pages)
-						for (jj=0; jj<num_parts; jj++)
-							free_page(parts[jj]);
-					else
-						kfree((void *)parts[0]);
-					kfree(new_name);
-					kfree(lengths);
-					kfree(parts);
-					return -EFAULT;
-				}
-				lengths[ii] = len;
-				data_ptr += PART_LEN;
-			}
-		} else {
-			/*
-			 * For an "entire" message, the user is not allowed
-			 * a very large amount of data - definitely less than
-			 * a page - so this can be simple.
-			 */
-			data_ptr = (unsigned long) kbus_data_ptr(msg);
-			for (ii=0; ii<num_parts; ii++) {
-				unsigned len;
-				if (ii == num_parts-1)
-					len = msg->data_len - (num_parts-1)*PART_LEN;
-				else
-					len = PART_LEN;
-				printk(KERN_DEBUG "kbus:   @@ %d: copy %d bytes from kernel address %lu\n",
-		       ii, len, parts[ii]);
-				memcpy((void *)parts[ii], (void *)data_ptr, len);
-				lengths[ii] = len;
-				data_ptr += PART_LEN;
-			}
-		}
-		/*
-		 * Wrap the result up in a reference
-		 * XXX This function (below) should really do all of the
-		 * XXX above...
-		 */
-		new_data = kbus_new_data_ref(priv,as_pages,num_parts,parts,lengths);
-		if (!new_data) {
-			int jj;
-			if (as_pages)
-				for (jj=0; jj<num_parts; jj++)
-					free_page(parts[jj]);
-			else
-				kfree((void *)parts[0]);
-			kfree(new_name);
-			kfree(lengths);
-			kfree(parts);
-			return -EFAULT;
+			return retval;
 		}
 	}
 
