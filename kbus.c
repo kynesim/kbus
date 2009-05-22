@@ -133,13 +133,13 @@ struct kbus_unreplied_item {
  * 4. padding to bring that up to a 4-byte boundary
  * 5. the final end guard
  */
-#define KBUS_NUM_PARTS	6
 #define KBUS_PART_HDR	0
 #define KBUS_PART_NAME	1
 #define KBUS_PART_NPAD	2
 #define KBUS_PART_DATA	3
 #define KBUS_PART_DPAD	4
 #define KBUS_PART_END	5
+#define KBUS_MIN_NUM_PARTS	6
 
 /* We can't need more than 8 characters of padding, by definition! */
 static char		*static_zero_padding = "\0\0\0\0\0\0\0\0";
@@ -164,13 +164,13 @@ static uint32_t		 static_end_guard = KBUS_MSG_END_GUARD;
  * .. [1] Strangely enough, in kbus_write().
  */
 struct kbus_read_msg {
-	struct kbus_message_header	*hdr;
-	struct kbus_ref_ptr		*data;
-	int				 num_parts;
-	char				*from[KBUS_NUM_PARTS];
-	uint32_t			 len[KBUS_NUM_PARTS];
-	int				 which;	/* The current item */
-	uint32_t			 pos;	/* How far they've read in it */
+	struct kbus_message_header	 *hdr;
+	struct kbus_ref_ptr		 *data;
+	int				  num_parts;
+	char				**from;	/* ARRAY */
+	unsigned			 *len;	/* ARRAY */
+	int				  which;/* The current item */
+	uint32_t			  pos;	/* How far they've read in it */
 };
 
 /*
@@ -931,6 +931,44 @@ static void kbus_free_message(struct kbus_private_data	 *priv,
 	kfree(msg);
 }
 
+/* Make space to store the message being read by the user */
+static int kbus_alloc_read_msg(struct kbus_private_data *priv,
+			       int			 num_parts)
+{
+	int ii;
+
+	priv->read.from = kmalloc(sizeof(*(priv->read.from))*num_parts,
+				  GFP_KERNEL);
+	if (!priv->read.from) {
+		return -ENOMEM;
+	}
+	priv->read.len = kmalloc(sizeof(*(priv->read.len))*num_parts,
+				 GFP_KERNEL);
+	if (!priv->read.len) {
+		kfree(priv->read.from);
+		priv->read.from = NULL;
+		return -ENOMEM;
+	}
+	for (ii=0; ii<num_parts; ii++) {
+		priv->read.from[ii] = NULL;
+		priv->read.len[ii] = 0;
+	}
+	priv->read.num_parts = num_parts;
+	return 0;
+}
+
+static void kbus_free_read_msg(struct kbus_private_data *priv)
+{
+	if (priv->read.from) {
+		kfree(priv->read.from);
+		priv->read.from = NULL;
+	}
+	if (priv->read.len) {
+		kfree(priv->read.len);
+		priv->read.len = NULL;
+	}
+}
+
 static void kbus_empty_read_msg(struct kbus_private_data *priv)
 {
 	int  ii;
@@ -949,7 +987,7 @@ static void kbus_empty_read_msg(struct kbus_private_data *priv)
 		priv->read.data = NULL;
 	}
 
-	for (ii=0; ii<KBUS_NUM_PARTS; ii++) {
+	for (ii=0; ii<priv->read.num_parts; ii++) {
 		priv->read.from[ii] = NULL;
 		priv->read.len[ii] = 0;
 	}
@@ -1979,7 +2017,14 @@ static int kbus_open(struct inode *inode, struct file *filp)
 	priv->num_replies_unsent = 0;
 	priv->max_replies_unsent = 0;
 
+	if (kbus_alloc_read_msg(priv, KBUS_MIN_NUM_PARTS))
+	{
+		kfree(priv);
+		return -ENOMEM;
+	}
+
 	if (kbus_init_msg_id_memory(priv)) {
+		kbus_free_read_msg(priv);
 		kfree(priv);
 		return -EFAULT;
 	}
@@ -2016,6 +2061,7 @@ static int kbus_release(struct inode *inode, struct file *filp)
 		return -ERESTARTSYS;
 
 	kbus_empty_read_msg(priv);
+	kbus_free_read_msg(priv);
 	kbus_empty_write_msg(priv);
 
 	kbus_empty_msg_id_memory(priv);
@@ -2473,7 +2519,7 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 	 * padding, final end guard), until we're read 'count' characters, or
 	 * run off the end of the message.
 	 */
-	while (which < KBUS_NUM_PARTS && count > 0) {
+	while (which < priv->read.num_parts && count > 0) {
 		if (priv->read.len[which]) {
 			left = priv->read.len[which] - priv->read.pos;
 			len = min(left,count);
@@ -2511,7 +2557,7 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 		}
 	}
 
-	if (which < KBUS_NUM_PARTS) {
+	if (which < priv->read.num_parts) {
 		printk(KERN_DEBUG "kbus:   Read %d bytes, now in part %d, read %d of %d\n",
 		       retval,which,priv->read.pos,priv->read.len[which]);
 	} else {
@@ -2702,6 +2748,12 @@ done:
 	return retval;
 }
 
+/*
+ * Make the next message ready for reading by the user.
+ *
+ * Returns 0 if there is no next message, 1 if there is, and a negative value
+ * if there's an error.
+ */
 static int kbus_nextmsg(struct kbus_private_data	*priv,
 			struct kbus_dev			*dev,
 			unsigned long			 arg)
@@ -2752,6 +2804,8 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 	priv->read.len[KBUS_PART_DPAD] = KBUS_PADDED_DATA_LEN(msg->data_len) - msg->data_len;
 	priv->read.len[KBUS_PART_END]  = 4;
 
+	/* XXX */ priv->read.num_parts = KBUS_MIN_NUM_PARTS;
+
 	/* And we'll be starting by writing out the first thing first */
 	priv->read.which = 0;
 	priv->read.pos = 0;
@@ -2798,7 +2852,7 @@ static uint32_t kbus_lenleft(struct kbus_private_data	*priv)
 			sofar += priv->read.len[ii];
 		}
 		/* Plus what we're read of the last one */
-		if (priv->read.which < KBUS_NUM_PARTS)
+		if (priv->read.which < priv->read.num_parts)
 			sofar += priv->read.pos;
 		return total - sofar;
 	} else {
