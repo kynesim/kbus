@@ -273,7 +273,7 @@ Message data may, of course, be of zero length.
 
 When writing/sending a "pointy" message, any size of message data is allowed
 (although be aware that it will be copied into kernel space and then back into
-user space as part of sending the message).
+user space as part of sending the message, and this can be slow).
 
 When writing an "entire" message, there is an absolute limit on how long the
 entire message may be, of 2000 bytes - this is to ensure that the entire
