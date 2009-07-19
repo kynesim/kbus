@@ -37,6 +37,7 @@
  */
 
 #include <stdio.h>
+#include <sys/poll.h>
 #include "kbus.h"
 
 #define DEBUG 0
@@ -56,7 +57,7 @@ int kbus_ksock_close(ksock ks)
 
 int kbus_ksock_bind(ksock ks, const char *name) 
 {
-  struct  kbus_bind_request kbs;
+ struct  kbus_bind_request kbs;
   int rv;
 
   memset(&kbs, 0, sizeof(kbs));
@@ -75,6 +76,31 @@ int kbus_ksock_id(ksock ks, uint32_t *ksock_id)
   rv = ioctl(ks, KBUS_IOC_KSOCKID, ksock_id);
 
   return rv;
+}
+
+int kbus_wait_for_message(ksock ks, int wait_for)
+{
+  struct pollfd fds[1];
+  int rv;
+
+  fds[0].fd = (int)ks;
+  fds[0].events = ((wait_for & KBUS_KSOCK_READABLE) ? POLLIN : 0) | 
+    ((wait_for & KBUS_KSOCK_WRITABLE) ? POLLOUT : 0);
+  fds[0].revents =0;
+  rv = poll(fds, 1, -1);
+  if (rv < 0)
+    {
+      return rv;
+    }
+  else if (rv == 0)
+    {
+      return 0;
+    }
+  else 
+    {
+      return ((fds[0].revents & POLLIN) ? KBUS_KSOCK_READABLE : 0) |
+	((fds[0].revents & POLLOUT) ? KBUS_KSOCK_WRITABLE : 0);
+    }
 }
 
 int kbus_ksock_next_msg(ksock ks, uint32_t *len) 
@@ -103,29 +129,30 @@ int kbus_ksock_read_msg(ksock ks, struct kbus_message_header **kms,
                         size_t len) 
 {
   int rv = 0;
-  int br = 0;
+  int br = 0, nr_read = 0;
   char *buf = malloc(len);
 
   if (!buf)
     goto fail;
 
   while (len > 0) {
-    rv = read(ks, buf + br, len);
+    nr_read = read(ks, buf + br, len);
 #if DEBUG
     printf("attemping to read %d bytes...", len);
-    printf("read %d bytes\n", rv);    
+    printf("read %d bytes\n", nr_read);    
 #endif
 
-    if (rv > 0) {
-      len -= rv;
-      br += rv; 
-    }
-
-    if (rv < 0 && errno != EAGAIN) 
-      goto fail;
-      
-    if (rv == 0)
+    if (nr_read > 0) {
+      len -= nr_read;
+      br += nr_read; 
+    } else if (nr_read < 0) {
+      if (errno != EAGAIN && errno != EINTR) {
+	goto fail;
+      }
+    } else {
+      // nr_read == 0
       break;
+    }
   }
 
 
@@ -134,7 +161,7 @@ int kbus_ksock_read_msg(ksock ks, struct kbus_message_header **kms,
 
   if (check_message_sanity(*kms)) {
 
-#if DEGUG
+#if DEBUG
     printf("Read a non valid message\n");
 #endif
 
@@ -146,9 +173,7 @@ int kbus_ksock_read_msg(ksock ks, struct kbus_message_header **kms,
   return rv;
 
  fail:
-  if (buf)
-    free(buf);
-
+  if (buf) { free(buf); }
   *kms = NULL;
 
   return -1;
@@ -163,13 +188,16 @@ int kbus_ksock_read_next_msg(ksock ks, struct kbus_message_header **kms)
   if (rv < 0) 
     return rv;
 
-  if (m_stat > 0) {
+  if (rv && m_stat > 0) {
     rv = kbus_ksock_read_msg(ks, kms, m_stat);
 
 #if DEBUG
     kbus_msg_dump(*kms,1);
 #endif
+  } else {
+    (*kms) = NULL;
   }
+    
 
   return rv;
 }
@@ -266,17 +294,21 @@ int kbus_msg_create(struct kbus_message_header **kms,
   return -1;
 }
 
-void kbus_msg_destroy(struct kbus_message_header *kms) {
+void kbus_msg_dispose(struct kbus_message_header **kms_p) {
+  if (!kms_p || !*kms_p) { return; }
+
+  struct kbus_message_header *kms = (struct kbus_message_header *)(*kms_p);
+
   /* We allocated enough space all in one go so just free */
   free(kms);
-
+  (*kms_p) = NULL;
+  
   return;
 }
 
 void kbus_msg_dump(const struct kbus_message_header *kms, int dump_data) 
 {
   int i;
-  int j;
 
   printf("Dumping message: %p\n", kms);
 
@@ -303,8 +335,8 @@ void kbus_msg_dump(const struct kbus_message_header *kms, int dump_data)
   uint32_t *data_ptr = kbus_data_ptr((struct kbus_message_header *)kms);
 
   for (i = 0; i < kms->name_len; i ++) {
-    if (name_ptr[j] > ' ' && name_ptr[j] < '~')
-      printf("%c", name_ptr[j]);
+    if (name_ptr[i] > ' ' && name_ptr[i] < '~')
+      printf("%c", name_ptr[i]);
     else 
       printf(".");
   }
@@ -312,16 +344,19 @@ void kbus_msg_dump(const struct kbus_message_header *kms, int dump_data)
 
   printf("\n\tDumping data:\n\t");
 
-  int data_limit = (kms->data_len / 4);
+  printf("\n\tAs uint32_t .. \n\t");
+  int data_limit = ((kms->data_len) / 4);
   for (i = 0; i < data_limit; i ++) {
-    printf("%08x ",data_ptr[i]);
+    printf("%02x ",data_ptr[i]);
   }
   printf("\n\t");
 
+  printf("\n\tAs text .. \n\t");
+
   char *data_cptr = (char *)data_ptr;
   for (i = 0; i < kms->data_len; i ++) {
-    if (data_cptr[j] > ' ' && data_cptr[j] < '~')
-      printf("%c", data_cptr[j]);
+    if (data_cptr[i] >= ' ' && data_cptr[i] <= '~')
+      printf("%c", data_cptr[i]);
     else 
       printf(".");
   }
@@ -330,4 +365,4 @@ void kbus_msg_dump(const struct kbus_message_header *kms, int dump_data)
 }
 
 
-
+/* End File */

@@ -32,6 +32,7 @@ WARNING_FLAGS=-Wall -Werror
 DEBUG_FLAGS=
 LD_LIB_FLAGS=-shared
 INCLUDE_FLAGS=-I ..
+CFLAGS=-fPIC -g
 
 OBJS=libkbus.o
 DEPS=kbus.h
@@ -41,8 +42,8 @@ SONAME=libkbus.so
 
 all: $(SONAME)
 
-libkbus.o: $(DEPS)
-	$(CC) $(INCLUDE_FLAGS) $(WARNING_FLAGS) -fPIC -c libkbus.c
+libkbus.o: $(DEPS) libkbus.c
+	$(CC) $(INCLUDE_FLAGS) $(CFLAGS) $(WARNING_FLAGS) -c libkbus.c
 
 
 $(SONAME): $(OBJS)
