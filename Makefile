@@ -28,6 +28,19 @@
 
 LIBKBUSDIR=libkbus
 
+
+
+# If set to 1, we become extremely verbose. If set to 0, we don't.
+#
+# Whilst our debugging messages are output as KERN_DEBUG, this can
+# still be a pain if other modules want to use KERN_DEBUG
+#
+ifeq ($(VERBOSE_DEBUG),)
+EXTRA_CFLAGS=-DVERBOSE_DEBUG=0
+else
+EXTRA_CFLAGS=-DVERBOSE_DEBUG=$(VERBOSE_DEBUG)
+endif
+
 ifneq ($(KERNELRELEASE),)
 	# We are being invoked from inside a kernel build
 	# so can just ask it to build us
