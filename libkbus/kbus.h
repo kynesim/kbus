@@ -88,7 +88,7 @@ int   kbus_ksock_close          (ksock ks);
  * @param name IN  Name to bind to. This can go away once the call returns.
  * @return 0 on success,  < 0 setting errno on failure.
  */
-int   kbus_ksock_bind           (ksock ks, const char *name);
+int   kbus_ksock_bind           (ksock ks, const char *name, uint32_t replier);
 
 /** Return a number describing this ksock endpoint uniquely for this
  *  (local) kbus instance; can be used to decide if two distinct fds
@@ -110,7 +110,7 @@ int   kbus_ksock_id             (ksock ks, uint32_t *ksock_id);
  * @return An OR of KBUS_KSOCK_READABLE and KBUS_KSOCK_WRITABLE , < 0 on
  *   failure and set errno
  */
-int kbus_wait_for_message(ksock ks, int wait_for);
+int kbus_wait_for_message       (ksock ks, int wait_for);
 
 /** Move on to the next message waiting on this ksock, returning its
  *  length.
@@ -185,8 +185,10 @@ int   kbus_ksock_send           (ksock ks, struct kbus_msg_id *msg_id);
 
 /* Message Functions*/
 
-/** Create a message. We take copies of your name and data, so 
- *  you can delete the passed memory once this function returns.
+/** Create a message. We do not take copies of your name and data, until
+ *  the message is sent so you may not delete the passed memory until
+ *  a successful call to kbus_ksock_send_msg is made. (See 'pointy' 
+ *  message in the kbus documentation for more info.)
  *
  * @param[out] kms  on success, points to the created message.
  * @param[in]  name Pointer to the name the message should have.
@@ -196,27 +198,69 @@ int   kbus_ksock_send           (ksock ks, struct kbus_msg_id *msg_id);
  * @param[in]  flags  KBUS_BIT_XXX
  * @return 0 on success, < 0 and set errno on failure.
  */
-int kbus_msg_create(struct kbus_message_header **kms, 
-		    const char *name, uint32_t name_len, /* bytes */
-		    const void *data, uint32_t data_len, /* bytes */
-		    uint32_t flags);
+int kbus_msg_create            (struct kbus_message_header **kms, 
+		                const char *name, uint32_t name_len, /* bytes */
+                                const void *data, uint32_t data_len, /* bytes */
+		                uint32_t flags);
+
+/** Create a reply to a kbus message.  Behaves like kbus_msg_create 
+ *  but the name if taken from the in_reply_to and the field are set
+ *  correctly for a reply. We do not take copies of your name and data, 
+ *  until the message is sent so you may not delete the passed memory 
+ *  until a successful call to kbus_ksock_send_msg is made. (See 'pointy' 
+ *  message in the kbus documentation for more info.)
+ *
+ * @param[out] kms  on success, points to the created message.
+ * @param[in]  name Pointer to the name the message should have.
+ * @param[in]  name_len  Length of the message name.
+ * @param[in]  data Pointer to some data for the message.
+ * @param[in]  data_len  Length of the required message data.
+ * @param[in]  flags  KBUS_BIT_XXX
+ * @return 0 on success, < 0 and set errno on failure.
+ */
+int kbus_msg_create_reply      (struct kbus_message_header **kms, 
+			        struct kbus_message_header *in_reply_to,
+	                        const void *data, uint32_t data_len,/* bytes */
+			        uint32_t flags);
+
+/** Get a pointer to the message name in the kbus message.  The data is not
+ *  copied so the pointer returned points into the middle of the data in kms.
+ *
+ * @param[in]  kms Pointer to a kbus message.
+ * @param[out] name Points to the messsage name
+ */
+int kbus_msg_get_name          (const struct kbus_message_header *kms, 
+				char **name);
+
+/** Get a pointer to the message data in the kbus message.  The data is not
+ *  copied so the pointer returned points into the middle of the data in kms.
+ *
+ * @param[in]  kms Pointer to a kbus message.
+ * @param[out] name Points to the messsage name
+ */
+int kbus_msg_get_data_ptr      (const struct kbus_message_header *kms, 
+				char **data);
+
 
 /** Dispose of a message, releasing all associated memory.
  *
  * @param[inout] kms_p  Pointer to the message header to destroy.
  */
-void kbus_msg_dispose(struct kbus_message_header **kms_p);
+void kbus_msg_dispose          (struct kbus_message_header **kms_p);
 
 /**  Dump a message to stdout.
  *
  * @param[in] kms  KBus message to dump
  * @param[in] dump_data Dump the data too?
  */
-void   kbus_msg_dump(const struct kbus_message_header *kms, int dump_data);
+void kbus_msg_dump             (const struct kbus_message_header *kms, 
+				int dump_data);
+
 
 /** Compare two kbus message ids and return < 0 if a < b, 0 if a==b, 1 if a > b
   */
-static inline int kbus_id_cmp(const struct kbus_msg_id *a, const struct kbus_msg_id *b)
+static inline int kbus_id_cmp  (const struct kbus_msg_id *a, 
+				const struct kbus_msg_id *b)
 {
   if (!a && !b) { return 0; }
   if (!a) { return -1; }

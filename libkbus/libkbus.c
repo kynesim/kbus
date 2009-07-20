@@ -55,14 +55,15 @@ int kbus_ksock_close(ksock ks)
   return close(ks);
 }
 
-int kbus_ksock_bind(ksock ks, const char *name) 
+int kbus_ksock_bind(ksock ks, const char *name, uint32_t replier)
 {
- struct  kbus_bind_request kbs;
+  struct  kbus_bind_request kbs;
   int rv;
 
   memset(&kbs, 0, sizeof(kbs));
   kbs.name = (char *) name;
   kbs.name_len = strlen(name);
+  kbs.is_replier = replier;
 
   rv = ioctl(ks, KBUS_IOC_BIND, &kbs);
   
@@ -150,7 +151,7 @@ int kbus_ksock_read_msg(ksock ks, struct kbus_message_header **kms,
 	goto fail;
       }
     } else {
-      // nr_read == 0
+
       break;
     }
   }
@@ -182,7 +183,7 @@ int kbus_ksock_read_msg(ksock ks, struct kbus_message_header **kms,
 int kbus_ksock_read_next_msg(ksock ks, struct kbus_message_header **kms)
 {
   int rv;
-  uint32_t m_stat;
+  uint32_t m_stat = 0;
   rv = kbus_ksock_next_msg(ks, &m_stat);
   
   if (rv < 0) 
@@ -294,6 +295,22 @@ int kbus_msg_create(struct kbus_message_header **kms,
   return -1;
 }
 
+int kbus_msg_create_reply(struct kbus_message_header **kms, 
+			  struct kbus_message_header *in_reply_to,
+			  const void *data, uint32_t data_len, /* bytes */
+			  uint32_t flags)
+{
+  char* name;
+  kbus_msg_get_name(in_reply_to, &name);
+  if(kbus_msg_create(kms, name, in_reply_to->name_len, data, data_len, flags))
+  {
+  	return -1;
+  }
+  (*kms)-> to = in_reply_to->from;
+  (*kms)-> in_reply_to = in_reply_to->id;
+  return 0;
+}
+
 void kbus_msg_dispose(struct kbus_message_header **kms_p) {
   if (!kms_p || !*kms_p) { return; }
 
@@ -362,6 +379,18 @@ void kbus_msg_dump(const struct kbus_message_header *kms, int dump_data)
   }
   printf("\n");
 
+}
+
+int kbus_msg_get_name(const struct kbus_message_header *kms, char **name) {
+  *name = kbus_name_ptr(kms);
+
+  return 0;
+}
+
+int kbus_msg_get_data_ptr(const struct kbus_message_header *kms, char **data) {
+  *data = (char *)(kbus_data_ptr(kms));
+
+  return 0;
 }
 
 
