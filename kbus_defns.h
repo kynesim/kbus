@@ -275,7 +275,7 @@ struct kbus_entire_message {
  * It's either the given name pointer, or just after the header (if the pointer
  * is NULL)
  */
-static inline char *kbus_name_ptr(struct kbus_message_header  *hdr)
+static inline char *kbus_name_ptr(const struct kbus_message_header  *hdr)
 {
 	if (hdr->name) {
 		return hdr->name;
@@ -292,7 +292,7 @@ static inline char *kbus_name_ptr(struct kbus_message_header  *hdr)
  * It's either the given data pointer, or just after the name (if the pointer
  * is NULL)
  */
-static inline void *kbus_data_ptr(struct kbus_message_header  *hdr)
+static inline void *kbus_data_ptr(const struct kbus_message_header  *hdr)
 {
 	if (hdr->data) {
 		return hdr->data;
