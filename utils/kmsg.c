@@ -120,7 +120,7 @@ static int do_listen(const char *msg_name)
     }
 
   /* Bind .. */
-  rv = kbus_ksock_bind(the_socket, msg_name);
+  rv = kbus_ksock_bind(the_socket, msg_name, 0);
   if (rv < 0)
     {
       fprintf(stderr, "Cannot bind() to %s - %s [%d] \n",
