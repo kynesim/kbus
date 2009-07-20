@@ -57,6 +57,7 @@ else
 	PWD = $(shell pwd)
 	KREL_DIR = modules/$(shell uname -r)
 
+
 # Build the KBUS kernel module.
 # Copy it to a directory named after the kernel version used to so build
 # - this allows someone building multiple different versions of the module
@@ -64,9 +65,21 @@ else
 # We use a "modules/<uname -r>" because that mirrors /lib/modules/ in the
 # "real" Linux layout
 default:
-	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules
+	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= modules
 	mkdir -p $(KREL_DIR)
 	cp kbus.ko $(KREL_DIR)
+
+
+# For kbus global builds - build everything here, then move the target
+# out of the way and clean up. Turns out that the Kernel makefile
+# really doesn't like building object files in non-source directories,
+all: 
+	rm -f kbus.mod.c *.o kbus.ko .kbus*.cmd Module.* modules.order 
+	rm -rf .tmp_versions
+	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= modules
+	-mkdir -p $(O)/kbus
+	mv kbus.ko $(O)/kbus
+
 
 # On Ubuntu, if we want ordinary users (in the admin group) to be able to
 # read/write '/dev/kbus<n>' then we need to have a rules file to say so.
@@ -83,7 +96,15 @@ rules:
 	@ if [ -e $(RULES_FILE) ]; \
 	then echo $(RULES_FILE) already exists ; \
 	else sudo cp $(RULES_NAME) $(RULES_FILE) ; \
-       	fi
+	fi
+
+install:
+	-mkdir -p $(DESTDIR)/kmodules
+	install -m 0755 $(O)/kbus/kbus.ko $(DESTDIR)/kmodules/kbus.ko
+	-mkdir -p $(DESTDIR)/include/kbus
+	install -m 0644 kbus_defns.h $(DESTDIR)/include/kbus/kbus_defns.h
+	-mkdir -p $(DESTDIR)/etc/udev/rules.d
+	echo $(RULES_LINE) >$(DESTDIR)/etc/udev/rules.d/$(RULES_NAME)
 
 # Only remove "modules" if we're doing a bigger clean, as there might
 # be subdirectories from previous builds that we don't want to lose on
