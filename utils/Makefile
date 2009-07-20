@@ -1,31 +1,43 @@
 # Some useful utilities for kbus
 
-DESTDIR ?= ..
-
 SRCS=kmsg.c
 OBJS=$(SRCS:%.c=%.o)
 TESTS=$(OBJS:%.o=%)
 
-LOCATED_OBJS=$(OBJS:%.o=$(DESTDIR)/utils/%.o)
-LOCATED_TESTS=$(TESTS:%=$(DESTDIR)/utils/%)
+LOCATED_OBJS=$(OBJS:%.o=$(O)/utils/%.o)
+LOCATED_TESTS=$(TESTS:%=$(O)/utils/%)
 
-CFLAGS=-I$(DESTDIR)
-LDFLAGS=-L$(DESTDIR)/libkbus
+CFLAGS=-I..
+LDFLAGS=-L$(O)/libkbus
 LIBS=-lkbus
 
-all: $(LOCATED_TESTS)
+all: dirs $(LOCATED_TESTS)
 
+install:
+	-mkdir -p $(DESTDIR)/bin
+	install -m 0755 $(O)/utils/kmsg $(DESTDIR)/bin/kmsg
 
-$(DESTDIR)/utils/%.o: %.c
+dirs:
+	-mkdir -p $(O)/utils
+
+$(O)/utils/%.o: %.c
 	$(CC) $(CFLAGS) -c $^ -o $@
 
-$(DESTDIR)/utils/% : $(DESTDIR)/utils/%.o
+$(O)/utils/% : $(O)/utils/%.o
 	$(CC) -o $@ $(LDFLAGS) $^ $(LIBS)
 
-$(DESTDIR)/utils/% : $(DESTDIR)/libkbus/libkbus.so
+$(O)/utils/% : $(O)/libkbus/libkbus.so
 
-$(DESTDIR)/libkbus/libkbus.so: 
-	$(MAKE) -C $(DESTDIR)/libkbus
+$(O)/libkbus/libkbus.so: 
+	$(MAKE) -C ../libkbus O=$(O) all
+
+# Mustn't delete utils - remember that for in-place builds it's
+# the source directory!
+clean:
+	rm -rf $(O)/utils/*.o $(O)/utils/kmsg
+
+distclean: clean
+
 
 
 # End file.

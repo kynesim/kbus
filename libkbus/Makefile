@@ -34,21 +34,36 @@ LD_LIB_FLAGS=-shared
 INCLUDE_FLAGS=-I ..
 CFLAGS=-fPIC -g
 
-OBJS=libkbus.o
+SRCS=libkbus.c
+OBJS=$(SRCS:%.c=$(O)/libkbus/%.o)
 DEPS=kbus.h
 
 SONAME=libkbus.so
+TARGET=$(O)/libkbus/libkbus.so
 
 
-all: $(SONAME)
+all: dirs $(TARGET)
 
-libkbus.o: $(DEPS) libkbus.c
-	$(CC) $(INCLUDE_FLAGS) $(CFLAGS) $(WARNING_FLAGS) -c libkbus.c
+install:
+	-mkdir -p $(DESTDIR)/lib
+	-mkdir -p $(DESTDIR)/include/libkbus
+	install -m 0644 kbus.h $(DESTDIR)/include/libkbus/kbus.h
+	install -m 0755 $(SONAME) $(DESTDIR)/lib/libkbus.so
+
+dirs:
+	-mkdir -p $(O)/libkbus
+
+$(O)/libkbus/%.o: %.c
+	$(CC) $(INCLUDE_FLAGS) $(CFLAGS) -o $@ $(WARNING_FLAGS) -c $^
+
+$(O)/libkbus/%.o: $(DEPS)
 
 
-$(SONAME): $(OBJS)
-	$(LD) $(LD_LIB_FLAGS) -soname $(SONAME) -o $(SONAME) -lc $^
+$(TARGET): $(OBJS)
+	echo Objs = $(OBJS)
+	$(LD) $(LD_LIB_FLAGS) -soname $(SONAME) -o $(TARGET) $(OBJS) -lc
 
 clean:
-	if [ -e libkbus.so ]; then rm libkbus.so; fi
-	if [ -e libkbus.o  ]; then rm libkbus.o;  fi
+	rm -f $(O)/libkbus/*.o $(O)/libkbus/*.so
+
+# End file.
