@@ -48,7 +48,7 @@ install:
 	-mkdir -p $(DESTDIR)/lib
 	-mkdir -p $(DESTDIR)/include/libkbus
 	install -m 0644 kbus.h $(DESTDIR)/include/libkbus/kbus.h
-	install -m 0755 $(SONAME) $(DESTDIR)/lib/libkbus.so
+	install -m 0755 $(TARGET) $(DESTDIR)/lib/libkbus.so
 
 dirs:
 	-mkdir -p $(O)/libkbus
