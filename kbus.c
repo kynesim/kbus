@@ -857,6 +857,24 @@ static int kbus_check_message(struct kbus_message_header	*msg)
 			printk(KERN_DEBUG "kbus: (entire) message end guard is %08x,"
 			       " not %08x\n", *end_guard_ptr,
 			       KBUS_MSG_END_GUARD);
+
+			{
+			  uint8_t *cptr = (uint8_t *)entire;
+			  int i;
+
+			  printk(KERN_DEBUG "kbus: Raw msg dump ..\n");
+			  printk(KERN_DEBUG "kbus: START");
+			  for (i = 0; i < KBUS_ENTIRE_MSG_LEN(entire->header.data_len, entire->header.name_len); i ++) {
+			    if (!(i % 8)) {
+			      printk(KERN_DEBUG "\nkbus: ");
+			    }
+			    printk(KERN_DEBUG "%02x ", cptr[i]);
+			    
+			  }
+			  printk(KERN_DEBUG "\n");
+			  printk(KERN_DEBUG "kbus: END\n");
+			}
+
 			return -EINVAL;
 		}
 #endif
