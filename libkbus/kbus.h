@@ -68,6 +68,20 @@ typedef int ksock;
  * to emulate one).
  */
 
+/** Test if this is an entire message.
+ *
+ * @param kms A kbus message header
+ * @return Non-zero for an entire message, zero for pointy
+ */
+#define KBUS_MSG_IS_ENTIRE(kms) ((kms->name)? 0 : 1)
+
+/** Test if this is an entire message.
+ *
+ * @param kms A kbus message header
+ * @return Non-zero for an entire message, zero for pointy
+ */
+#define KBUS_ENTIRE_MSG_HEADER(kms) ((struct kbus_message_he))
+
 /** Open a ksock
  *
  * @param fname IN  KBus filename - /dev/kbusNN and typically /dev/kbus0.
@@ -132,7 +146,7 @@ int   kbus_ksock_next_msg       (ksock ks, uint32_t *len);
  * @return 0 if there wasn't a message waiting, 1 if one has been delivered in 
  *    (*kms), < 0 and fills in errno on failure.
  */
-int   kbus_ksock_read_next_msg  (ksock ks, struct kbus_message_header **kms);
+int   kbus_ksock_read_next_msg  (ksock ks, struct kbus_entire_message **kms);
 
 /** Read the current message on the ksock, given its length.
  *
@@ -141,7 +155,7 @@ int   kbus_ksock_read_next_msg  (ksock ks, struct kbus_message_header **kms);
  *                   Otherwise filled in with NULL.
  * @return 0 on success,  < 0 and set errno on failure.
  */
-int   kbus_ksock_read_msg       (ksock ks, struct kbus_message_header **kms, 
+int   kbus_ksock_read_msg       (ksock ks, struct kbus_entire_message **kms, 
                                  size_t len);
 
 /** Write a message (but do not send it yet). A copy of the message is
@@ -203,6 +217,22 @@ int kbus_msg_create            (struct kbus_message_header **kms,
                                 const void *data, uint32_t data_len, /* bytes */
 		                uint32_t flags);
 
+/** Create an entire message. We *do* take copies of your name and data,
+ *  you may free it staight away if you want.
+ *
+ * @param[out] kms  on success, points to the created entire message.
+ * @param[in]  name Pointer to the name the message should have.
+ * @param[in]  name_len  Length of the message name.
+ * @param[in]  data Pointer to some data for the message.
+ * @param[in]  data_len  Length of the required message data.
+ * @param[in]  flags  KBUS_BIT_XXX
+ * @return 0 on success, < 0 and set errno on failure.
+ */
+int kbus_msg_create_entire(struct kbus_entire_message **kms, 
+			   const char *name, uint32_t name_len, /* bytes  */
+			   const void *data, uint32_t data_len, /* bytes */
+			   uint32_t flags);
+
 /** Create a reply to a kbus message.  Behaves like kbus_msg_create 
  *  but the name if taken from the in_reply_to and the field are set
  *  correctly for a reply. We do not take copies of your name and data, 
@@ -210,7 +240,7 @@ int kbus_msg_create            (struct kbus_message_header **kms,
  *  until a successful call to kbus_ksock_send_msg is made. (See 'pointy' 
  *  message in the kbus documentation for more info.)
  *
- * @param[out] kms  on success, points to the created message.
+ * @param[out] kms  on success, points to the created pointy message.
  * @param[in]  name Pointer to the name the message should have.
  * @param[in]  name_len  Length of the message name.
  * @param[in]  data Pointer to some data for the message.
@@ -220,8 +250,27 @@ int kbus_msg_create            (struct kbus_message_header **kms,
  */
 int kbus_msg_create_reply      (struct kbus_message_header **kms, 
 			        struct kbus_message_header *in_reply_to,
-	                        const void *data, uint32_t data_len,/* bytes */
+	                        const void *data, uint32_t data_len,
 			        uint32_t flags);
+
+/** Create an entire reply to a kbus message. Behaves like 
+ *  kbus_msg_create_reply but returns a pointer to an entire message.
+ *
+ *  In this case we *do* take copies for your name and data, free them
+ *  at your leisure. 
+ *
+ * @param[out] kms  on success, points to the created entire message.
+ * @param[in]  name Pointer to the name the message should have.
+ * @param[in]  name_len  Length of the message name.
+ * @param[in]  data Pointer to some data for the message.
+ * @param[in]  data_len  Length of the required message data.
+ * @param[in]  flags  KBUS_BIT_XXX
+ * @return 0 on success, < 0 and set errno on failure.
+ */
+int kbus_msg_create_reply(struct kbus_message_header **kms, 
+			  struct kbus_message_header *in_reply_to,
+			  const void *data, uint32_t data_len, /* bytes */
+			  uint32_t flags);
 
 /** Get a pointer to the message name in the kbus message.  The data is not
  *  copied so the pointer returned points into the middle of the data in kms.
@@ -255,6 +304,14 @@ void kbus_msg_dispose          (struct kbus_message_header **kms_p);
  */
 void kbus_msg_dump             (const struct kbus_message_header *kms, 
 				int dump_data);
+
+/**  Find out the size of a kbus message include any name/data in an
+ *   entire message. 
+ *
+ * @param[in] kms  KBus message
+ * @return size in bytes.
+ */
+int kbus_msg_sizeof(const struct kbus_message_header *kms);
 
 
 /** Compare two kbus message ids and return < 0 if a < b, 0 if a==b, 1 if a > b

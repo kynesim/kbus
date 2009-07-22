@@ -130,7 +130,7 @@ static int do_listen(const char *msg_name)
 
   while (1)
     {
-      struct kbus_message_header *hdr = NULL;
+      struct kbus_entire_message *msg = NULL;
 
       rv = kbus_wait_for_message(the_socket, KBUS_KSOCK_READABLE);
       if (rv < 0)
@@ -140,7 +140,7 @@ static int do_listen(const char *msg_name)
 	  return 3;
 	}
 		  
-      rv = kbus_ksock_read_next_msg(the_socket, &hdr);
+      rv = kbus_ksock_read_next_msg(the_socket, &msg);
       if (rv < 0)
 	{
 	  fprintf(stderr, "Failed to read next message - %s [%d] \n",
@@ -148,8 +148,9 @@ static int do_listen(const char *msg_name)
 	  return 2;
 	}
       
-      kbus_msg_dump(hdr, 1);
-      kbus_msg_dispose(&hdr);
+      kbus_msg_dump(&msg->header, 1);
+      /* FIXME: make this cleaner? -gb */
+      kbus_msg_dispose((struct kbus_message_header **)(&msg));
     }
 
   return 0;
@@ -279,7 +280,7 @@ static int do_send(const char *msg_name, const char *fmt,
     {
       while (1)
 	{
-	  struct kbus_message_header *inmsg = NULL;
+	  struct kbus_entire_message *inmsg = NULL;
 	  
 
 	  rv = kbus_wait_for_message(ks, KBUS_KSOCK_READABLE);
@@ -298,14 +299,16 @@ static int do_send(const char *msg_name, const char *fmt,
 	      return 20;
 	    }
 	  
-	  kbus_msg_dump(inmsg, 1);
+	  kbus_msg_dump(&inmsg->header, 1);
 	  
-	  if (!kbus_id_cmp(&inmsg->in_reply_to, &id))
+	  if (!kbus_id_cmp(&(inmsg->header.in_reply_to), &id))
 	    {
 	      fprintf(stderr, "> Got Reply!\n");
 	      break;
 	    }
-	  kbus_msg_dispose(&inmsg);
+
+	  /* FIXME: make this cleaner? -gb */
+	  kbus_msg_dispose((struct kbus_message_header **)&inmsg);
 	}
     }
 	   
