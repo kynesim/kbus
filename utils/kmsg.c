@@ -46,7 +46,7 @@
 static void usage(void);
 
 
-static int create_kbus_message(struct kbus_message_header **out_hdr,
+static int create_kbus_message(kbus_msg_t **out_hdr,
 			       const char *msg_name, const char *fmt, 
 			       const char *data, int expect_reply);
 
@@ -130,7 +130,7 @@ static int do_listen(const char *msg_name)
 
   while (1)
     {
-      struct kbus_entire_message *msg = NULL;
+      kbus_msg_t *msg = NULL;
 
       rv = kbus_wait_for_message(the_socket, KBUS_KSOCK_READABLE);
       if (rv < 0)
@@ -148,9 +148,9 @@ static int do_listen(const char *msg_name)
 	  return 2;
 	}
       
-      kbus_msg_dump(&msg->header, 1);
+      kbus_msg_dump(msg, 1);
       /* FIXME: make this cleaner? -gb */
-      kbus_msg_dispose((struct kbus_message_header **)(&msg));
+      kbus_msg_dispose((kbus_msg_t **)(&msg));
     }
 
   return 0;
@@ -176,7 +176,7 @@ static int hex_to_value(char c)
     }
 }
 
-static int create_kbus_message(struct kbus_message_header **out_hdr,
+static int create_kbus_message(kbus_msg_t **out_hdr,
 			       const char *msg_name, const char *fmt, 
 			       const char *data, int expect_reply)
 {
@@ -239,7 +239,7 @@ static int do_send(const char *msg_name, const char *fmt,
 		   const char *data, int expect_reply)
 {
   int rv;
-  struct kbus_message_header *kmsg;
+  kbus_msg_t *kmsg;
 
   rv = create_kbus_message(&kmsg, msg_name, fmt, data, expect_reply);
   if (rv)
@@ -280,7 +280,7 @@ static int do_send(const char *msg_name, const char *fmt,
     {
       while (1)
 	{
-	  struct kbus_entire_message *inmsg = NULL;
+	  kbus_msg_t *inmsg = NULL;
 	  
 
 	  rv = kbus_wait_for_message(ks, KBUS_KSOCK_READABLE);
@@ -299,7 +299,7 @@ static int do_send(const char *msg_name, const char *fmt,
 	      return 20;
 	    }
 	  
-	  kbus_msg_dump(&inmsg->header, 1);
+	  kbus_msg_dump(inmsg, 1);
 	  
 	  if (!kbus_id_cmp(&(inmsg->header.in_reply_to), &id))
 	    {
@@ -308,7 +308,7 @@ static int do_send(const char *msg_name, const char *fmt,
 	    }
 
 	  /* FIXME: make this cleaner? -gb */
-	  kbus_msg_dispose((struct kbus_message_header **)&inmsg);
+	  kbus_msg_dispose((kbus_msg_t **)&inmsg);
 	}
     }
 	   
