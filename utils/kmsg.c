@@ -149,8 +149,7 @@ static int do_listen(const char *msg_name)
 	}
       
       kbus_msg_dump(msg, 1);
-      /* FIXME: make this cleaner? -gb */
-      kbus_msg_dispose((kbus_msg_t **)(&msg));
+      kbus_msg_dispose(&msg);
     }
 
   return 0;
@@ -307,8 +306,7 @@ static int do_send(const char *msg_name, const char *fmt,
 	      break;
 	    }
 
-	  /* FIXME: make this cleaner? -gb */
-	  kbus_msg_dispose((kbus_msg_t **)&inmsg);
+	  kbus_msg_dispose(&inmsg);
 	}
     }
 	   

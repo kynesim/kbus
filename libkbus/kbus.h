@@ -299,7 +299,7 @@ int kbus_msg_name_ptr          (const kbus_msg_t *kms,
  * @param[out] name Points to the messsage name
  */
 int kbus_msg_data_ptr          (const kbus_msg_t *kms, 
-				char **data);
+				void **data);
 
 
 /** Dispose of a message, releasing all associated memory.

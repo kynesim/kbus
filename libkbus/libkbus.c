@@ -494,7 +494,7 @@ void kbus_msg_dump(const kbus_msg_t *kms, int dump_data)
   char *data_ptr; 
 
   kbus_msg_name_ptr(kms, &name_ptr);
-  kbus_msg_data_ptr(kms, &data_ptr);
+  kbus_msg_data_ptr(kms, (void *)&data_ptr);
 
   for (i = 0; i < kms->header.name_len; i ++) {
     if (name_ptr[i] > ' ' && name_ptr[i] < '~')
