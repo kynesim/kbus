@@ -53,6 +53,12 @@ extern "C" {
 #include <stdlib.h>
 #include <assert.h>
 
+typedef struct kbus_msg_str {
+  struct kbus_message_header header;
+} kbus_msg_t;
+
+typedef struct kbus_entire_message kbus_msg_entire_t;
+
 
 /** Describes a KBus ksock; this is a value type so doesn't need to
  *   be explicitly deallocated.
@@ -73,7 +79,11 @@ typedef int ksock;
  * @param kms A kbus message header
  * @return Non-zero for an entire message, zero for pointy
  */
-#define KBUS_MSG_IS_ENTIRE(kms) ((kms->name)? 0 : 1)
+#define KBUS_MSG_IS_ENTIRE(kms) (((kms)->header.name)? 0 : 1)
+#define KBUS_MSG_TO_ENTIRE(kms) ((kbus_msg_entire_t *)(kms))
+#define KBUS_MSG_TO_HEADER(kms) ((struct kbus_message_header *)(kms))
+#define KBUS_ENTIRE_TO_MSG(kms) ((kbus_msg_t *)(kms))
+
 
 /** Test if this is an entire message.
  *
@@ -146,7 +156,7 @@ int   kbus_ksock_next_msg       (ksock ks, uint32_t *len);
  * @return 0 if there wasn't a message waiting, 1 if one has been delivered in 
  *    (*kms), < 0 and fills in errno on failure.
  */
-int   kbus_ksock_read_next_msg  (ksock ks, struct kbus_entire_message **kms);
+int   kbus_ksock_read_next_msg  (ksock ks, kbus_msg_t **kms);
 
 /** Read the current message on the ksock, given its length.
  *
@@ -155,7 +165,7 @@ int   kbus_ksock_read_next_msg  (ksock ks, struct kbus_entire_message **kms);
  *                   Otherwise filled in with NULL.
  * @return 0 on success,  < 0 and set errno on failure.
  */
-int   kbus_ksock_read_msg       (ksock ks, struct kbus_entire_message **kms, 
+int   kbus_ksock_read_msg       (ksock ks, kbus_msg_t **kms, 
                                  size_t len);
 
 /** Write a message (but do not send it yet). A copy of the message is
@@ -170,7 +180,7 @@ int   kbus_ksock_read_msg       (ksock ks, struct kbus_entire_message **kms,
  * @return 0 on success, < 0 and sets errno on failure.
  */
 int   kbus_ksock_write_msg      (ksock ks, 
-				 const struct kbus_message_header *kms);
+				 const kbus_msg_t *kms);
 
 /** Send a message and get its message-id back.
  *
@@ -183,7 +193,7 @@ int   kbus_ksock_write_msg      (ksock ks,
  * @return 0 on success, < 0 on error and set errno.
  */
 int   kbus_ksock_send_msg       (ksock ks, 
-				 const struct kbus_message_header *kms, 
+				 const kbus_msg_t *kms, 
 				 struct kbus_msg_id *msg_id);
 
 /** Send a message written by kbus_ksock_write_msg()
@@ -212,7 +222,7 @@ int   kbus_ksock_send           (ksock ks, struct kbus_msg_id *msg_id);
  * @param[in]  flags  KBUS_BIT_XXX
  * @return 0 on success, < 0 and set errno on failure.
  */
-int kbus_msg_create            (struct kbus_message_header **kms, 
+int kbus_msg_create            (kbus_msg_t **kms, 
 		                const char *name, uint32_t name_len, /* bytes */
                                 const void *data, uint32_t data_len, /* bytes */
 		                uint32_t flags);
@@ -228,9 +238,9 @@ int kbus_msg_create            (struct kbus_message_header **kms,
  * @param[in]  flags  KBUS_BIT_XXX
  * @return 0 on success, < 0 and set errno on failure.
  */
-int kbus_msg_create_entire(struct kbus_entire_message **kms, 
-			   const char *name, uint32_t name_len, /* bytes  */
-			   const void *data, uint32_t data_len, /* bytes */
+int kbus_msg_create_entire(kbus_msg_t **kms, 
+			   const char *name, uint32_t name_len,/*bytes*/
+			   const void *data, uint32_t data_len,/*bytes*/
 			   uint32_t flags);
 
 /** Create a reply to a kbus message.  Behaves like kbus_msg_create 
@@ -248,8 +258,8 @@ int kbus_msg_create_entire(struct kbus_entire_message **kms,
  * @param[in]  flags  KBUS_BIT_XXX
  * @return 0 on success, < 0 and set errno on failure.
  */
-int kbus_msg_create_reply      (struct kbus_message_header **kms, 
-			        struct kbus_message_header *in_reply_to,
+int kbus_msg_create_reply      (kbus_msg_t **kms, 
+			        const kbus_msg_t *in_reply_to,
 	                        const void *data, uint32_t data_len,
 			        uint32_t flags);
 
@@ -267,10 +277,11 @@ int kbus_msg_create_reply      (struct kbus_message_header **kms,
  * @param[in]  flags  KBUS_BIT_XXX
  * @return 0 on success, < 0 and set errno on failure.
  */
-int kbus_msg_create_reply(struct kbus_message_header **kms, 
-			  struct kbus_message_header *in_reply_to,
-			  const void *data, uint32_t data_len, /* bytes */
-			  uint32_t flags);
+int kbus_msg_create_entire_reply(kbus_msg_t **kms, 
+				 const kbus_msg_t *in_reply_to,
+				 const void *data, 
+				 uint32_t data_len, /* bytes */
+				 uint32_t flags);
 
 /** Get a pointer to the message name in the kbus message.  The data is not
  *  copied so the pointer returned points into the middle of the data in kms.
@@ -278,7 +289,7 @@ int kbus_msg_create_reply(struct kbus_message_header **kms,
  * @param[in]  kms Pointer to a kbus message.
  * @param[out] name Points to the messsage name
  */
-int kbus_msg_get_name          (const struct kbus_message_header *kms, 
+int kbus_msg_name_ptr          (const kbus_msg_t *kms, 
 				char **name);
 
 /** Get a pointer to the message data in the kbus message.  The data is not
@@ -287,7 +298,7 @@ int kbus_msg_get_name          (const struct kbus_message_header *kms,
  * @param[in]  kms Pointer to a kbus message.
  * @param[out] name Points to the messsage name
  */
-int kbus_msg_get_data_ptr      (const struct kbus_message_header *kms, 
+int kbus_msg_data_ptr          (const kbus_msg_t *kms, 
 				char **data);
 
 
@@ -295,14 +306,14 @@ int kbus_msg_get_data_ptr      (const struct kbus_message_header *kms,
  *
  * @param[inout] kms_p  Pointer to the message header to destroy.
  */
-void kbus_msg_dispose          (struct kbus_message_header **kms_p);
+void kbus_msg_dispose          (kbus_msg_t **kms_p);
 
 /**  Dump a message to stdout.
  *
  * @param[in] kms  KBus message to dump
  * @param[in] dump_data Dump the data too?
  */
-void kbus_msg_dump             (const struct kbus_message_header *kms, 
+void kbus_msg_dump             (const kbus_msg_t *kms, 
 				int dump_data);
 
 /**  Find out the size of a kbus message include any name/data in an
@@ -311,7 +322,7 @@ void kbus_msg_dump             (const struct kbus_message_header *kms,
  * @param[in] kms  KBus message
  * @return size in bytes.
  */
-int kbus_msg_sizeof(const struct kbus_message_header *kms);
+int kbus_msg_sizeof            (const kbus_msg_t *kms);
 
 
 /** Compare two kbus message ids and return < 0 if a < b, 0 if a==b, 1 if a > b
