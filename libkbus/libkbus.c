@@ -147,8 +147,11 @@ int kbus_ksock_read_msg(ksock ks, kbus_msg_t **kms,
   char *buf = malloc(len);
 
   if (!buf)
-    goto fail;
-
+    {
+      errno = ENOMEM;
+      goto fail;
+    }
+    
   while (len > 0) {
     nr_read = read(ks, buf + br, len);
 #if DEBUG
@@ -185,7 +188,7 @@ int kbus_ksock_read_msg(ksock ks, kbus_msg_t **kms,
   return rv;
 
  fail:
-  if (buf) { free(buf); }
+  free(buf);
   *kms = NULL;
 
   return -1;
@@ -198,7 +201,9 @@ int kbus_ksock_read_next_msg(ksock ks, kbus_msg_t **kms)
   rv = kbus_ksock_next_msg(ks, &m_stat);
   
   if (rv < 0) 
-    return rv;
+    {
+      return rv;
+    }  
 
   if (rv && m_stat > 0) {
     rv = kbus_ksock_read_msg(ks, kms, m_stat);
@@ -206,11 +211,16 @@ int kbus_ksock_read_next_msg(ksock ks, kbus_msg_t **kms)
 #if DEBUG
     kbus_msg_dump(*kms,1);
 #endif
+
+    /* kbus_ksock_read_msg() returns 0 on success, so ..
+     */
+    if (!rv) { rv = 1; }
+
   } else {
     (*kms) = NULL;
+    rv = 0;
   }
     
-
   return rv;
 }
 

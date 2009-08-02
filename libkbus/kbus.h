@@ -163,7 +163,8 @@ int   kbus_ksock_read_next_msg  (ksock ks, kbus_msg_t **kms);
  * @param[in] ks    The ksock to query.
  * @param[out] kms  On success, filled in with the next message on this ksock.
  *                   Otherwise filled in with NULL.
- * @return 0 on success,  < 0 and set errno on failure.
+ * @return 1 if (*kms) now contains your message, 0 if it doesn't, < 0 and 
+ *             set errno on failure.
  */
 int   kbus_ksock_read_msg       (ksock ks, kbus_msg_t **kms, 
                                  size_t len);
