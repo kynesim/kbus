@@ -446,7 +446,7 @@ static inline uint32_t *kbus_end_ptr(struct kbus_entire_message  *entire)
  * LENLEFT - determine how many bytes are left to read of the current message
  * arg (out): uint32_t, number of bytes left, 0 if there is no current read
  *            message
- * retval: 0 for success, negative for failure
+ * retval: 1 if there was a message, 0 if there wasn't, negative for failure
  */
 #define KBUS_IOC_LENLEFT  _IOR( KBUS_IOC_MAGIC,  7, char *)
 /*
