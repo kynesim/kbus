@@ -483,8 +483,16 @@ static inline uint32_t *kbus_end_ptr(struct kbus_entire_message  *entire)
  */
 #define KBUS_IOC_NUMMSGS  _IOR( KBUS_IOC_MAGIC, 12, char *)
 
+/*
+ * UNREPLIEDTO - determine the number of requests (marked "WANT_YOU_TO_REPLY")
+ * which we still need to reply to.
+ * arg(out): uint32_t, said number
+ * retval: 0 for success, negative for failure
+ */
+#define KBUS_IOC_UNREPLIEDTO  _IOR( KBUS_IOC_MAGIC, 13, char *)
+
 /* XXX If adding another IOCTL, remember to increment the next number! XXX */
-#define KBUS_IOC_MAXNR	12
+#define KBUS_IOC_MAXNR	13
 
 #if ! __KERNEL__ && defined(__cplusplus)
 }

@@ -2624,7 +2624,7 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 			 * (there's not much we can do with an error
 			 * in this, so just ignore it)
 			 */
-			(void) kbus_reply_now_sent(priv,&msg->id);
+			(void) kbus_reply_now_sent(priv,&msg->in_reply_to);
 		} else {
 			goto done_sending;
 		}
@@ -3823,6 +3823,17 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 			       dev->index,id,priv->message_count);
 #endif
 			retval = __put_user(priv->message_count, (uint32_t __user *)arg);
+		}
+		break;
+
+	case KBUS_IOC_UNREPLIEDTO:
+		/* How many Requests (to us) do we still owe Replies to? */
+		{
+#if VERBOSE_DEBUG
+			printk(KERN_DEBUG "kbus: %u/%u UNREPLIEDTO %d\n",
+			       dev->index,id,priv->num_replies_unsent);
+#endif
+			retval = __put_user(priv->num_replies_unsent, (uint32_t __user *)arg);
 		}
 		break;
 

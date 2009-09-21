@@ -13,42 +13,64 @@ time.sleep(0.5)
 
 
 try:
-    with KSock(0,'rw') as sender:
-        with KSock(0,'rw') as listener:
+    print '===================================================================='
+    sender = KSock(0,'rw')
+    listener = KSock(0,'rw')
 
-            #data = 'x'*4096*20
+    print 'Sender   is',sender.ksock_id()
+    print 'Listener is',listener.ksock_id()
 
-            data = 'x'*1024*64
+    listener.bind('$.fred.MSG')
+    listener.bind('$.fred.REQ',True)
+    print '/proc/kbus/bindings:'
+    os.system('cat /proc/kbus/bindings')
+    print '--------------------------------------------------------------------'
 
-            print 'Making message'
+    print 'Unreplied to',listener.num_unreplied_to()
 
-            m = Request('$.Fred', data=data)
-            #print m
+    r = Request('$.fred.REQ','Hello')
+    print 'Sending:         ', r
+    sender.send_msg(r)
 
-            listener.bind('$.Fred', replier=True)
-            listener.bind('$.Fred', replier=False)
+    print 'Reading request: ',
+    b = listener.read_next_msg()
+    print b
+    print 'Unreplied to',listener.num_unreplied_to()
 
-            print 'Sending message'
+    c = reply_to(b)
+    print 'Replying with:   ',c
+    listener.send_msg(c)
+    print 'Unreplied to',listener.num_unreplied_to()
 
-            sender.send_msg(m)
+    #a = Announcement('$.fred.MSG','Something')
+    #print 'Sending:       ', a
+    #sender.send_msg(a)
 
-            print 'Reading message (replier)'
+    print '/proc/kbus/bindings:'
+    os.system('cat /proc/kbus/bindings')
+    print '/proc/kbus/stats:'
+    os.system('cat /proc/kbus/stats')
 
-            # Once as a replier
-            r = listener.read_next_msg()
-            #print r
-            assert r.equivalent(m)
-            assert r.wants_us_to_reply()
+    print '--------------------------------------------------------------------'
+    print 'Close sender'
+    sender.close()
+    print 'Unreplied to',listener.num_unreplied_to()
 
-            print 'Reading message (listener)'
+    print '/proc/kbus/bindings:'
+    os.system('cat /proc/kbus/bindings')
+    print '/proc/kbus/stats:'
+    os.system('cat /proc/kbus/stats')
 
-            # Once as a listener
-            r = listener.read_next_msg()
-            #print r
-            assert r.equivalent(m)
-            assert not r.wants_us_to_reply()
+    print '--------------------------------------------------------------------'
+    print 'Close listener'
+    listener.close()
 
-            assert sender.next_msg() == 0
+    print '/proc/kbus/bindings:'
+    os.system('cat /proc/kbus/bindings')
+    print '/proc/kbus/stats:'
+    os.system('cat /proc/kbus/stats')
+
+    print '===================================================================='
 
 finally:
     os.system('sudo rmmod kbus')

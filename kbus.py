@@ -1448,18 +1448,19 @@ class KSock(object):
     """
 
     IOC_MAGIC = 'k'
-    IOC_RESET    = _IO(IOC_MAGIC,    1)
-    IOC_BIND     = _IOW(IOC_MAGIC,   2, ctypes.sizeof(ctypes.c_char_p))
-    IOC_UNBIND   = _IOW(IOC_MAGIC,   3, ctypes.sizeof(ctypes.c_char_p))
-    IOC_KSOCKID  = _IOR(IOC_MAGIC,   4, ctypes.sizeof(ctypes.c_char_p))
-    IOC_REPLIER  = _IOWR(IOC_MAGIC,  5, ctypes.sizeof(ctypes.c_char_p))
-    IOC_NEXTMSG  = _IOR(IOC_MAGIC,   6, ctypes.sizeof(ctypes.c_char_p))
-    IOC_LENLEFT  = _IOR(IOC_MAGIC,   7, ctypes.sizeof(ctypes.c_char_p))
-    IOC_SEND     = _IOR(IOC_MAGIC,   8, ctypes.sizeof(ctypes.c_char_p))
-    IOC_DISCARD  = _IO(IOC_MAGIC,    9)
-    IOC_LASTSENT = _IOR(IOC_MAGIC,  10, ctypes.sizeof(ctypes.c_char_p))
-    IOC_MAXMSGS  = _IOWR(IOC_MAGIC, 11, ctypes.sizeof(ctypes.c_char_p))
-    IOC_NUMMSGS  = _IOR(IOC_MAGIC,  12, ctypes.sizeof(ctypes.c_char_p))
+    IOC_RESET       = _IO(IOC_MAGIC,    1)
+    IOC_BIND        = _IOW(IOC_MAGIC,   2, ctypes.sizeof(ctypes.c_char_p))
+    IOC_UNBIND      = _IOW(IOC_MAGIC,   3, ctypes.sizeof(ctypes.c_char_p))
+    IOC_KSOCKID     = _IOR(IOC_MAGIC,   4, ctypes.sizeof(ctypes.c_char_p))
+    IOC_REPLIER     = _IOWR(IOC_MAGIC,  5, ctypes.sizeof(ctypes.c_char_p))
+    IOC_NEXTMSG     = _IOR(IOC_MAGIC,   6, ctypes.sizeof(ctypes.c_char_p))
+    IOC_LENLEFT     = _IOR(IOC_MAGIC,   7, ctypes.sizeof(ctypes.c_char_p))
+    IOC_SEND        = _IOR(IOC_MAGIC,   8, ctypes.sizeof(ctypes.c_char_p))
+    IOC_DISCARD     = _IO(IOC_MAGIC,    9)
+    IOC_LASTSENT    = _IOR(IOC_MAGIC,  10, ctypes.sizeof(ctypes.c_char_p))
+    IOC_MAXMSGS     = _IOWR(IOC_MAGIC, 11, ctypes.sizeof(ctypes.c_char_p))
+    IOC_NUMMSGS     = _IOR(IOC_MAGIC,  12, ctypes.sizeof(ctypes.c_char_p))
+    IOC_UNREPLIEDTO = _IOR(IOC_MAGIC,  13, ctypes.sizeof(ctypes.c_char_p))
 
     def __init__(self, which=0, mode='r'):
         if mode not in ('r', 'rw'):
@@ -1605,6 +1606,17 @@ class KSock(object):
         """
         id = array.array('L', [0])
         fcntl.ioctl(self.fd, KSock.IOC_NUMMSGS, id, True)
+        return id[0]
+
+    def num_unreplied_to(self):
+        """Return the number of replies we still have outstanding.
+
+        That is, the number of Requests that we have read, which had the
+        WANT_YOU_TO_REPLY flag set, but for which we have not yet sent a
+        Reply.
+        """
+        id = array.array('L', [0])
+        fcntl.ioctl(self.fd, KSock.IOC_UNREPLIEDTO, id, True)
         return id[0]
 
     def write_msg(self, message):

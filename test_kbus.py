@@ -2668,4 +2668,28 @@ class TestKernelModule:
             for l in listeners:
                 l.close()
 
+    def test_unreplied_to(self):
+        """Test the "number unreplied to" ioctl.
+
+        Note that I believe that the final "assert" in this method is
+        testing the actual problem behind Issue 1 in the KBUS issue tracker.
+        """
+        with KSock(0, 'rw') as sender:
+            with KSock(0, 'rw') as listener:
+                assert listener.num_unreplied_to() == 0
+                listener.bind('$.Fred')
+                listener.bind('$.Bill',True)
+                m = Message('$.Fred')
+                sender.send_msg(m)
+                r = Request('$.Bill')
+                sender.send_msg(r)
+                assert listener.num_unreplied_to() == 0, 'No requests yet'
+                listener.read_next_msg()
+                assert listener.num_unreplied_to() == 0, 'Not read request yet'
+                q = listener.read_next_msg()
+                assert listener.num_unreplied_to() == 1, 'Read one request'
+                a = reply_to(q)
+                listener.send_msg(a)
+                assert listener.num_unreplied_to() == 0, 'Replied to request'
+
 # vim: set tabstop=8 shiftwidth=4 expandtab:
