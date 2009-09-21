@@ -2013,10 +2013,22 @@ class TestKernelModule:
     def test_reply_to(self):
         """Test that reply_to generates the Reply we expect (at least a bit)
         """
-        m = Message('$.Fred', id=MessageId(0, 9999), from_=23)
+        m = Message('$.Fred', id=MessageId(0, 9999), from_=23,
+                    flags=Message.WANT_A_REPLY|Message.WANT_YOU_TO_REPLY)
         r1 = reply_to(m)
         r2 = Reply('$.Fred', in_reply_to=MessageId(0, 9999), to=23)
         assert r1 == r2
+
+    def test_reply_to_non_request(self):
+        """Test that reply_to doesn't generate a Reply if it shouldn't
+        """
+        # We fail if it's not a Request
+        m = Message('$.Fred', id=MessageId(0, 9999), from_=23)
+        nose.tools.assert_raises(ValueError, reply_to, m)
+        # We fail it it's a Request we're not meant to answer
+        m = Message('$.Fred', id=MessageId(0, 9999), from_=23,
+                    flags=Message.WANT_A_REPLY)
+        nose.tools.assert_raises(ValueError, reply_to, m)
 
     def test_send_retcode_1(self):
         """It's not possible to send an "unsolicited" reply
@@ -2025,7 +2037,9 @@ class TestKernelModule:
             with KSock(0, 'rw') as listener:
 
                 # Let's fake an unwanted Reply, to a Request from our sender
-                r = reply_to(Message('$.Fred', id=MessageId(0, 9999), from_=sender.ksock_id()))
+                m = Message('$.Fred', id=MessageId(0, 9999), from_=sender.ksock_id(),
+                            flags=Message.WANT_A_REPLY|Message.WANT_YOU_TO_REPLY)
+                r = reply_to(m)
                 # And try to send it
                 check_IOError(errno.ECONNREFUSED, listener.send_msg, r)
 

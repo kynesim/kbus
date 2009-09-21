@@ -1363,38 +1363,31 @@ def reply_to(original, data=None, flags=0):
 
     For instance:
 
-        >>> msg = Message('$.Fred', data='1234', from_=27, to=99, id=MessageId(0, 132), flags=Message.WANT_A_REPLY)
+        >>> msg = Message('$.Fred', data='1234', from_=27, to=99, id=MessageId(0, 132), flags=Message.WANT_A_REPLY|Message.WANT_YOU_TO_REPLY)
         >>> msg
-        Message('$.Fred', data='1234', to=99L, from_=27L, in_reply_to=None, flags=0x00000001, id=MessageId(0, 132))
+        Message('$.Fred', data='1234', to=99L, from_=27L, in_reply_to=None, flags=0x00000003, id=MessageId(0, 132))
         >>> reply = reply_to(msg)
         >>> reply
         Reply('$.Fred', data=None, to=27L, from_=0L, in_reply_to=MessageId(0, 132), flags=0x00000000, id=None)
 
     Note that:
 
-    1. A reply message is a reply because it has the 'in_reply_to' field set.
+    1. The message we're constructing a reply to must be a message that wants
+       a reply. Specifically, this means that it must have the "WANT_A_REPLY"
+       flag set, and also the "WANT_YOU_TO_REPLY" flag. This last is because
+       anyone listening to a Request will "see" the "WANT_A_REPLY" flag, but
+       only the (single) replier will receive the message with the
+       "WANT_YOU_TO_REPLY" flag set.
+    2. A reply message is a reply because it has the 'in_reply_to' field set.
        This indicates the message id of the original message, the one we're
        replying to.
-    2. As normal, the Reply's own message id is unset - KBUS will set this, as
+    3. As normal, the Reply's own message id is unset - KBUS will set this, as
        for any message.
-    3. We give a specific 'to' value, the id of the KSock that sent the
+    4. We give a specific 'to' value, the id of the KSock that sent the
        original message, and thus the 'from' value in the original message.
-    4. We keep the same message name, but don't copy the original message's
+    5. We keep the same message name, but don't copy the original message's
        data. If we want to send data in a reply message, it will be our own
        data.
-
-    It's also possible to construct a Reply from an equivalent string, although
-    these always act as if they were::
-
-                m = Message(arg)
-                r = reply_to(m)
-
-    which means that the automatic swapping of from/to, etc., will happen.
-    For instance:
-
-        >>> rep2 = reply_to(msg.to_string())
-        >>> rep2 == reply
-        True
 
     The other arguments available are 'flags' (allowing the setting of flags
     such as Message.ALL_OR_WAIT, for instance), and 'data', allowing reply data
@@ -1405,10 +1398,11 @@ def reply_to(original, data=None, flags=0):
         Reply('$.Fred', data='1234', to=27L, from_=0L, in_reply_to=MessageId(0, 132), flags=0x00000100, id=None)
     """
 
-    if not isinstance(original, Message):
-        # The lazy way of handling this case
-        original = Message(original)
-        # and then fall through into...
+    # Check we're allowed to reply to this
+    if original.flags & (Message.WANT_A_REPLY | Message.WANT_YOU_TO_REPLY) != \
+            Message.WANT_A_REPLY | Message.WANT_YOU_TO_REPLY:
+        raise ValueError("Cannot form a reply to a message that does not have"
+                " WANT_A_REPLY and WANT_YOU_TO_REPLY set: %s"%original)
 
     (id, in_reply_to, to, from_, original_flags, name, data_tuple) = original.extract()
     # We reply to the original sender (to), indicating which message we're
