@@ -1,44 +1,52 @@
-# Some useful utilities for kbus
-
-SRCS=kmsg.c
-OBJS=$(SRCS:%.c=%.o)
-TESTS=$(OBJS:%.o=%)
-
-LOCATED_OBJS=$(OBJS:%.o=$(O)/utils/%.o)
-LOCATED_TESTS=$(TESTS:%=$(O)/utils/%)
+# A useful utility for testing kbus
+#
+# Use ``O=<destination>`` for a remote build, ``STATIC=1`` for a static build
 
 CFLAGS=-I..
-LDFLAGS=-L$(O)/libkbus
+LDFLAGS=-L$(LIBKBUSDIR)
 LIBS=-lkbus
 
-all: dirs $(LOCATED_TESTS)
+ifeq ($(O),)
+	TGTDIR=.
+	LIBKBUSDIR=../libkbus
+else
+	# Remote build, apparently wants to be shared
+	TGTDIR=$(O)/utils
+	LIBKBUSDIR=$(O)/libkbus
+endif
 
-install:
-	-mkdir -p $(DESTDIR)/bin
-	install -m 0755 $(O)/utils/kmsg $(DESTDIR)/bin/kmsg
+ifeq ($(STATIC),1)
+	LDFLAGS+=-static
+	LIBDEPEND=$(LIBKBUSDIR)/libkbus.a
+else
+	LIBDEPEND=$(LIBKBUSDIR)/libkbus.so
+endif
 
+TARGET=$(TGTDIR)/kmsg
+
+.PHONY: all
+all: dirs $(TARGET)
+
+.PHONY: dirs
 dirs:
-	-mkdir -p $(O)/utils
+	-mkdir -p $(TGTDIR)
 
-$(O)/utils/%.o: %.c
-	$(CC) $(CFLAGS) -c $^ -o $@
+$(TARGET): kmsg.c $(LIBDEPEND)
+	$(CC) kmsg.c -o $@ $(CFLAGS) $(LDFLAGS) $(LIBS)
 
-$(O)/utils/% : $(O)/utils/%.o
-	$(CC) -o $@ $(LDFLAGS) $^ $(LIBS)
-
-$(O)/utils/% : $(O)/libkbus/libkbus.so
-
-$(O)/libkbus/libkbus.so: 
+$(LIBDEPEND):
 	$(MAKE) -C ../libkbus O=$(O) all
 
 # Mustn't delete utils - remember that for in-place builds it's
 # the source directory!
+.PHONY: clean
 clean:
-	rm -rf $(O)/utils/*.o $(O)/utils/kmsg
+	rm -rf $(TGTDIR)/*.o $(TGTDIR)/kmsg
 
+.PHONY: distclean
 distclean: clean
 
-
-
-# End file.
-
+.PHONY: install
+install:
+	-mkdir -p $(DESTDIR)/bin
+	install -m 0755 $(TGTDIR)/kmsg $(DESTDIR)/bin/kmsg
