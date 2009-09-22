@@ -1,6 +1,8 @@
 # A useful utility for testing kbus
 #
-# Use ``O=<destination>`` for a remote build, ``STATIC=1`` for a static build
+# Use ``O=<destination>`` for a remote build, ``STATIC=1`` for a static build,
+# ``STATIC=0`` for a shared build. Static builds are default for local builds,
+# shared builds default for remote builds.
 
 CFLAGS=-I..
 LDFLAGS=-L$(LIBKBUSDIR)
@@ -9,6 +11,9 @@ LIBS=-lkbus
 ifeq ($(O),)
 	TGTDIR=.
 	LIBKBUSDIR=../libkbus
+ifeq ($(STATIC),)
+    STATIC=1
+endif
 else
 	# Remote build, apparently wants to be shared
 	TGTDIR=$(O)/utils
