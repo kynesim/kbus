@@ -30,7 +30,7 @@ CC=gcc
 LD=ld
 WARNING_FLAGS=-Wall -Werror
 DEBUG_FLAGS=
-LD_LIB_FLAGS=-shared
+LD_SHARED_FLAGS=-shared
 INCLUDE_FLAGS=-I ..
 CFLAGS=-fPIC -g
 
@@ -44,18 +44,23 @@ SRCS=libkbus.c
 OBJS=$(SRCS:%.c=$(TGTDIR)/%.o)
 DEPS=kbus.h
 
-SONAME=libkbus.so
-TARGET=$(TGTDIR)/libkbus.so
+SHARED_NAME=libkbus.so
+STATIC_NAME=libkbus.a
+SHARED_TARGET=$(TGTDIR)/$(SHARED_NAME)
+STATIC_TARGET=$(TGTDIR)/$(STATIC_NAME)
 
+.PHONY: all
+all: dirs $(SHARED_TARGET) $(STATIC_TARGET)
 
-all: dirs $(TARGET)
-
+.PHONY: install
 install:
 	-mkdir -p $(DESTDIR)/lib
 	-mkdir -p $(DESTDIR)/include/libkbus
 	install -m 0644 kbus.h $(DESTDIR)/include/libkbus/kbus.h
-	install -m 0755 $(TARGET) $(DESTDIR)/lib/libkbus.so
+	install -m 0755 $(SHARED_TARGET) $(DESTDIR)/lib/$(SHARED_NAME)
+	install -m 0755 $(STATIC_TARGET) $(DESTDIR)/lib/$(STATIC_NAME)
 
+.PHONY: dirs
 dirs:
 	-mkdir -p $(TGTDIR)
 
@@ -65,11 +70,12 @@ $(TGTDIR)/%.o: %.c
 $(TGTDIR)/%.o: $(DEPS)
 
 
-$(TARGET): $(OBJS)
+$(SHARED_TARGET): $(OBJS)
 	echo Objs = $(OBJS)
-	$(LD) $(LD_LIB_FLAGS) -soname $(SONAME) -o $(TARGET) $(OBJS) -lc
+	$(LD) $(LD_SHARED_FLAGS) -soname $(SHARED_NAME) -o $(SHARED_TARGET) $(OBJS) -lc
 
+$(STATIC_TARGET): $(STATIC_TARGET)($(OBJS))
+
+.PHONY: clean
 clean:
-	rm -f $(TGTDIR)/*.o $(TGTDIR)/*.so
-
-# End file.
+	rm -f $(TGTDIR)/*.o $(SHARED_TARGET) $(STATIC_TARGET)
