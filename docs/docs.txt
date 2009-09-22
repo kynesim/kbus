@@ -621,7 +621,8 @@ is room on the message queue again.
 
       Of course, if a sender binds to listen to the name it uses for its
       request, then it will get a copy of the request as sent, and it will
-      also get (an extra) copy of the reply.
+      also get (an extra) copy of the reply. But see `Receiving messages once
+      only`_.
 
 Listeners
 ---------
@@ -674,7 +675,8 @@ a Reply message through the KSock from which the Request was read.
 
 It is perfectly legitimate to bind to a message as both replier and listener,
 in which case two copies of the message will be read, once as replier, and
-once as (just) listener.
+once as (just) listener (but see `Receiving messages once only`_).
+
 
 When a request message is read by the appropriate replier, KBUS will mark
 *that particular message* with the "you must reply" flag. This will not be set
@@ -890,6 +892,31 @@ Thus "select" for the write case checks whether it is allowed to call
                     assert listener2 in w
                     assert x == []
 
+Receiving messages once only
+----------------------------
+In normal usage (and by default), if a KSock binds to a message name multiple
+times, it will receive multiple copies of a message. This can happen:
+
+* explicitly (the KSock deliberately and explicitly binds to the same name
+  more than once, seeking this effect).
+* as a result of binding to a message name and a wildcard that includes the
+  same name, or two overlapping wildcards.
+* as a result of binding as Replier to a name, and also as Listener to the
+  same name (possibly via a wildcard). In this case, multiple copies will
+  only be received when a Request with that name is made.
+
+Several programmers have complained that the last case, in particular, is very
+inconvenient, and thus the "receive a message once only" facility has been
+added.
+
+Using the MSGONCEONLY IOCTL, it is possible to tell a KSock that only one copy
+of a particular message should be received, even if multiple are "due". In the
+case of the Replier/Listener copies, it will always be the message to which
+the Replier should reply (the one with WANT_YOU_TO_REPLY set) that will be
+received.
+
+Please use this facility with care, and only if you really need it.
+
 IOCTLS
 ------
 The KBUS ioctls are:
@@ -922,7 +949,12 @@ The KBUS ioctls are:
                 queue length.
 :NUMMSGS:       Determine how many messages are outstanding in this KSock's
                 read queue.
-
+:UNREPLIEDTO:   Determines how many Requests (marked "WANT_YOU_TO_REPLY")
+                this KSock still needs to reply to. This is primarily a
+                development tool.
+:MSGONLYONCE:   Determines whether only once copy of a message will be
+                received, even if the message name is bound to multiple times.
+                May also be used to query the current state.
 
 /proc/kbus/bindings
 -------------------
