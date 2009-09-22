@@ -114,6 +114,23 @@ int   kbus_ksock_close          (ksock ks);
  */
 int   kbus_ksock_bind           (ksock ks, const char *name, uint32_t replier);
 
+/** Indicate/query if multiply bound messages should be received only once.
+ *
+ * By default, if a KSock binds a message name more than once, it will receive
+ * a copy of a message (with that name) for each binding.
+ *
+ * This function can be used to request that only once copy of the message is
+ * received. Note that if one of the messages is a Request to which this KSock
+ * is bound as Replier, then it will always be the Request marked as "you must
+ * reply" that will be received.
+ *
+ * @param request IN    This should be 0 to choose the default (as many
+ * messages as bindings), 1 to choose "only once" mode, and 0xFFFFFFFF
+ * to just return the current choice, without changing it.
+ * @return 0 or 1 (the current state) on success, < 0 on failure.
+ */
+int   kbus_ksock_only_once(ksock ks, uint32_t request);
+
 /** Return a number describing this ksock endpoint uniquely for this
  *  (local) kbus instance; can be used to decide if two distinct fds
  *  point to separate ksocks.

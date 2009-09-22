@@ -70,6 +70,28 @@ int kbus_ksock_bind(ksock ks, const char *name, uint32_t replier)
   return rv;
 }
 
+int kbus_ksock_only_once(ksock ks, uint32_t request)
+{
+  int           rv;
+  uint32_t      array[1];
+
+  switch (request)
+  {
+  case 0:
+  case 1:
+  case 0xFFFFFFFF:
+    break;
+  default:
+    return -EINVAL;
+  }
+
+  array[0] = request;
+  rv = ioctl(ks, KBUS_IOC_MSGONLYONCE, array);
+  if (rv)
+    return rv;
+  else
+    return array[0];
+}
 
 int kbus_ksock_id(ksock ks, uint32_t *ksock_id) 
 {
