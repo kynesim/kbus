@@ -34,12 +34,18 @@ LD_LIB_FLAGS=-shared
 INCLUDE_FLAGS=-I ..
 CFLAGS=-fPIC -g
 
+ifeq ($(O),)
+	TGTDIR=.
+else
+	TGTDIR=$(O)/libkbus
+endif
+
 SRCS=libkbus.c
-OBJS=$(SRCS:%.c=$(O)/libkbus/%.o)
+OBJS=$(SRCS:%.c=$(TGTDIR)/%.o)
 DEPS=kbus.h
 
 SONAME=libkbus.so
-TARGET=$(O)/libkbus/libkbus.so
+TARGET=$(TGTDIR)/libkbus.so
 
 
 all: dirs $(TARGET)
@@ -51,12 +57,12 @@ install:
 	install -m 0755 $(TARGET) $(DESTDIR)/lib/libkbus.so
 
 dirs:
-	-mkdir -p $(O)/libkbus
+	-mkdir -p $(TGTDIR)
 
-$(O)/libkbus/%.o: %.c
+$(TGTDIR)/%.o: %.c
 	$(CC) $(INCLUDE_FLAGS) $(CFLAGS) -o $@ $(WARNING_FLAGS) -c $^
 
-$(O)/libkbus/%.o: $(DEPS)
+$(TGTDIR)/%.o: $(DEPS)
 
 
 $(TARGET): $(OBJS)
@@ -64,6 +70,6 @@ $(TARGET): $(OBJS)
 	$(LD) $(LD_LIB_FLAGS) -soname $(SONAME) -o $(TARGET) $(OBJS) -lc
 
 clean:
-	rm -f $(O)/libkbus/*.o $(O)/libkbus/*.so
+	rm -f $(TGTDIR)/*.o $(TGTDIR)/*.so
 
 # End file.
