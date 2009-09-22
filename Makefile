@@ -28,7 +28,6 @@
 
 LIBKBUSDIR=libkbus
 
-
 # If set to 1, we become extremely verbose. If set to 0, we don't.
 #
 # Whilst our debugging messages are output as KERN_DEBUG, this can
@@ -63,6 +62,7 @@ else
 #   to have some hope of keeping track
 # We use a "modules/<uname -r>" because that mirrors /lib/modules/ in the
 # "real" Linux layout
+.PHONY: default
 default:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= modules
 	mkdir -p $(KREL_DIR)
@@ -72,6 +72,7 @@ default:
 # For kbus global builds - build everything here, then move the target
 # out of the way and clean up. Turns out that the Kernel makefile
 # really doesn't like building object files in non-source directories,
+.PHONY: all
 all: 
 	rm -f kbus.mod.c *.o kbus.ko .kbus*.cmd Module.* modules.order 
 	rm -rf .tmp_versions
@@ -88,6 +89,7 @@ RULES_FILE = "/etc/udev/rules.d/$(RULES_NAME)"
 RULES_LINE = "KERNEL==\"kbus[0-9]*\",  MODE=\"0666\", GROUP=\"admin\""
 # The mechanism is a bit hacky (!) - first we make sure we've got a local
 # copy of the file we want, then we copy it into place
+.PHONY: rules
 rules:
 	@ if [ ! -e $(RULES_NAME) ]; \
 	then echo $(RULES_LINE) > $(RULES_NAME); \
@@ -97,6 +99,7 @@ rules:
 	else sudo cp $(RULES_NAME) $(RULES_FILE) ; \
 	fi
 
+.PHONY: install
 install:
 	-mkdir -p $(DESTDIR)/kmodules
 	install -m 0755 $(O)/kbus/kbus.ko $(DESTDIR)/kmodules/kbus.ko
@@ -108,9 +111,11 @@ install:
 # Only remove "modules" if we're doing a bigger clean, as there might
 # be subdirectories from previous builds that we don't want to lose on
 # a normal clean
+.PHONY: distclean
 distclean:
 	rm -rf modules
 
+.PHONY: clean
 clean:
 	rm -f kbus.mod.c *.o kbus.ko .kbus*.cmd Module.* modules.order 
 	rm -rf .tmp_versions
