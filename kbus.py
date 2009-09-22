@@ -1461,6 +1461,7 @@ class KSock(object):
     IOC_MAXMSGS     = _IOWR(IOC_MAGIC, 11, ctypes.sizeof(ctypes.c_char_p))
     IOC_NUMMSGS     = _IOR(IOC_MAGIC,  12, ctypes.sizeof(ctypes.c_char_p))
     IOC_UNREPLIEDTO = _IOR(IOC_MAGIC,  13, ctypes.sizeof(ctypes.c_char_p))
+    IOC_MSGONLYONCE = _IOR(IOC_MAGIC,  14, ctypes.sizeof(ctypes.c_char_p))
 
     def __init__(self, which=0, mode='r'):
         if mode not in ('r', 'rw'):
@@ -1617,6 +1618,41 @@ class KSock(object):
         """
         id = array.array('L', [0])
         fcntl.ioctl(self.fd, KSock.IOC_UNREPLIEDTO, id, True)
+        return id[0]
+
+    def want_messages_once(self, only_once=False, just_ask=False):
+        """Determine whether multiply-bound messages are only received once.
+
+        Determine whether we should receive a particular message once, even if
+        it we are both a Replier and Listener for the message, or if it we are
+        registered more than once as a Listener for the message name.
+
+        Note that in the case of a Request that we should reply to, we will
+        always get the Request, and it will be the Listener's version of the
+        message that will be "dropped".
+
+        The default is to receive each message as many times as we are bound to
+        its name.
+
+        * if 'only_once' is true then we want to receive each message once only.
+        * if 'just_ask' is true, then we just want to find out the current state
+          of the flag, and 'only_once' will be ignored.
+
+        Returns the previous value of the flag (i.e., what it used to be set to).
+        Which, if 'just_ask' is true, will also be the current state.
+
+        Beware that setting this flag affects how messages are added to the
+        KSock's message queue *as soon as it is set* - so changing it and then
+        changing it back "at once" is not (necessarily) a null operation.
+        """
+        if just_ask:
+            val = 0xFFFFFFFF
+        elif only_once:
+            val = 1
+        else:
+            val = 0
+        id = array.array('L', [val])
+        fcntl.ioctl(self.fd, KSock.IOC_MSGONLYONCE, id, True)
         return id[0]
 
     def write_msg(self, message):

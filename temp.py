@@ -13,64 +13,56 @@ time.sleep(0.5)
 
 
 try:
-    print '===================================================================='
-    sender = KSock(0,'rw')
-    listener = KSock(0,'rw')
+    with KSock(0,'rw') as sender:
+        with KSock(0,'rw') as listener:
 
-    print 'Sender   is',sender.ksock_id()
-    print 'Listener is',listener.ksock_id()
+            def test():
+                m = Message('$.fred.MSG')
+                m_id = sender.send_msg(m)
+                print 'Message id',m_id
 
-    listener.bind('$.fred.MSG')
-    listener.bind('$.fred.REQ',True)
-    print '/proc/kbus/bindings:'
-    os.system('cat /proc/kbus/bindings')
-    print '--------------------------------------------------------------------'
+                print 'Oustanding messages',listener.num_messages()
 
-    print 'Unreplied to',listener.num_unreplied_to()
+                for msg in listener:
+                    print 'Message id',msg.id
 
-    r = Request('$.fred.REQ','Hello')
-    print 'Sending:         ', r
-    sender.send_msg(r)
+                print '...'
 
-    print 'Reading request: ',
-    b = listener.read_next_msg()
-    print b
-    print 'Unreplied to',listener.num_unreplied_to()
+                r = Request('$.fred.REQ')
+                r_id = sender.send_msg(r)
+                print 'Message id',r_id
+                print 'Oustanding messages',listener.num_messages()
 
-    c = reply_to(b)
-    print 'Replying with:   ',c
-    listener.send_msg(c)
-    print 'Unreplied to',listener.num_unreplied_to()
+                for msg in listener:
+                    print 'Message id',msg.id,'our request',msg.wants_us_to_reply()
 
-    #a = Announcement('$.fred.MSG','Something')
-    #print 'Sending:       ', a
-    #sender.send_msg(a)
+            listener.bind('$.fred.MSG')
+            listener.bind('$.fred.MSG')
+            listener.bind('$.fred.MSG')
 
-    print '/proc/kbus/bindings:'
-    os.system('cat /proc/kbus/bindings')
-    print '/proc/kbus/stats:'
-    os.system('cat /proc/kbus/stats')
+            only_once = listener.want_messages_once(just_ask=True)
+            print 'Only once',only_once
+            listener.bind('$.fred.REQ')
+            listener.bind('$.fred.REQ',True)
 
-    print '--------------------------------------------------------------------'
-    print 'Close sender'
-    sender.close()
-    print 'Unreplied to',listener.num_unreplied_to()
+            print '1'
+            test()
 
-    print '/proc/kbus/bindings:'
-    os.system('cat /proc/kbus/bindings')
-    print '/proc/kbus/stats:'
-    os.system('cat /proc/kbus/stats')
+            only_once = listener.want_messages_once(True)
+            print 'Only once was',only_once
+            only_once = listener.want_messages_once(just_ask=True)
+            print 'Only once now',only_once
 
-    print '--------------------------------------------------------------------'
-    print 'Close listener'
-    listener.close()
+            print '2'
+            test()
 
-    print '/proc/kbus/bindings:'
-    os.system('cat /proc/kbus/bindings')
-    print '/proc/kbus/stats:'
-    os.system('cat /proc/kbus/stats')
+            only_once = listener.want_messages_once(False)
+            print 'Only once was',only_once
+            only_once = listener.want_messages_once(just_ask=True)
+            print 'Only once now',only_once
 
-    print '===================================================================='
+            print '3'
+            test()
 
 finally:
     os.system('sudo rmmod kbus')

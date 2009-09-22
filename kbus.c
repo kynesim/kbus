@@ -206,8 +206,9 @@ struct kbus_read_msg {
  * 'id' is the unique id for this file descriptor - it enables stateful message
  * transtions, etc. It is local to the particular KBUS device.
  *
- * 'last_msg_id' is the message id of the last message that was (successfully)
- * written to this file descriptor. It is needed when constructing a reply.
+ * 'last_msg_id_sent' is the message id of the last message that was
+ * (successfully) written to this file descriptor. It is needed when
+ * constructing a reply.
  *
  * We have a queue of messages waiting for us to read them, in 'message_queue'.
  * 'message_count' is how many messages are in the queue, and 'max_messages'
@@ -219,12 +220,12 @@ struct kbus_read_msg {
  */
 struct kbus_private_data {
 	struct list_head	 list;
-	struct kbus_dev		*dev;		/* Which device we are on */
-	uint32_t	 	 id;		/* Our own id */
-	struct kbus_msg_id	 last_msg_id;	/* Last message written to us */
-	uint32_t		 message_count;	/* How many messages for us */
-	uint32_t		 max_messages;	/* How many messages allowed */
-	struct list_head	 message_queue;	/* Messages for us */
+	struct kbus_dev		*dev;		 /* Which device we are on */
+	uint32_t	 	 id;		 /* Our own id */
+	struct kbus_msg_id	 last_msg_id_sent;  /* As it says - see above */
+	uint32_t		 message_count;	 /* How many messages for us */
+	uint32_t		 max_messages;	 /* How many messages allowed */
+	struct list_head	 message_queue;	 /* Messages for us */
 
 	/* Wait for something to appear in the message_queue */
 	wait_queue_head_t	 read_wait;
@@ -312,6 +313,36 @@ struct kbus_private_data {
 	 * it was implemented first.
 	 * XXX ---------------------------------------------------------- XXX
 	 */
+
+	/*
+	 * By default, if a KSock binds to a message name as both Replier and
+	 * Listener (typically by binding to a specific message name as Replier
+	 * and to a wildcard including it as Listener), and a Reqest of that
+	 * name is sent to that KSock, it will get the message once as Replier
+	 * (marked "WANT_YOU_TO_REPLY"), and once as listener.
+	 * 
+	 * This is technically sensible, but can be irritating to the end user
+	 * who really often only wants to receive the message once.
+	 *
+	 * If "messages_only_once" is set, then when a message is about to be
+	 * put onto a KSocks message queue, it will only be added if it (i.e.,
+	 * a message with the same id) has not already just been added. This
+	 * is safe because Requests to the specific Replier are always dealt
+	 * with first.
+	 *
+	 * As a side-effect, which I think also makes sense, this will also
+	 * mean that if a Listener has bound to the same message name multiple
+	 * times (as a Listener), then they will only get the message once.
+	 */
+	int			 messages_only_once;
+	/*
+	 * Messages can be added to either end of our message queue (i.e.,
+	 * depending on whether they're urgent or not). This means that the
+	 * "only once" mechanism needs to check both ends of the queue (which
+	 * is a pain). Or we can just remember the message id of the last
+	 * message pushed onto the queue. Which is much simpler.
+	 */
+	struct kbus_msg_id	 msg_id_just_pushed;
 };
 
 /* What is a sensible number for the default maximum number of messages? */
@@ -1118,7 +1149,8 @@ static void kbus_empty_write_msg(struct kbus_private_data *priv)
  * We assume the message has been checked for sanity.
  *
  * 'for_replier' is true if this particular message is being pushed to the
- * message's replier's queue.
+ * message's replier's queue. Specifically, it's true if this is a Reply
+ * to this KSock, or a Request aimed at this KSock (as Replier).
  *
  * Returns 0 if all goes well, or -EFAULT if we can't allocate datastructures.
  */
@@ -1151,6 +1183,44 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 		       msg->name_len,msg->name);
 		return -EBADMSG;
 	}
+
+
+	// --------------------------------------------------------------------
+	// XXX NEW CODE
+	/*
+	 * 1. Check to see if this KSock has the "only one copy
+	 *    of a message" flag set.
+	 * 2. If it does, check if our message (id) is already on
+	 *    the queue, and if it is, just skip adding it.
+	 *
+	 * (this means if the KSock was destined to get the message
+	 * several times, either as Replier and Listener, or as
+	 * multiple Listeners to the same message name, it will only
+	 * get it once, for this "push")
+	 */
+	// We *always* just push the message if "for_replier" is set
+	if (priv->messages_only_once && !for_replier) {
+		/*
+		 * 1. We've been asked to only send one copy of a message
+		 *    to each KSock that should receive it.
+		 * 2. This is not a Reply (to our KSock) or a Request (to
+		 *    our KSock as Replier)
+		 *
+		 * So, given that, has a message with that id already been
+		 * added to the message queue?
+		 */
+		if (kbus_same_message_id(&priv->msg_id_just_pushed,
+					 msg->id.network_id,
+					 msg->id.serial_num)) {
+#if VERBOSE_DEBUG
+			printk(KERN_DEBUG "kbus:   %u/%u Ignoring message under 'once only' rule\n",
+			       priv->dev->index,priv->id);
+#endif
+			return 0;
+		}
+	}
+	// --------------------------------------------------------------------
+
 
 	new_msg = kbus_copy_message(priv,msg);
 	if (!new_msg) return -EFAULT;
@@ -1204,6 +1274,7 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 	}
 
 	priv->message_count ++;
+	priv->msg_id_just_pushed = msg->id;
 
 	if (!kbus_same_message_id(&msg->in_reply_to,0,0)) {
 		/*
@@ -3591,7 +3662,7 @@ static int kbus_send(struct kbus_private_data	*priv,
 	}
 
 	/* Also, remember this as the "message we last (tried to) send" */
-	priv->last_msg_id = msg->id;
+	priv->last_msg_id_sent = msg->id;
 
 	/*
 	 * Figure out who should receive this message, and write it to them
@@ -3622,8 +3693,8 @@ done:
 	}
 
 	if (retval == 0 || retval == -EAGAIN) {
-		if (copy_to_user((void *)arg, &priv->last_msg_id,
-				 sizeof(priv->last_msg_id)))
+		if (copy_to_user((void *)arg, &priv->last_msg_id_sent,
+				 sizeof(priv->last_msg_id_sent)))
 			retval = -EFAULT;
 	}
 	return retval;
@@ -3656,6 +3727,38 @@ static int kbus_maxmsgs(struct kbus_private_data	*priv,
 		priv->max_messages = requested_max;
 
 	return __put_user(priv->max_messages, (uint32_t __user *)arg);
+}
+
+static int kbus_onlyonce(struct kbus_private_data	*priv,
+			 struct kbus_dev		*dev,
+			 unsigned long			 arg)
+{
+	int		retval = 0;
+	uint32_t	only_once;
+	int		old_value = priv->messages_only_once;
+
+	retval = __get_user(only_once, (uint32_t __user *)arg);
+	if (retval) return retval;
+
+#if VERBOSE_DEBUG
+	printk(KERN_DEBUG "kbus: %u/%u ONLYONCE requests %u (was %d)\n",
+	       priv->dev->index,priv->id, only_once, old_value);
+#endif
+
+	switch (only_once) {
+	case 0:
+		priv->messages_only_once = false;
+		break;
+	case 1:
+		priv->messages_only_once = true;
+		break;
+	case 0xFFFFFFFF:
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return __put_user(old_value, (uint32_t __user *)arg);
 }
 
 static int kbus_ioctl(struct inode *inode, struct file *filp,
@@ -3795,11 +3898,11 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 		 */
 #if VERBOSE_DEBUG
 		printk(KERN_DEBUG "kbus: %u/%u LASTSENT %u:%u\n",dev->index,id,
-		       priv->last_msg_id.network_id,
-		       priv->last_msg_id.serial_num);
+		       priv->last_msg_id_sent.network_id,
+		       priv->last_msg_id_sent.serial_num);
 #endif
-		if (copy_to_user((void *)arg, &priv->last_msg_id,
-				      sizeof(priv->last_msg_id)))
+		if (copy_to_user((void *)arg, &priv->last_msg_id_sent,
+				      sizeof(priv->last_msg_id_sent)))
 			retval = -EFAULT;
 		break;
 
@@ -3817,24 +3920,31 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 
 	case KBUS_IOC_NUMMSGS:
 		/* How many messages are in our queue? */
-		{
 #if VERBOSE_DEBUG
-			printk(KERN_DEBUG "kbus: %u/%u NUMMSGS %d\n",
-			       dev->index,id,priv->message_count);
+		printk(KERN_DEBUG "kbus: %u/%u NUMMSGS %d\n",
+		       dev->index,id,priv->message_count);
 #endif
-			retval = __put_user(priv->message_count, (uint32_t __user *)arg);
-		}
+		retval = __put_user(priv->message_count, (uint32_t __user *)arg);
 		break;
 
 	case KBUS_IOC_UNREPLIEDTO:
 		/* How many Requests (to us) do we still owe Replies to? */
-		{
 #if VERBOSE_DEBUG
-			printk(KERN_DEBUG "kbus: %u/%u UNREPLIEDTO %d\n",
-			       dev->index,id,priv->num_replies_unsent);
+		printk(KERN_DEBUG "kbus: %u/%u UNREPLIEDTO %d\n",
+		       dev->index,id,priv->num_replies_unsent);
 #endif
-			retval = __put_user(priv->num_replies_unsent, (uint32_t __user *)arg);
-		}
+		retval = __put_user(priv->num_replies_unsent, (uint32_t __user *)arg);
+		break;
+
+	case KBUS_IOC_MSGONLYONCE:
+		/*
+		 * Should we receive a given message only once?
+		 *
+		 * arg in: 0 (for no), 1 (for yes), 0xFFFFFFFF (for query)
+		 * arg out: the previous value, before we were called
+		 * return: 0 means OK, otherwise not OK
+		 */
+		retval = kbus_onlyonce(priv, dev, arg);
 		break;
 
 	default:  /* *Should* be redundant, if we got our range checks right */
@@ -4117,8 +4227,8 @@ static int kbus_read_proc_stats(char *buf, char **start, off_t offset,
 
 				len += sprintf(buf+len, ksock_fmt,
 					       ptr->id,
-					       ptr->last_msg_id.network_id,
-					       ptr->last_msg_id.serial_num,
+					       ptr->last_msg_id_sent.network_id,
+					       ptr->last_msg_id_sent.serial_num,
 					       ptr->message_count, ptr->max_messages,
 					       (total-left), total,
 					       ptr->write_msg_len, ptr->write_msg_size,

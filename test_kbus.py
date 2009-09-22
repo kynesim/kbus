@@ -2692,4 +2692,107 @@ class TestKernelModule:
                 listener.send_msg(a)
                 assert listener.num_unreplied_to() == 0, 'Replied to request'
 
+    def test_toggling_only_once(self):
+        """Test we can set/unset/query the "messages only once" flag.
+        """
+        with KSock(0,'rw') as listener:
+
+            only_once = listener.want_messages_once(just_ask=True)
+            assert only_once == 0, 'default only_once is 0/False'
+
+            only_once = listener.want_messages_once(True)
+            assert only_once == 0, 'return value is previous state, 0'
+            only_once = listener.want_messages_once(just_ask=True)
+            assert only_once == 1, 'and now it is set to 1/True'
+
+            only_once = listener.want_messages_once(False)
+            assert only_once == 1, 'return value is previous state, 1'
+            only_once = listener.want_messages_once(just_ask=True)
+            assert only_once == 0, 'and now it is set to 0/False again'
+
+    def test_using_only_once(self):
+        """Check that the "only once" mechanism works as advertised.
+        """
+        with KSock(0,'rw') as sender:
+            with KSock(0,'rw') as listener:
+
+                listener.bind('$.fred.MSG')
+                listener.bind('$.fred.MSG')
+                listener.bind('$.fred.MSG')
+
+                listener.bind('$.fred.REQ')
+                listener.bind('$.fred.REQ',True)
+
+                # ------------------------------------------------------------
+                def test_multiple():
+                    m = Message('$.fred.MSG')
+                    m_id = sender.send_msg(m)
+                    assert listener.num_messages() == 3, 'Three copies of the message'
+
+                    for msg in listener:
+                        assert m_id == msg.id, 'All the same message'
+
+                    r = Request('$.fred.REQ')
+                    r_id = sender.send_msg(r)
+                    assert listener.num_messages() == 2, 'Two copies of the request'
+
+                    x = listener.read_next_msg()
+                    assert x.id == r_id, 'Same message 1'
+                    assert x.wants_us_to_reply(), 'First copy is OUR request'
+
+                    x = listener.read_next_msg()
+                    assert x.id == r_id, 'Same message 2'
+                    assert not x.wants_us_to_reply(), 'Second copy is a copy'
+
+                    assert listener.num_messages() == 0, 'No messages left'
+
+                # ------------------------------------------------------------
+                def test_single():
+                    m = Message('$.fred.MSG')
+                    m_id = sender.send_msg(m)
+                    assert listener.num_messages() == 1, 'One copy of the message'
+
+                    m = listener.read_next_msg()
+                    assert m_id == m.id, 'The same message'
+
+                    r = Request('$.fred.REQ')
+                    r_id = sender.send_msg(r)
+                    assert listener.num_messages() == 1, 'One copy of the request'
+
+                    x = listener.read_next_msg()
+                    assert x.id == r_id, 'The same message'
+                    assert x.wants_us_to_reply(), 'It is OUR request'
+
+                    assert listener.num_messages() == 0, 'No messages left'
+
+                # ------------------------------------------------------------
+                only_once = listener.want_messages_once(just_ask=True)
+                assert only_once == 0, 'return value is current state, 0'
+                test_multiple()
+
+                # ------------------------------------------------------------
+                only_once = listener.want_messages_once(False)
+                assert only_once == 0, 'return value is previous state, 0'
+                test_multiple()
+
+                # ------------------------------------------------------------
+                only_once = listener.want_messages_once(True)
+                assert only_once == 0, 'return value is previous state, 0'
+                test_single()
+
+                # ------------------------------------------------------------
+                only_once = listener.want_messages_once(True)
+                assert only_once == 1, 'return value is previous state, 1'
+                test_single()
+
+                # ------------------------------------------------------------
+                only_once = listener.want_messages_once(False)
+                assert only_once == 1, 'return value is previous state, 1'
+                test_multiple()
+
+                # ------------------------------------------------------------
+                only_once = listener.want_messages_once(True)
+                assert only_once == 0, 'return value is previous state, 0'
+                test_single()
+
 # vim: set tabstop=8 shiftwidth=4 expandtab:

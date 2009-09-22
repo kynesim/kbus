@@ -491,8 +491,24 @@ static inline uint32_t *kbus_end_ptr(struct kbus_entire_message  *entire)
  */
 #define KBUS_IOC_UNREPLIEDTO  _IOR( KBUS_IOC_MAGIC, 13, char *)
 
+/*
+ * MSGONLYONCE - should we receieve a message only once?
+ *
+ * This IOCTL tells a KSock whether it should only receive a particular message
+ * once, even if it is both a Replier and Listener for the message (in which
+ * case it will always get the message as Replier, if appropriate), or if it is
+ * registered as multiple Listeners for the message.
+ *
+ * arg(in): uint32_t, 1 to change to "only once", 0 to change to the default,
+ * 0xFFFFFFFF to just return the current/previous state.
+ * arg(out): uint32_t, the previous state.
+ * retval: 0 for success, negative for failure (-EINVAL if arg in was not one
+ * of the specified values)
+ */
+#define KBUS_IOC_MSGONLYONCE  _IOR( KBUS_IOC_MAGIC, 14, char *)
+
 /* XXX If adding another IOCTL, remember to increment the next number! XXX */
-#define KBUS_IOC_MAXNR	13
+#define KBUS_IOC_MAXNR	14
 
 #if ! __KERNEL__ && defined(__cplusplus)
 }
