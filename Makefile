@@ -48,9 +48,12 @@ else
 	# We need to ask the kernel build system to do its
 	# thing
 	#
-	# Unless we've been given a value for KERNELDIR, guess the kernel build
-	# system is in the normal place (depending on what our system is)
-	KERNELDIR ?= /lib/modules/$(shell uname -r)/build
+	# If we haven't been given a value for KERNELDIR, or if we've been
+	# given an empty value, then guess the kernel build system is in the
+	# normal place (depending on what our system is)
+ifeq ($(strip $(KERNELDIR)),)
+	KERNELDIR = /lib/modules/$(shell uname -r)/build
+endif
 
 	PWD = $(shell pwd)
 	KREL_DIR = modules/$(shell uname -r)
