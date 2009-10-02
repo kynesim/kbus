@@ -50,19 +50,37 @@ static int create_kbus_message(kbus_msg_t **out_hdr,
 			       const char *msg_name, const char *fmt, 
 			       const char *data, int expect_reply);
 
-static int do_listen(const char *msg_name);
+static int do_listen(const char *msg_name, int bus_number);
 static int do_send(const char *msg_name, const char *fmt, 
-		   const char *data, int expect_reply);
+		   const char *data, int expect_reply, int bus_number);
+
+static const char *bus_device_name(int bus_number);
 
 int main(int argn, char *args[])
 {
+  int bus_number = 0;
+
   if (argn < 2)
     {
       usage();
       return 1;
     }
   
+  if (!strcmp(args[1], "-bus") || !strcmp(args[1], "--bus"))
+    {
+      if (argn < 3)
+	{
+	  fprintf(stderr, "kmsg -bus must have an argument.\r\n");
+	  usage();
+	}
+      bus_number = atoi(args[2]);
+      args += 2; argn -= 2;
+
+    }
+
   const char *cmd= args[1];
+
+
   if (!strcmp(cmd, "listen"))
     {
       if (argn != 3)
@@ -71,7 +89,7 @@ int main(int argn, char *args[])
 	  usage();
 	  return 2;
 	}
-      return do_listen(args[2]);
+      return do_listen(args[2], bus_number);
     }
   else if (!strcmp(cmd, "send") || 
 	   !strcmp(cmd, "call"))
@@ -84,7 +102,7 @@ int main(int argn, char *args[])
 	}
       // We're expecting a reply iff the command is not 'send'
       return do_send(args[2], args[3], args[4], 
-		     strcmp(cmd, "send"));
+		     strcmp(cmd, "send"), bus_number);
     }
   else
     {
@@ -96,7 +114,7 @@ int main(int argn, char *args[])
 
 static void usage(void)
 {
-  fprintf(stderr, "Syntax: kmsg [send|listen] [name] <[data]>\n"
+  fprintf(stderr, "Syntax: kmsg <-bus NN> [send|listen] [name] <[data]>\n"
 	  "\n"
 	  "kmsg listen [name]  - bind to a ksock and print every message you recieve.\n"
 	  "kmsg send [name] [fmt] [data]  - Send the given message.\n"
@@ -106,12 +124,13 @@ static void usage(void)
 	  "\n");
 }
 
-static int do_listen(const char *msg_name)
+static int do_listen(const char *msg_name, int bus_number)
 {
   ksock the_socket;
   int rv;
 
-  the_socket = kbus_ksock_open("/dev/kbus0", O_RDONLY);
+
+  the_socket = kbus_ksock_open(bus_device_name(bus_number), O_RDONLY);
   if (the_socket < 0)
     {
       fprintf(stderr, "Cannot open /dev/kbus0 - %s [%d] \n", 
@@ -235,7 +254,7 @@ static int create_kbus_message(kbus_msg_t **out_hdr,
 }
 
 static int do_send(const char *msg_name, const char *fmt, 
-		   const char *data, int expect_reply)
+		   const char *data, int expect_reply, int bus_number)
 {
   int rv;
   kbus_msg_t *kmsg;
@@ -250,7 +269,7 @@ static int do_send(const char *msg_name, const char *fmt,
   /* Otherwise .. */
   int ks;
 
-  ks = kbus_ksock_open("/dev/kbus0", O_RDWR);
+  ks = kbus_ksock_open(bus_device_name(bus_number), O_RDWR);
   if (ks < 0)
     {
       fprintf(stderr, "Cannot open /dev/kbus0 - %s [%d]\n", 
@@ -313,6 +332,13 @@ static int do_send(const char *msg_name, const char *fmt,
   // No need to kill everything - we're about exit .. 
    
   return 0;
+}
+
+static const char *bus_device_name(int n)
+{
+  static char buf[64];
+  sprintf(buf, "/dev/kbus%d", n);
+  return buf;
 }
 
 
