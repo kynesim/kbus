@@ -482,7 +482,6 @@ static inline uint32_t *kbus_end_ptr(struct kbus_entire_message  *entire)
  * retval: 0 for success, negative for failure
  */
 #define KBUS_IOC_NUMMSGS  _IOR( KBUS_IOC_MAGIC, 12, char *)
-
 /*
  * UNREPLIEDTO - determine the number of requests (marked "WANT_YOU_TO_REPLY")
  * which we still need to reply to.
@@ -490,9 +489,8 @@ static inline uint32_t *kbus_end_ptr(struct kbus_entire_message  *entire)
  * retval: 0 for success, negative for failure
  */
 #define KBUS_IOC_UNREPLIEDTO  _IOR( KBUS_IOC_MAGIC, 13, char *)
-
 /*
- * MSGONLYONCE - should we receieve a message only once?
+ * MSGONLYONCE - should we receive a message only once?
  *
  * This IOCTL tells a KSock whether it should only receive a particular message
  * once, even if it is both a Replier and Listener for the message (in which
@@ -506,9 +504,23 @@ static inline uint32_t *kbus_end_ptr(struct kbus_entire_message  *entire)
  * of the specified values)
  */
 #define KBUS_IOC_MSGONLYONCE  _IOR( KBUS_IOC_MAGIC, 14, char *)
+/*
+ * VERBOSE - should KBUS output verbose "printk" messages (for this device)?
+ *
+ * This IOCTL tells a KSock whether it should output debugging messages. It is
+ * only effective if the kernel module has been built with the VERBOSE_DEBUGGING
+ * flag set.
+ *
+ * arg(in): uint32_t, 1 to change to "verbose", 0 to change to "quiet",
+ * 0xFFFFFFFF to just return the current/previous state.
+ * arg(out): uint32_t, the previous state.
+ * retval: 0 for success, negative for failure (-EINVAL if arg in was not one
+ * of the specified values)
+ */
+#define KBUS_IOC_VERBOSE  _IOR( KBUS_IOC_MAGIC, 15, char *)
 
 /* XXX If adding another IOCTL, remember to increment the next number! XXX */
-#define KBUS_IOC_MAXNR	14
+#define KBUS_IOC_MAXNR	15
 
 #if ! __KERNEL__ && defined(__cplusplus)
 }
