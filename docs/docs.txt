@@ -955,6 +955,9 @@ The KBUS ioctls are:
 :MSGONLYONCE:   Determines whether only once copy of a message will be
                 received, even if the message name is bound to multiple times.
                 May also be used to query the current state.
+:VERBOSE:       Determines whether verbose kernel messages should be output or
+                not. Affects the *device* (the entire KSock).
+                May also be used to query the current state.
 
 /proc/kbus/bindings
 -------------------

@@ -131,6 +131,22 @@ int   kbus_ksock_bind           (ksock ks, const char *name, uint32_t replier);
  */
 int   kbus_ksock_only_once(ksock ks, uint32_t request);
 
+/** Indicate/query if a KSock should output verbose kernel messages.
+ *
+ * By default, a KSock does not output verbose messages to the kernel log.
+ *
+ * This function can be used to request that verbose messages be output (or not).
+ * It may be used by any "open" KSock interface to affect the whole device.
+ * It will only have effect if the kernel module was built with the VERBOSE_DEBUG
+ * flag set.
+ *
+ * @param request IN    This should be 0 to choose minimal messages (the
+ * default), 1 to choose "verbose" mode, and 0xFFFFFFFF to just return the
+ * current choice, without changing it.
+ * @return 0 or 1 (the current state) on success, < 0 on failure.
+ */
+int   kbus_ksock_kernel_module_verbose(ksock ks, uint32_t request);
+
 /** Return a number describing this ksock endpoint uniquely for this
  *  (local) kbus instance; can be used to decide if two distinct fds
  *  point to separate ksocks.

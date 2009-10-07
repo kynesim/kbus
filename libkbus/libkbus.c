@@ -93,6 +93,29 @@ int kbus_ksock_only_once(ksock ks, uint32_t request)
     return array[0];
 }
 
+int kbus_ksock_kernel_module_verbose(ksock ks, uint32_t request)
+{
+  int           rv;
+  uint32_t      array[1];
+
+  switch (request)
+  {
+  case 0:
+  case 1:
+  case 0xFFFFFFFF:
+    break;
+  default:
+    return -EINVAL;
+  }
+
+  array[0] = request;
+  rv = ioctl(ks, KBUS_IOC_VERBOSE, array);
+  if (rv)
+    return rv;
+  else
+    return array[0];
+}
+
 int kbus_ksock_id(ksock ks, uint32_t *ksock_id) 
 {
   int rv;
