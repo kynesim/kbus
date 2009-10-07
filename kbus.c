@@ -2360,12 +2360,12 @@ static int kbus_release(struct inode *inode, struct file *filp)
 	struct kbus_private_data *priv = filp->private_data;
 	struct kbus_dev *dev = priv->dev;
 
+	if (down_interruptible(&dev->sem))
+		return -ERESTARTSYS;
+
 #if VERBOSE_DEBUG
 	printk(KERN_DEBUG "kbus: %u/%u RELEASE\n",dev->index,priv->id);
 #endif
-
-	if (down_interruptible(&dev->sem))
-		return -ERESTARTSYS;
 
 	kbus_empty_read_msg(priv);
 	kbus_free_read_msg(priv);
@@ -2748,14 +2748,14 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 	struct kbus_dev			*dev = priv->dev;
 	ssize_t				 retval = 0;
 
+
+	if (down_interruptible(&dev->sem))
+		return -EAGAIN;
+
 #if VERBOSE_DEBUG
 	printk(KERN_DEBUG "kbus: %u/%u WRITE count %d, pos %d\n",
 	       dev->index,priv->id,count,(int)*f_pos);
 #endif
-
-
-	if (down_interruptible(&dev->sem))
-		return -EAGAIN;
 
 	/*
 	 * If we've already started to try sending a message, we don't
@@ -2843,13 +2843,13 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 	uint32_t			 len, left;
 	uint32_t			 which = priv->read.which;
 
+	if (down_interruptible(&dev->sem))
+		return -EAGAIN;			/* Just try again later */
+
 #if VERBOSE_DEBUG
 	printk(KERN_DEBUG "kbus: %u/%u READ count %d, pos %d\n",
 	       dev->index,priv->id,count,(int)*f_pos);
 #endif
-
-	if (down_interruptible(&dev->sem))
-		return -EAGAIN;			/* Just try again later */
 
 	if (priv->read.hdr == NULL) {
 		/* No message to read at the moment */
@@ -4021,11 +4021,11 @@ static unsigned int kbus_poll(struct file *filp, poll_table *wait)
 	struct kbus_dev			*dev = priv->dev;
 	unsigned mask = 0;
 
+	down(&dev->sem);
+
 #if VERBOSE_DEBUG
 	printk(KERN_DEBUG "kbus: %u/%u POLL\n",dev->index,priv->id);
 #endif
-
-	down(&dev->sem);
 
 	/*
 	 * Did I wake up because there's a message available to be read?
