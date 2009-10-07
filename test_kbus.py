@@ -2795,4 +2795,48 @@ class TestKernelModule:
                 assert only_once == 0, 'return value is previous state, 0'
                 test_single()
 
+    def test_issue_6(self):
+        """Test issue 6 in the KBUS issue tracker.
+        """
+        with KSock(0,'rw') as replier:
+            replier.bind('$.fred',True)
+
+            with KSock(0,'rw') as sender:
+
+                r1 = Request('$.fred','one')
+                r2 = Request('$.fred','two')
+                r3 = Request('$.fred','three')
+
+                sender.write_msg(r1)
+                sender.send()
+
+                len1 = replier.next_msg()
+
+                sender.write_msg(r2)
+
+                m1 = replier.read_msg(len1)
+
+                sender.send()
+
+                x1 = reply_to(m1)
+                replier.write_msg(x1)
+
+                sender.write_msg(r3)
+
+                replier.send()
+
+                sender.send()
+
+                len2 = replier.next_msg()
+
+                m2 = replier.read_msg(len2)
+
+                x2 = reply_to(m2)
+                replier.write_msg(x2)
+
+                try:
+                    replier.send()
+                except:
+                    assert False, "Failed Issue 6 test"
+
 # vim: set tabstop=8 shiftwidth=4 expandtab:

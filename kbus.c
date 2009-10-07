@@ -107,13 +107,15 @@ struct kbus_message_binding {
  * there are, it seems sensible to bundle this up in its own datastructure.
  */
 struct kbus_msg_id_mem {
-	uint32_t		 count;
-	uint32_t		 size;
-	uint32_t		 max_count;
+	uint32_t		 count;		/* Number of entries in use */
+	uint32_t		 size;		/* Actual size of the array */
+	uint32_t		 max_count;	/* Max 'count' we've had */
 	/*
 	 * An array is probably the worst way to store a list of message ids,
 	 * but it's *very simple*, and should work OK for a smallish number of
 	 * message ids. So it's a place to start...
+	 *
+	 * Note the array may have "unused" slots, signified by message id {0:0}
 	 */
 	struct kbus_msg_id	*ids;
 };
@@ -593,7 +595,7 @@ static int kbus_remember_msg_id(struct kbus_private_data	*priv,
 	struct kbus_msg_id_mem	*mem = &priv->outstanding_requests;
 	int ii, which;
 #if VERBOSE_DEBUG
-	printk(KERN_DEBUG "kbus:   %u/%u Remembering outstanding request %u:%u (count=>%d)\n",
+	printk(KERN_DEBUG "kbus:   %u/%u Remembering outstanding request %u:%u (count->%d)\n",
 	       priv->dev->index,priv->id,
 	       id->network_id,id->serial_num,mem->count+1);
 #endif
@@ -629,8 +631,9 @@ static int kbus_remember_msg_id(struct kbus_private_data	*priv,
 		mem->size = new_size;
 		which = mem->count;
 	}
+	which = mem->count;
 done:
-	mem->ids[mem->count] = *id;
+	mem->ids[which] = *id;
 	mem->count ++;
 	if (mem->count > mem->max_count)
 		mem->max_count = mem->count;
@@ -675,7 +678,7 @@ static int kbus_forget_msg_id(struct kbus_private_data	*priv,
 			mem->ids[ii].serial_num = 0;
 			mem->count --;
 #if VERBOSE_DEBUG
-			printk(KERN_DEBUG "kbus:   %u/%u Forgot outstanding request %u:%u (count<=%d)\n",
+			printk(KERN_DEBUG "kbus:   %u/%u Forgot outstanding request %u:%u (count<-%d)\n",
 			       priv->dev->index,priv->id,
 			       id->network_id,id->serial_num,mem->count);
 #endif
@@ -684,7 +687,7 @@ static int kbus_forget_msg_id(struct kbus_private_data	*priv,
 		}
 	}
 #if VERBOSE_DEBUG
-	printk(KERN_DEBUG "kbus:   %u/%u Could not forget outstanding request %u:%u (count<=%d)\n",
+	printk(KERN_DEBUG "kbus:   %u/%u Could not forget outstanding request %u:%u (count<-%d)\n",
 	       priv->dev->index,priv->id,
 	       id->network_id,id->serial_num,mem->count);
 #endif

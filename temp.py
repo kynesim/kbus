@@ -13,56 +13,43 @@ time.sleep(0.5)
 
 
 try:
-    with KSock(0,'rw') as sender:
-        with KSock(0,'rw') as listener:
+    with KSock(0,'rw') as replier:
+        replier.bind('$.fred',True)
 
-            def test():
-                m = Message('$.fred.MSG')
-                m_id = sender.send_msg(m)
-                print 'Message id',m_id
+        with KSock(0,'rw') as sender:
 
-                print 'Oustanding messages',listener.num_messages()
+            r1 = Request('$.fred','one')
+            r2 = Request('$.fred','two')
+            r3 = Request('$.fred','three')
 
-                for msg in listener:
-                    print 'Message id',msg.id
+            sender.write_msg(r1)
+            sender.send()
 
-                print '...'
+            len1 = replier.next_msg()
 
-                r = Request('$.fred.REQ')
-                r_id = sender.send_msg(r)
-                print 'Message id',r_id
-                print 'Oustanding messages',listener.num_messages()
+            sender.write_msg(r2)
 
-                for msg in listener:
-                    print 'Message id',msg.id,'our request',msg.wants_us_to_reply()
+            m1 = replier.read_msg(len1)
 
-            listener.bind('$.fred.MSG')
-            listener.bind('$.fred.MSG')
-            listener.bind('$.fred.MSG')
+            sender.send()
 
-            only_once = listener.want_messages_once(just_ask=True)
-            print 'Only once',only_once
-            listener.bind('$.fred.REQ')
-            listener.bind('$.fred.REQ',True)
+            x1 = reply_to(m1)
+            replier.write_msg(x1)
 
-            print '1'
-            test()
+            sender.write_msg(r3)
 
-            only_once = listener.want_messages_once(True)
-            print 'Only once was',only_once
-            only_once = listener.want_messages_once(just_ask=True)
-            print 'Only once now',only_once
+            replier.send()
 
-            print '2'
-            test()
+            sender.send()
 
-            only_once = listener.want_messages_once(False)
-            print 'Only once was',only_once
-            only_once = listener.want_messages_once(just_ask=True)
-            print 'Only once now',only_once
+            len2 = replier.next_msg()
 
-            print '3'
-            test()
+            m2 = replier.read_msg(len2)
+
+            x2 = reply_to(m2)
+            replier.write_msg(x2)
+
+            replier.send()
 
 finally:
     os.system('sudo rmmod kbus')
