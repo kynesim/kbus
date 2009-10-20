@@ -3,7 +3,14 @@
 # Use ``O=<destination>`` for a remote build, ``STATIC=1`` for a static build,
 # ``STATIC=0`` for a shared build. Static builds are default for local builds,
 # shared builds default for remote builds.
+#
+ifdef CROSS_COMPILE
+CC=$(CROSS_COMPILE)gcc
+else
+CC=gcc
+endif
 
+# Note we assume a traditional Linux style environment in our flags
 CFLAGS=-I..
 LDFLAGS=-L$(LIBKBUSDIR)
 LIBS=-lkbus

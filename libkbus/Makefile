@@ -26,8 +26,15 @@
 #
 # ***** END LICENSE BLOCK *****
 
+ifdef CROSS_COMPILE
+CC=$(CROSS_COMPILE)gcc
+LD=$(CROSS_COMPILE)ld
+else
 CC=gcc
 LD=ld
+endif
+
+# Note we assume a traditional Linux style environment in our flags
 WARNING_FLAGS=-Wall -Werror
 DEBUG_FLAGS=
 LD_SHARED_FLAGS=-shared
