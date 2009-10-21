@@ -14,6 +14,9 @@ time.sleep(0.5)
 
 try:
     with KSock(0,'rw') as replier:
+
+        replier.kernel_module_verbose(verbose=False)
+
         replier.bind('$.fred',True)
 
         with KSock(0,'rw') as sender:

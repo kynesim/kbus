@@ -2618,8 +2618,8 @@ class TestKernelModule:
 
                 listener.bind('$.Fred')
 
-                # The maximum size of an entire "entire" message is 2000 bytes
-                MAX_SIZE = 2000
+                # The maximum size of an entire "entire" message is 2048 bytes
+                MAX_SIZE = 2048
                 max_data_len = MAX_SIZE - 64
 
                 data = 'x' * (max_data_len -1)

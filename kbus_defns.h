@@ -230,7 +230,7 @@ struct kbus_entire_message {
  *    "pointy" headers.
  */
 #define KBUS_MAX_NAME_LEN	1000
-#define KBUS_MAX_ENTIRE_LEN	2000
+#define KBUS_MAX_ENTIRE_LEN	2048
 
 /*
  * The length (in bytes) of the name after padding, allowing for a terminating
