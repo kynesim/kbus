@@ -85,13 +85,6 @@ typedef int ksock;
 #define KBUS_ENTIRE_TO_MSG(kms) ((kbus_msg_t *)(kms))
 
 
-/** Test if this is an entire message.
- *
- * @param kms A kbus message header
- * @return Non-zero for an entire message, zero for pointy
- */
-#define KBUS_ENTIRE_MSG_HEADER(kms) ((struct kbus_message_he))
-
 /** Open a ksock
  *
  * @param fname IN  KBus filename - /dev/kbusNN and typically /dev/kbus0.
@@ -261,8 +254,16 @@ int kbus_msg_create            (kbus_msg_t **kms,
                                 const void *data, uint32_t data_len, /* bytes */
 		                uint32_t flags);
 
-/** Create an entire message. We *do* take copies of your name and data,
+/** Create a short "entire" message. We *do* take copies of your name and data,
  *  you may free it staight away if you want.
+ *
+ *  "Entire" messages are limited in size (currently to 2048 bytes). That size
+ *  includes both the message header and the message data. Thus they are only
+ *  suitable for "short" messages.
+ *
+ *  Unless you really, really need the "copying the strings" functionality, and
+ *  are guaranteed to be sending short enough messages, please do not use this
+ *  funcion, use kbus_msg_create instead.
  *
  * @param[out] kms  on success, points to the created entire message.
  * @param[in]  name Pointer to the name the message should have.
@@ -272,17 +273,18 @@ int kbus_msg_create            (kbus_msg_t **kms,
  * @param[in]  flags  KBUS_BIT_XXX
  * @return 0 on success, < 0 and set errno on failure.
  */
-int kbus_msg_create_entire(kbus_msg_t **kms, 
-			   const char *name, uint32_t name_len,/*bytes*/
-			   const void *data, uint32_t data_len,/*bytes*/
-			   uint32_t flags);
+int kbus_msg_create_short(kbus_msg_t **kms, 
+			  const char *name, uint32_t name_len,/*bytes*/
+			  const void *data, uint32_t data_len,/*bytes*/
+			  uint32_t flags);
 
-/** Create a reply to a kbus message.  Behaves like kbus_msg_create 
- *  but the name if taken from the in_reply_to and the field are set
- *  correctly for a reply. We do not take copies of your name and data, 
- *  until the message is sent so you may not delete the passed memory 
- *  until a successful call to kbus_ksock_send_msg is made. (See 'pointy' 
- *  message in the kbus documentation for more info.)
+/** Create a reply to a kbus message.  Behaves like kbus_msg_create, 
+ *  but the message name is taken from the original (in_reply_to)
+ *  message, and the new message's fields are set correctly for a reply.
+ *  We do not take copies of your name and data, until the message is sent
+ *  so you may not delete the passed memory until a successful call to
+ *  kbus_ksock_send_msg is made. (See 'pointy' message in the kbus
+ *  documentation for more info.)
  *
  * @param[out] kms  on success, points to the created pointy message.
  * @param[in]  name Pointer to the name the message should have.
@@ -297,11 +299,19 @@ int kbus_msg_create_reply      (kbus_msg_t **kms,
 	                        const void *data, uint32_t data_len,
 			        uint32_t flags);
 
-/** Create an entire reply to a kbus message. Behaves like 
+/** Create a short "entire" reply to a kbus message. Behaves like 
  *  kbus_msg_create_reply but returns a pointer to an entire message.
  *
  *  In this case we *do* take copies for your name and data, free them
  *  at your leisure. 
+ *
+ *  "Entire" messages are limited in size (currently to 2048 bytes). That size
+ *  includes both the message header and the message data. Thus they are only
+ *  suitable for "short" messages, or, in this case, replies.
+ *
+ *  Unless you really, really need the "copying the strings" functionality, and
+ *  are guaranteed to be sending short enough messages, please do not use this
+ *  funcion, use kbus_msg_create_reply instead.
  *
  * @param[out] kms  on success, points to the created entire message.
  * @param[in]  name Pointer to the name the message should have.
@@ -311,11 +321,11 @@ int kbus_msg_create_reply      (kbus_msg_t **kms,
  * @param[in]  flags  KBUS_BIT_XXX
  * @return 0 on success, < 0 and set errno on failure.
  */
-int kbus_msg_create_entire_reply(kbus_msg_t **kms, 
-				 const kbus_msg_t *in_reply_to,
-				 const void *data, 
-				 uint32_t data_len, /* bytes */
-				 uint32_t flags);
+int kbus_msg_create_short_reply(kbus_msg_t **kms, 
+				const kbus_msg_t *in_reply_to,
+				const void *data, 
+				uint32_t data_len, /* bytes */
+				uint32_t flags);
 
 /** Get a pointer to the message name in the kbus message.  The data is not
  *  copied so the pointer returned points into the middle of the data in kms.

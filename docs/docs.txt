@@ -276,8 +276,10 @@ When writing/sending a "pointy" message, any size of message data is allowed
 user space as part of sending the message, and this can be slow).
 
 When writing an "entire" message, there is an absolute limit on how long the
-entire message may be, of 2000 bytes - this is to ensure that the entire
-message, when copied into kernel space, is less than a page.
+entire message may be, of 2048 bytes - this is to ensure that the entire
+message, when copied into kernel space, is less than a page. For this reason,
+sending "entire" messages should be thought of as sending "short" messages
+(the C library adopts this terminology in its API).
 
 When reading a message, an "entire" message is always returned, but since this
 is constructed in user space from an (internal, kernel space) "pointy"

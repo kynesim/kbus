@@ -289,7 +289,7 @@ static int write_out(int fd, char *data, size_t length ) {
 
 static int kbus_ksock_write_entire_msg(ksock ks, const kbus_msg_entire_t *kms)
 {
-  /* We don't support sending an "pointy" message */
+  /* We don't support sending a "pointy" message */
   if (!KBUS_MSG_IS_ENTIRE(kms)) {
     errno = EBADMSG;
     return -1;
@@ -352,18 +352,24 @@ int kbus_ksock_send_msg(ksock ks, const kbus_msg_t *kms, struct kbus_msg_id *msg
 #define KBUS_BYTE_TO_WORD_LENGTH(x) ((x + 3) / 4)
 
 
-int kbus_msg_create_entire(kbus_msg_t **kms, 
-			   const char *name, uint32_t name_len, /* bytes  */
-			   const void *data, uint32_t data_len, /* bytes */
-			   uint32_t flags) 
+int kbus_msg_create_short(kbus_msg_t **kms, 
+			  const char *name, uint32_t name_len, /* bytes  */
+			  const void *data, uint32_t data_len, /* bytes */
+			  uint32_t flags) 
 {
   int di = KBUS_ENTIRE_MSG_DATA_INDEX(name_len);
   int eg = KBUS_ENTIRE_MSG_END_GUARD_INDEX(name_len,data_len);
   kbus_msg_entire_t *buf;
+  size_t length = KBUS_ENTIRE_MSG_LEN(name_len, data_len);
 
   *kms = NULL;
+
+  if (length > KBUS_MAX_ENTIRE_LEN) {
+    errno = EMSGSIZE;
+    goto fail;
+  }
  
-  buf    = malloc(KBUS_ENTIRE_MSG_LEN(name_len, data_len));
+  buf    = malloc(length);
  
   if (!buf) {
     errno = ENOMEM;
@@ -437,18 +443,18 @@ int kbus_msg_create(kbus_msg_t **kms,
   return -1;
 }
 
-int kbus_msg_create_entire_reply(kbus_msg_t **kms, 
-				 const kbus_msg_t *in_reply_to,
-				 const void *data, 
-				 uint32_t data_len, /* bytes */
-				 uint32_t flags)
+int kbus_msg_create_short_reply(kbus_msg_t **kms, 
+				const kbus_msg_t *in_reply_to,
+				const void *data, 
+				uint32_t data_len, /* bytes */
+				uint32_t flags)
 {
   char* name;
   int rv;
 
   kbus_msg_name_ptr(in_reply_to, &name);
-  rv = kbus_msg_create_entire(kms, name, in_reply_to->header.name_len, 
-			      data, data_len, flags);
+  rv = kbus_msg_create_short(kms, name, in_reply_to->header.name_len, 
+			     data, data_len, flags);
 
   if(rv) {
     return -1;
@@ -582,9 +588,6 @@ void kbus_msg_dump(const kbus_msg_t *kms, int dump_data)
   }
   printf("\n");
 
-
- 
-
   printf("\n\tDumping whole message (raw uint8_t) .. \n\t");
   uint8_t *dptr = (uint8_t *)kms;
   for (i = 0; i < kbus_msg_sizeof(kms); i ++) {
@@ -598,7 +601,5 @@ void kbus_msg_dump(const kbus_msg_t *kms, int dump_data)
 
 
 }
-
-
 
 /* End File */
