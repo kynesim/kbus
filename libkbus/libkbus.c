@@ -602,4 +602,12 @@ void kbus_msg_dump(const kbus_msg_t *kms, int dump_data)
 
 }
 
+int kbus_new_device(ksock ks, uint32_t *device_number) 
+{
+  int rv;
+  rv = ioctl(ks, KBUS_IOC_NEWDEVICE, device_number);
+
+  return rv;
+}
+
 /* End File */

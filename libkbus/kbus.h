@@ -405,6 +405,18 @@ static inline int kbus_id_cmp  (const struct kbus_msg_id *a,
   return 0;
 }
 
+/** Request the KBUS kernel module to create a new device (/dev/kbus<n>).
+ *
+ * Note that it takes the kernel's hotplugging mechanisms a little while to
+ * notice/activate the device, so do not expect it to be available immediately
+ * on return.
+ *
+ * @param[in]  ks          The ksock to use as a means of communicating with KBUS.
+ * @param[out] new_device  On success, the new device number (<n>).
+ * @return 0 on success , <0 setting errno on failure.
+ */
+int   kbus_new_device(ksock ks, uint32_t *device_number);
+
 
 #ifdef __cplusplus
 }
