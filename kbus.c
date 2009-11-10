@@ -412,7 +412,7 @@ struct kbus_dev
 };
 
 /* Our actual devices, 0 through kbus_num_devices-1 */
-static struct kbus_dev       *kbus_devices;
+static struct kbus_dev       **kbus_devices;
 
 /*
  * Each entry in a message queue holds a single message.
@@ -4427,7 +4427,7 @@ static int kbus_read_proc_bindings(char *buf, char **start, off_t offset,
 
 	/* We report on all of the KBUS devices */
 	for (ii=0; ii<kbus_num_devices; ii++) {
-		struct kbus_dev	*dev = &kbus_devices[ii];
+		struct kbus_dev	*dev = kbus_devices[ii];
 
 		struct kbus_message_binding *ptr;
 		struct kbus_message_binding *next;
@@ -4489,7 +4489,7 @@ static int kbus_read_proc_stats(char *buf, char **start, off_t offset,
 
 	/* We report on all of the KBUS devices */
 	for (ii=0; ii<kbus_num_devices; ii++) {
-		struct kbus_dev	*dev = &kbus_devices[ii];
+		struct kbus_dev	*dev = kbus_devices[ii];
 
 		struct kbus_private_data *ptr;
 		struct kbus_private_data *next;
@@ -4557,7 +4557,8 @@ done:
  */
 static int kbus_setup_new_device(int which)
 {
-	dev_t	this_devno;
+	struct kbus_dev	*new = NULL;
+	dev_t		 this_devno;
 
 	if (which < 0 || which > (MAX_NUM_DEVICES-1)) {
 		printk(KERN_ERR "kbus: next device index %d not %d..%d\n",
@@ -4565,10 +4566,15 @@ static int kbus_setup_new_device(int which)
 		return -EINVAL;
 	}
 
+	new = kmalloc(sizeof(*new), GFP_KERNEL);
+	if (!new) return -ENOMEM;
+
+	memset(new, 0, sizeof(*new));
+
 	/* Connect the device up with its operations */
 	this_devno = MKDEV(kbus_major,kbus_minor+which);
-	kbus_setup_cdev(&kbus_devices[which], this_devno);
-	kbus_devices[which].index = which;
+	kbus_setup_cdev(new, this_devno);
+	new->index = which;
 
 	/* ================================================================= */
 	/* +++ NB: before kernel 2.6.13, the functions we use were
@@ -4582,6 +4588,7 @@ static int kbus_setup_new_device(int which)
 						  this_devno, NULL, "kbus%d",
 						  which);
 
+	kbus_devices[which] = new;
 	return which;
 }
 
@@ -4618,17 +4625,14 @@ static int __init kbus_init(void)
 		return result;
 	}
 
-	/* XXX TODO XXX use an array of pointers to struct kbus_dev, to save space! */
-#warning XXX Use an array of pointers!!! XXX
-
-	kbus_devices = kmalloc(MAX_NUM_DEVICES * sizeof(struct kbus_dev),
+	kbus_devices = kmalloc(MAX_NUM_DEVICES * sizeof(struct kbus_dev *),
 			       GFP_KERNEL);
 	if (!kbus_devices) {
 		printk(KERN_WARNING "kbus: Cannot allocate devices\n");
 		unregister_chrdev_region(devno, kbus_num_devices);
 		return -ENOMEM;
 	}
-	memset(kbus_devices, 0, kbus_num_devices * sizeof(struct kbus_dev));
+	memset(kbus_devices, 0, kbus_num_devices * sizeof(struct kbus_dev *));
 
 	/* ================================================================= */
 	/* +++ NB: before kernel 2.6.13, the functions we use were
@@ -4713,7 +4717,8 @@ static void __exit kbus_exit(void)
 	class_destroy(kbus_class_p);
 
 	for (ii=0; ii<kbus_num_devices; ii++) {
-		kbus_teardown_cdev(&kbus_devices[ii]);
+		kbus_teardown_cdev(kbus_devices[ii]);
+		kfree(kbus_devices[ii]);
 	}
 	unregister_chrdev_region(devno, kbus_num_devices);
 
