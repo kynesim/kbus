@@ -13,47 +13,18 @@ time.sleep(0.5)
 
 
 try:
-    with KSock(0,'rw') as replier:
-
-        replier.kernel_module_verbose(verbose=False)
-
-        replier.bind('$.fred',True)
-
-        with KSock(0,'rw') as sender:
-
-            r1 = Request('$.fred','one')
-            r2 = Request('$.fred','two')
-            r3 = Request('$.fred','three')
-
-            sender.write_msg(r1)
-            sender.send()
-
-            len1 = replier.next_msg()
-
-            sender.write_msg(r2)
-
-            m1 = replier.read_msg(len1)
-
-            sender.send()
-
-            x1 = reply_to(m1)
-            replier.write_msg(x1)
-
-            sender.write_msg(r3)
-
-            replier.send()
-
-            sender.send()
-
-            len2 = replier.next_msg()
-
-            m2 = replier.read_msg(len2)
-
-            x2 = reply_to(m2)
-            replier.write_msg(x2)
-
-            replier.send()
-
+    with KSock(0,'rw') as first:
+        # Request a new device - we don't know what it will be
+        next = first.new_device()
+        # But we should be able to open it!
+        # ...after it's had time to come into existence
+        time.sleep(0.5)
+        with KSock(next, 'rw') as second:
+            another = second.new_device()
+            assert another == (next + 1)
+            time.sleep(0.5)
+            with KSock(another, 'rw') as third:
+                pass
 finally:
     os.system('sudo rmmod kbus')
 

@@ -503,7 +503,7 @@ static inline uint32_t *kbus_end_ptr(struct kbus_entire_message  *entire)
  * retval: 0 for success, negative for failure (-EINVAL if arg in was not one
  * of the specified values)
  */
-#define KBUS_IOC_MSGONLYONCE  _IOR( KBUS_IOC_MAGIC, 14, char *)
+#define KBUS_IOC_MSGONLYONCE  _IOWR( KBUS_IOC_MAGIC, 14, char *)
 /*
  * VERBOSE - should KBUS output verbose "printk" messages (for this device)?
  *
@@ -517,10 +517,20 @@ static inline uint32_t *kbus_end_ptr(struct kbus_entire_message  *entire)
  * retval: 0 for success, negative for failure (-EINVAL if arg in was not one
  * of the specified values)
  */
-#define KBUS_IOC_VERBOSE  _IOR( KBUS_IOC_MAGIC, 15, char *)
+#define KBUS_IOC_VERBOSE  _IOWR( KBUS_IOC_MAGIC, 15, char *)
+
+/*
+ * NEWDEVICE - request another KBUS device (/dev/kbus<n>).
+ *
+ * The next device number (up to a maximum of 255) will be allocated.
+ *
+ * arg(out): uint32_t, the new device number (<n>)
+ * retval: 0 for success, negative for failure
+ */
+#define KBUS_IOC_NEWDEVICE _IOR( KBUS_IOC_MAGIC, 16, char *)
 
 /* XXX If adding another IOCTL, remember to increment the next number! XXX */
-#define KBUS_IOC_MAXNR	15
+#define KBUS_IOC_MAXNR	16
 
 #if ! __KERNEL__ && defined(__cplusplus)
 }

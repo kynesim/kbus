@@ -57,21 +57,33 @@
 #include "kbus_defns.h"
 
 /*
- * The actual number of /dev/kbus<N> devices can be set at module
- * startup. We set hard limits so it is between 1 and 10, and default
- * to 1.
+ * KBUS can support multiple devices, as /dev/kbus<N>. These all have
+ * the same major device number, and map to differing minor device
+ * numbers. It may or may not be a surprise that <N> just happens to be
+ * the minor device number as well (but don't use that  information for
+ * anything).
  *
- *     Why a hard limit? A lack of imagination on my part as to what
- *     one might want more for - there's no particular reason not to
- *     lift this in the future.
- *
- * For instance::
+ * When KBUS starts up, it will always setup a single device (/dev/kbus0),
+ * but it can be asked to setup more - for instance:
  *
  *     # insmod kbus.ko kbus_num_devices=5
+ *
+ * There is also an IOCTL to allow user-space to request a new device as
+ * necessary. The hot plugging mechanisms should cause the device to appear "as
+ * if by magic".
+ *
+ *     (This last means that we *could* default to setting up zero devices
+ *     at module startup, and leave the user to ask for the first one, but
+ *     that seems rather cruel.)
+ *
+ * We need to set a maximum number of KBUS devices (corrsponding to a limit on
+ * minor device numbers). The obvious limit (corresponding to what we'd have
+ * got if we used the deprecated "register_chrdev" to setup our device) is 256,
+ * so we'll go with that.
  */
-#define MIN_NUM_DEVICES		 1
-#define MAX_NUM_DEVICES		10
-#define DEF_NUM_DEVICES		 1
+#define MIN_NUM_DEVICES		  1
+#define MAX_NUM_DEVICES		256
+#define DEF_NUM_DEVICES		  1
 
 /* By default, enable verbose debug to be selected */
 #define VERBOSE_DEBUG 1
@@ -399,7 +411,7 @@ struct kbus_dev
 	uint32_t		verbose;
 };
 
-/* Our actual devices, 0 through kbus_num_devices */
+/* Our actual devices, 0 through kbus_num_devices-1 */
 static struct kbus_dev       *kbus_devices;
 
 /*
@@ -441,6 +453,9 @@ static struct kbus_private_data *kbus_find_open_ksock(struct kbus_dev	*dev,
 						     uint32_t		 id);
 
 static void kbus_discard(struct kbus_private_data	*priv);
+
+/* I really want this function where it is in the code, so need to foreshadow */
+static int kbus_setup_new_device(int which);
 /* ========================================================================= */
 
 /*
@@ -4204,6 +4219,26 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 		retval = kbus_set_verbosity(priv, dev, arg);
 		break;
 
+	case KBUS_IOC_NEWDEVICE:
+		/*
+		 * Request a new device
+		 *
+		 * arg out: the new device number
+		 * return: 0 means OK, otherwise not OK.
+		 */
+#if VERBOSE_DEBUG
+		if (priv->dev->verbose) {
+			printk(KERN_DEBUG "kbus: %u/%u NEWDEVICE %d\n",
+			       dev->index,id,kbus_num_devices);
+		}
+#endif
+		retval = kbus_setup_new_device(kbus_num_devices);
+		if (retval > 0) {
+			kbus_num_devices++;
+			retval = __put_user(kbus_num_devices-1, (uint32_t __user *)arg);
+		}
+		break;
+
 	default:  /* *Should* be redundant, if we got our range checks right */
 		retval = -ENOTTY;
 		break;
@@ -4515,6 +4550,41 @@ done:
 
 /* ========================================================================= */
 
+/*
+ * Actually setup /dev/kbus<which>.
+ *
+ * Returns <which> or a negative error code.
+ */
+static int kbus_setup_new_device(int which)
+{
+	dev_t	this_devno;
+
+	if (which < 0 || which > (MAX_NUM_DEVICES-1)) {
+		printk(KERN_ERR "kbus: next device index %d not %d..%d\n",
+		       which,MIN_NUM_DEVICES,MAX_NUM_DEVICES);
+		return -EINVAL;
+	}
+
+	/* Connect the device up with its operations */
+	this_devno = MKDEV(kbus_major,kbus_minor+which);
+	kbus_setup_cdev(&kbus_devices[which], this_devno);
+	kbus_devices[which].index = which;
+
+	/* ================================================================= */
+	/* +++ NB: before kernel 2.6.13, the functions we use were
+	 * +++ "simple_class_create" and "simple_class_device_add". They are
+	 * +++ documented as such in Linux Device Drivers, 3rd edition. When it
+	 * +++ became clear that everyone was using the "simple" API, the
+	 * +++ kernel code was refactored to make that the norm.
+	 */
+
+	kbus_class_devices[which] = device_create(kbus_class_p, NULL,
+						  this_devno, NULL, "kbus%d",
+						  which);
+
+	return which;
+}
+
 static int __init kbus_init(void)
 {
 	int   result;
@@ -4539,7 +4609,8 @@ static int __init kbus_init(void)
 	 * Our main purpose is to provide /dev/kbus
 	 * We are happy to start our device numbering with device 0
 	 */
-	result = alloc_chrdev_region(&devno, kbus_minor, kbus_num_devices, "kbus");
+	result = alloc_chrdev_region(&devno, kbus_minor, MAX_NUM_DEVICES,
+				     "kbus");
 	/* We're quite happy with dynamic allocation of our major number */
 	kbus_major = MAJOR(devno);
 	if (result < 0) {
@@ -4547,7 +4618,10 @@ static int __init kbus_init(void)
 		return result;
 	}
 
-	kbus_devices = kmalloc(kbus_num_devices * sizeof(struct kbus_dev),
+	/* XXX TODO XXX use an array of pointers to struct kbus_dev, to save space! */
+#warning XXX Use an array of pointers!!! XXX
+
+	kbus_devices = kmalloc(MAX_NUM_DEVICES * sizeof(struct kbus_dev),
 			       GFP_KERNEL);
 	if (!kbus_devices) {
 		printk(KERN_WARNING "kbus: Cannot allocate devices\n");
@@ -4556,16 +4630,8 @@ static int __init kbus_init(void)
 	}
 	memset(kbus_devices, 0, kbus_num_devices * sizeof(struct kbus_dev));
 
-	for (ii=0; ii<kbus_num_devices; ii++)
-	{
-		/* Connect the device up with its operations */
-		devno = MKDEV(kbus_major,kbus_minor+ii);
-		kbus_setup_cdev(&kbus_devices[ii],devno);
-		kbus_devices[ii].index = ii;
-	}
-
 	/* ================================================================= */
-	/* +++ NB: before kernel 2.6.13, the functions below were
+	/* +++ NB: before kernel 2.6.13, the functions we use were
 	 * +++ "simple_class_create" and "simple_class_device_add". They are
 	 * +++ documented as such in Linux Device Drivers, 3rd edition. When it
 	 * +++ became clear that everyone was using the "simple" API, the
@@ -4588,12 +4654,8 @@ static int __init kbus_init(void)
 			return err;
 		}
 	}
-	/*
-	 * Whilst we only want one device at the moment, name it "kbus0" in case we
-	 * decide we're wrong later on.
-	 */
 
-	kbus_class_devices = kmalloc(kbus_num_devices * sizeof(*kbus_class_devices),
+	kbus_class_devices = kmalloc(MAX_NUM_DEVICES * sizeof(*kbus_class_devices),
 				     GFP_KERNEL);
 	if (!kbus_class_devices)
 	{
@@ -4604,10 +4666,14 @@ static int __init kbus_init(void)
 		return -ENOMEM;
 	}
 
+	/* And connect up the number of devices we've been asked for */
 	for (ii=0; ii<kbus_num_devices; ii++) {
-		dev_t this_devno = MKDEV(kbus_major,kbus_minor+ii);
-		kbus_class_devices[ii] = device_create(kbus_class_p, NULL,
-						       this_devno, NULL, "kbus%d", ii);
+		int res = kbus_setup_new_device(ii);
+		if (res < 0) {
+			unregister_chrdev_region(devno, kbus_num_devices);
+			class_destroy(kbus_class_p);
+			return res;
+		}
 	}
 
 	/* ================================================================= */

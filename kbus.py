@@ -46,7 +46,7 @@ import string
 
 # Kernel definitions for ioctl commands
 # Following closely from #include <asm[-generic]/ioctl.h>
-# (and with some thanks to http://wiki.maemo.org/Programming_FM_radio/)
+# (and with some thanks to http://wiki.maemo.org/Programming_FM_radio)
 _IOC_NRBITS   = 8
 _IOC_TYPEBITS = 8
 _IOC_SIZEBITS = 14
@@ -67,11 +67,11 @@ def _IOC(d, t, nr, size):
             (nr << _IOC_NRSHIFT) | (size << _IOC_SIZESHIFT))
 def _IO(t, nr):
     return _IOC(_IOC_NONE, t, nr, 0)
-def _IOW(t, nr, size):
+def _IOW(t, nr, size):                          # write to device
     return _IOC(_IOC_WRITE, t, nr, size)
-def _IOR(t, nr, size):
+def _IOR(t, nr, size):                          # read from device
     return _IOC(_IOC_READ, t, nr, size)
-def _IOWR(t, nr, size):
+def _IOWR(t, nr, size):                         # read and write
     return _IOC(_IOC_READ | _IOC_WRITE, t, nr, size)
 
 def _BIT(nr):
@@ -1461,8 +1461,9 @@ class KSock(object):
     IOC_MAXMSGS     = _IOWR(IOC_MAGIC, 11, ctypes.sizeof(ctypes.c_char_p))
     IOC_NUMMSGS     = _IOR(IOC_MAGIC,  12, ctypes.sizeof(ctypes.c_char_p))
     IOC_UNREPLIEDTO = _IOR(IOC_MAGIC,  13, ctypes.sizeof(ctypes.c_char_p))
-    IOC_MSGONLYONCE = _IOR(IOC_MAGIC,  14, ctypes.sizeof(ctypes.c_char_p))
-    IOC_VERBOSE     = _IOR(IOC_MAGIC,  15, ctypes.sizeof(ctypes.c_char_p))
+    IOC_MSGONLYONCE = _IOWR(IOC_MAGIC, 14, ctypes.sizeof(ctypes.c_char_p))
+    IOC_VERBOSE     = _IOWR(IOC_MAGIC, 15, ctypes.sizeof(ctypes.c_char_p))
+    IOC_NEWDEVICE   = _IOR(IOC_MAGIC,  16, ctypes.sizeof(ctypes.c_char_p))
 
     def __init__(self, which=0, mode='r'):
         if mode not in ('r', 'rw'):
@@ -1685,6 +1686,18 @@ class KSock(object):
             val = 0
         id = array.array('L', [val])
         fcntl.ioctl(self.fd, KSock.IOC_VERBOSE, id, True)
+        return id[0]
+
+    def new_device(self):
+        """Request that KBUS set up a new device (/dev/kbus<n>).
+
+        Note that it can take a little while for the hotplugging mechanisms
+        to set the new device up for user access.
+
+        Returns the new device number (<n>).
+        """
+        id = array.array('L', [0])
+        fcntl.ioctl(self.fd, KSock.IOC_NEWDEVICE, id, True)
         return id[0]
 
     def write_msg(self, message):
