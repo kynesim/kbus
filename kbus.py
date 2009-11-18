@@ -1845,6 +1845,8 @@ def read_bindings(names):
     f.close()
     bindings = []
     for line in l:
+        if line[0] == '#':
+            continue
         # 'dev' is the device index (default is 0, may be 0..9 depending on how
         # many /dev/kbus<N> devices there are).
         # For the moment, we're going to ignore it.
