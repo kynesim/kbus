@@ -1820,9 +1820,12 @@ def read_bindings(names):
 
     /proc/kbus/bindings gives us data like::
 
-            0: 10 R $.Fred
-            0: 11 L $.Fred.Bob
-            0: 12 R $.William
+            0: 10 16319 R $.Fred
+            0: 11 17420 L $.Fred.Bob
+            0: 12 17422 R $.William
+
+    (i.e., device, file descriptor id, PID of process, whether it is Replier
+    or Listener, and the message name concerned).
 
     'names' is a dictionary of file descriptor binding id to string (name)
     - for instance:
@@ -1845,7 +1848,7 @@ def read_bindings(names):
         # 'dev' is the device index (default is 0, may be 0..9 depending on how
         # many /dev/kbus<N> devices there are).
         # For the moment, we're going to ignore it.
-        dev, id, rep, name = line.split()
+        dev, id, pid, rep, name = line.split()
         id = int(id)
         if id in names:
             id = names[int(id)]

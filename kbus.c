@@ -51,6 +51,7 @@
 #include <linux/list.h>
 #include <linux/ctype.h>	/* for isalnum */
 #include <linux/poll.h>
+#include <linux/sched.h>	/* for current->pid */
 #include <asm/uaccess.h>	/* copy_*_user() functions */
 #include <asm/page.h>		/* PAGE_SIZE */
 
@@ -238,6 +239,12 @@ struct kbus_private_data {
 	uint32_t		 message_count;	 /* How many messages for us */
 	uint32_t		 max_messages;	 /* How many messages allowed */
 	struct list_head	 message_queue;	 /* Messages for us */
+
+	/*
+	 * It's useful (for /proc/kbus/bindings) to remember the PID of the
+	 * current process
+	 */
+	pid_t			 pid;
 
 	/* Wait for something to appear in the message_queue */
 	wait_queue_head_t	 read_wait;
@@ -2438,6 +2445,7 @@ static int kbus_open(struct inode *inode, struct file *filp)
 	memset(priv, 0, sizeof(*priv));
 	priv->dev = dev;
 	priv->id  = dev->next_file_id ++;
+	priv->pid = current->pid;
 	priv->max_messages = DEF_MAX_MESSAGES;
 	priv->sending = false;
 	priv->num_replies_unsent = 0;
@@ -4439,9 +4447,10 @@ static int kbus_read_proc_bindings(char *buf, char **start, off_t offset,
 			if (len + 4 + 10 + 3 + strlen(ptr->name) + 1 < limit)
 			{
 				len += sprintf(buf+len,
-					       "%2u: %1u %c %.*s\n",
+					       "%2u: %1u %lu %c %.*s\n",
 					       dev->index,
 					       ptr->bound_to_id,
+					       (long unsigned)ptr->bound_to->pid,
 					       (ptr->is_replier?'R':'L'),
 					       ptr->name_len,
 					       ptr->name);
