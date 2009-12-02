@@ -28,10 +28,10 @@
 
 ifdef CROSS_COMPILE
 CC=$(CROSS_COMPILE)gcc
-LD=$(CROSS_COMPILE)ld
+LD=$(CROSS_COMPILE)gcc		# because gcc knows where to find libc...
 else
 CC=gcc
-LD=ld
+LD=gcc
 endif
 
 # Note we assume a traditional Linux style environment in our flags
@@ -79,7 +79,7 @@ $(TGTDIR)/%.o: $(DEPS)
 
 $(SHARED_TARGET): $(OBJS)
 	echo Objs = $(OBJS)
-	$(LD) $(LD_SHARED_FLAGS) -soname $(SHARED_NAME) -o $(SHARED_TARGET) $(OBJS) -lc
+	$(LD) $(LD_SHARED_FLAGS) -soname=$(SHARED_NAME) -o $(SHARED_TARGET) $(OBJS) -lc
 
 $(STATIC_TARGET): $(STATIC_TARGET)($(OBJS))
 
