@@ -1922,12 +1922,6 @@ static int kbus_remember_binding(struct kbus_dev	  *dev,
 		if (retval == 1) return -EADDRINUSE;
 	}
 
-	/*
-	 * Build our new datastructure, optimistically.
-	 * This means that we can minimise the time we need to lock
-	 * out list, at the cost of having to destroy our new structure
-	 * if we *do* find a clash.
-	 */
 	new = kmalloc(sizeof(*new), GFP_KERNEL);
 	if (!new) return -ENOMEM;
 

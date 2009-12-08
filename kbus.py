@@ -1498,7 +1498,7 @@ class KSock(object):
         message name.
         """
         arg = BindStruct(replier, len(name), name)
-        return fcntl.ioctl(self.fd, KSock.IOC_BIND, arg)
+        fcntl.ioctl(self.fd, KSock.IOC_BIND, arg)
 
     def unbind(self, name, replier=False):
         """Unbind the given name from the file descriptor.
@@ -1506,7 +1506,7 @@ class KSock(object):
         The arguments need to match the binding that we want to unbind.
         """
         arg = BindStruct(replier, len(name), name)
-        return fcntl.ioctl(self.fd, KSock.IOC_UNBIND, arg)
+        fcntl.ioctl(self.fd, KSock.IOC_UNBIND, arg)
 
     def ksock_id(self):
         """Return the internal 'KSock id' for this file descriptor.
@@ -1558,7 +1558,7 @@ class KSock(object):
         written (for instance, because 'send' has already been called).
         be sent.
         """
-        return fcntl.ioctl(self.fd, KSock.IOC_DISCARD, 0);
+        fcntl.ioctl(self.fd, KSock.IOC_DISCARD, 0);
 
     def last_msg_id(self):
         """Return the id of the last message written on this file descriptor.
@@ -1597,7 +1597,7 @@ class KSock(object):
         use when such a query is wanted, which is just syntactic sugar around
         such a call.
 
-        Returns the number of message that are allowed to be queued on this
+        Returns the number of messages that are allowed to be queued on this
         KSock.
         """
         id = array.array('L', [count])
