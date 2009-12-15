@@ -59,10 +59,10 @@ import nose
 from kbus import KSock, Message, MessageId, Announcement, \
                  Request, Reply, Status, reply_to
 from kbus import read_bindings
-from kbus import _struct_to_string, _struct_from_string
-from kbus import _MessageHeaderStruct
 from kbus import entire_message_from_parts, entire_message_from_string
 from kbus import message_from_string
+from kbus.messages import _struct_to_string, _struct_from_string
+from kbus.messages import _MessageHeaderStruct
 
 NUM_DEVICES = 3
 
