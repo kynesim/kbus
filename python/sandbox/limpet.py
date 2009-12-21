@@ -36,6 +36,10 @@ class Limpet(object):
            path name (if communication is with another Limpet on the same
            machine, via Unix domain sockets), or a ``(host, post)`` tuple (for
            communication with a Limpet on another machine, via the internet).
+
+        Messages received from KBUS get sent to the other Limpet.
+
+        Messages sent from the other Limpet get sent to KBUS.
         """
         self.kbus_device = kbus_device
         self.sock_address = limpet_socket_address
