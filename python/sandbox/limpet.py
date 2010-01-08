@@ -1,7 +1,7 @@
 #! /usr/bin/env python
 """Limpet - a mechanism that proxies KBUS messages to/from another Limpet.
 
-Usage (shall be - not yet implemented!):
+Usage:
 
     limpet.py  <things>
 
@@ -36,13 +36,28 @@ command line is not significant, but if a later <thing> contradicts an earlier
                     Proxy any messages with this name to the other Limpet.
 """
 
+import ctypes
+import os
 import select
+import socket
 import sys
 
 from kbus import KSock
 
 class GiveUp(Exception):
     pass
+
+def msgstr(msg):
+    """Return a short string for what we want to know of a message.
+    """
+    if msg.wants_us_to_reply():
+        what = 'Request (to us)'
+    elif msg.in_reply_to:
+        what = 'Reply (to ksock %d)'%msg.in_reply_to
+    else:
+        what = 'Message'
+    return '%s "%s" [%d,%d]: "%s", from %s, to %s'%(what, msg.name, msg.id.network_id,
+            msg.id.serial_num, msg.data, msg.from_, msg.to)
 
 class Limpet(object):
     """A Limpet proxies KBUS messages to/from another Limpet.
@@ -62,7 +77,7 @@ class Limpet(object):
     And probably some other things I've not yet thought of.
     """
 
-    def __init__(self, kbus_device, limpet_socket_address):
+    def __init__(self, kbus_device, limpet_socket_address, is_server, socket_family):
         """A Limpet has two "ends":
 
         1. 'kbus_device' specifies which KBUS device it should communicate
@@ -80,18 +95,69 @@ class Limpet(object):
         """
         self.kbus_device = kbus_device
         self.sock_address = limpet_socket_address
+        self.sock_family = socket_family
+        self.is_server = is_server
 
+        if socket_family not in (socket.AF_UNIX, socket.AF_INET):
+            raise GiveUp('Socket family is %d, must be AF_UNIX (%s) or AF_INET (%d)'%(socket_family,
+                socket.AF_UNIX, socket.AF_INET))
+
+        self.sock = None
         self.ksock = KSock(kbus_device, 'rw')
 
         self.replier_for = set()
         self.listener_for = set()
+
+        if is_server:
+            self.sock = self.setup_as_server(limpet_socket_address, socket_family)
+        else:
+            self.sock = self.setup_as_client(limpet_socket_address, socket_family)
+
+    def setup_as_server(self, address, family):
+        """Set ourselves up as a server Limpet.
+        """
+        pass
+
+    def setup_as_client(self, address, family):
+        """Set ourselves up as a client Limpet.
+        """
+        if family == socket.AF_INET:
+            sockname = '%s:%s'%address
+        else:
+            sockname = address
+
+        try:
+            sock = socket.socket(family, socket.SOCK_STREAM)
+            sock.connect(address)
+            print 'Connected to "%s" as client'%sockname
+            return sock
+        except Exception as exc:
+            raise GiveUp('Unable to connect to "%s" as client: %s'%(sockname, exc))
 
 
     def close(self):
         """Tidy up when we're finished.
         """
         self.ksock.close()
+
+        if self.sock:
+            if self.is_server:
+                self.sock.close()
+                if self.sock_family == socket.AF_UNIX:
+                    self.remove_socket_file(self.socket_address)
+            else:
+                self.sock.shutdown(socket.SHUT_RDWR)
+                self.sock.close()
+
         print 'Limpet closed'
+
+    def remove_socket_file(self, name):
+        # Assuming this is an address representing a file in the filesystem,
+        # delete it so we can use it again...
+        try:
+            os.remove(name)
+        except Exception as err:
+            raise GiveUp('Unable to delete socket file "%s": %s'%(name, err))
 
     def __repr__(self):
         return 'Limpet(%s, %s)'%(self.kbus_device, repr(self.sock_address))
@@ -134,7 +200,7 @@ class Limpet(object):
             # Since we know that we only queued for one thing, then presumably
             # that one thing must be all we have to listen for...
             msg = self.ksock.read_next_msg()
-            print 'Limpet heard',msg
+            print 'Limpet heard',msgstr(msg)
 
     # Implement 'with'
     def __enter__(self):
@@ -152,10 +218,10 @@ class Limpet(object):
             return False
 
 
-def run_a_limpet(is_server, address, ksock_id, network_id, message_names):
+def run_a_limpet(is_server, address, family, ksock_id, network_id, message_names):
     """Run a Limpet. Use kmsg to send messages (via KBUS) to it...
     """
-    with Limpet(ksock_id, address) as l:
+    with Limpet(ksock_id, address, is_server, family) as l:
         print l
         for message_name in message_names:
             try:
@@ -164,7 +230,8 @@ def run_a_limpet(is_server, address, ksock_id, network_id, message_names):
             except IOError as exc:
                 raise GiveUp('Unable to bind to message name "%s": %s'%(message_name, exc))
 
-        print "Use 'kmsg -bus %d send <message_name> s <data>' to send messages."%ksock_id
+        print "Use 'kmsg -bus %d send <message_name> s <data>'"%ksock_id
+        print " or 'kmsg -bus %d call <message_name> s <data>' to send messages."%ksock_id
         l.run_forever()
 
 def main(args):
@@ -176,7 +243,9 @@ def main(args):
     network_id = None
     message_names = []
 
-    print args
+    if not args:
+        print __doc__
+        return
 
     while args:
         word = args[0]
@@ -212,14 +281,16 @@ def main(args):
             # Deliberately allow multiple "address" values, using the last
             if ':' in word:
                 try:
-                    host, port = address.split(':')
+                    host, port = word.split(':')
                     port = int(port)
                     address = host, port
+                    family = socket.AF_INET
                 except Exception as exc:
                     raise GiveUp('Unable to interpret "%s" as <host>:<port>: %s'%(word, exc))
             else:
                 # Assume it's a valid pathname (!)
                 address = word
+                family = socket.AF_UNIX
 
     if is_server is None:
         raise GiveUp('Either -client or -server must be specified')
@@ -231,7 +302,7 @@ def main(args):
         network_id = 2 if is_server else 1
 
     # And then do whatever we've been asked to do...
-    run_a_limpet(is_server, address, ksock_id, network_id, message_names)
+    run_a_limpet(is_server, address, family, ksock_id, network_id, message_names)
 
 if __name__ == "__main__":
     args = sys.argv[1:]
@@ -239,5 +310,7 @@ if __name__ == "__main__":
         main(args)
     except GiveUp as exc:
         print exc
+    except KeyboardInterrupt:
+        pass
 
 # vim: set tabstop=8 softtabstop=4 shiftwidth=4 expandtab:
