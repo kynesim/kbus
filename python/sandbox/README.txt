@@ -211,4 +211,13 @@ Also, Richard has raised issue 17, which requires some means of synchronising
 messages between KBUS devices (this is not an inter-platform problem, though,
 as it can also happen on the same machine).
 
+Requirements
+------------
+
+If we send a message through kbus, and the message has an id with the network
+id set, then kbus must preserve the entire message id. Does it already do
+this?
+
+
+
 .. vim: set filetype=rst tabstop=8 shiftwidth=2 expandtab:

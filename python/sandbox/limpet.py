@@ -1,11 +1,48 @@
 #! /usr/bin/env python
 """Limpet - a mechanism that proxies KBUS messages to/from another Limpet.
+
+Usage (shall be - not yet implemented!):
+
+    limpet.py  <things>
+
+This runs a client or server limpet, talking to a server or client limpet
+(respectively).
+
+The <things> specify what the Limpet is to do. The order of <things> on the
+command line is not significant, but if a later <thing> contradicts an earlier
+<thing>, the later <thing> wins.
+
+<thing> may be:
+
+    <host>:<port>   Communicate via the specified host and port.
+    <path>          Communicate via the named Unix domain socket.
+
+        One or the other communication mechanism must be specified.
+
+    -c, -client     This is a client Limpet.
+    -s, -server     This is a server Limpet.
+
+        Either client or server must be specified.
+
+    -id <number>    Messages sent by this Limpet (to the other Limpet) will
+                    have network ID <number>. This defaults to 1 for a client
+                    and 2 for a server.
+
+    -k <number>, -ksock <number>
+                    Connect to the given KSock. The default is to connect to
+                    KSock 0.
+
+    -m <name>, -message <name>
+                    Proxy any messages with this name to the other Limpet.
 """
 
 import select
 import sys
 
 from kbus import KSock
+
+class GiveUp(Exception):
+    pass
 
 class Limpet(object):
     """A Limpet proxies KBUS messages to/from another Limpet.
@@ -34,7 +71,7 @@ class Limpet(object):
         2. 'limpet_socket_address' is the address for the socket used to
            communicate with its paired Limpet. This should generally be a
            path name (if communication is with another Limpet on the same
-           machine, via Unix domain sockets), or a ``(host, post)`` tuple (for
+           machine, via Unix domain sockets), or a ``(host, port)`` tuple (for
            communication with a Limpet on another machine, via the internet).
 
         Messages received from KBUS get sent to the other Limpet.
@@ -115,16 +152,92 @@ class Limpet(object):
             return False
 
 
-def main(args):
+def run_a_limpet(is_server, address, ksock_id, network_id, message_names):
     """Run a Limpet. Use kmsg to send messages (via KBUS) to it...
     """
-    with Limpet(0, '/tmp/limpet0') as l:
+    with Limpet(ksock_id, address) as l:
         print l
-        l.bind('$.*')
+        for message_name in message_names:
+            try:
+                l.bind(message_name)
+                print 'Bound to message name "%s"'%message_name
+            except IOError as exc:
+                raise GiveUp('Unable to bind to message name "%s": %s'%(message_name, exc))
+
+        print "Use 'kmsg -bus %d send <message_name> s <data>' to send messages."%ksock_id
         l.run_forever()
+
+def main(args):
+    """Work out what we've been asked to do and do it.
+    """
+    is_server = None            # no default
+    address = None              # ditto
+    ksock_id = 0
+    network_id = None
+    message_names = []
+
+    print args
+
+    while args:
+        word = args[0]
+        args = args[1:]
+
+        if word.startswith('-'):
+            if word in ('-c', '-client'):
+                is_server = False
+            elif word in ('-s', '-server'):
+                is_server = True
+            elif word in ('-id'):
+                try:
+                    network_id = int(args[0])
+                except:
+                    raise GiveUp('-id requires an integer argument (network id)')
+                args = args[1:]
+            elif word in ('-m', '-message'):
+                try:
+                    message_names.append(args[0])
+                except:
+                    raise GiveUp('-message requires an argument (message name)')
+                args = args[1:]
+            elif word in ('-k', '-ksock'):
+                try:
+                    ksock_id = int(args[0])
+                except:
+                    raise GiveUp('-ksock requires an integer argument (KSock id)')
+                args = args[1:]
+            else:
+                print __doc__
+                return
+        else:
+            # Deliberately allow multiple "address" values, using the last
+            if ':' in word:
+                try:
+                    host, port = address.split(':')
+                    port = int(port)
+                    address = host, port
+                except Exception as exc:
+                    raise GiveUp('Unable to interpret "%s" as <host>:<port>: %s'%(word, exc))
+            else:
+                # Assume it's a valid pathname (!)
+                address = word
+
+    if is_server is None:
+        raise GiveUp('Either -client or -server must be specified')
+
+    if address is None:
+        raise GiveUp('An address (either <host>:<port> or <path>) is needed')
+
+    if network_id is None:
+        network_id = 2 if is_server else 1
+
+    # And then do whatever we've been asked to do...
+    run_a_limpet(is_server, address, ksock_id, network_id, message_names)
 
 if __name__ == "__main__":
     args = sys.argv[1:]
-    main(args)
+    try:
+        main(args)
+    except GiveUp as exc:
+        print exc
 
 # vim: set tabstop=8 softtabstop=4 shiftwidth=4 expandtab:
