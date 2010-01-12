@@ -42,9 +42,22 @@ import select
 import socket
 import sys
 
-from kbus import KSock
+from kbus import KSock, Message
+from kbus.messages import _MessageHeaderStruct, _struct_from_string
+
+MSG_HEADER_LEN = ctypes.sizeof(_MessageHeaderStruct)
 
 class GiveUp(Exception):
+    pass
+
+class OtherLimpetGoneAway(Exception):
+    """The other end has closed its end of the socket.
+    """
+    pass
+
+class BadMessage(Exception):
+    """We have read a badly formatted KBUS message.
+    """
     pass
 
 def msgstr(msg):
@@ -58,6 +71,30 @@ def msgstr(msg):
         what = 'Message'
     return '%s "%s" [%d,%d]: "%s", from %s, to %s'%(what, msg.name, msg.id.network_id,
             msg.id.serial_num, msg.data, msg.from_, msg.to)
+
+def padded_name_len(name_len):
+    """Calculate the length of a message name, in bytes, after padding.
+
+    Matches the definition in the kernel module's header file
+    """
+    return 4 * ((name_len + 1 + 3) // 4)
+
+def padded_data_len(data_len):
+    """Calculate the length of message data, in bytes, after padding.
+
+    Matches the definition in the kernel module's header file
+    """
+    return 4 * ((data_len + 3) // 4)
+
+def entire_message_len(name_len, data_len):
+    """Calculate the "entire" message length, from the name and data lengths.
+
+    All lengths are in bytes.
+
+    Matches the definition in the kernel module's header file
+    """
+    return MSG_HEADER_LEN + padded_name_len(name_len) + \
+                          padded_data_len(data_len) + 4
 
 class Limpet(object):
     """A Limpet proxies KBUS messages to/from another Limpet.
@@ -77,7 +114,7 @@ class Limpet(object):
     And probably some other things I've not yet thought of.
     """
 
-    def __init__(self, kbus_device, limpet_socket_address, is_server, socket_family):
+    def __init__(self, kbus_device, network_id, limpet_socket_address, is_server, socket_family):
         """A Limpet has two "ends":
 
         1. 'kbus_device' specifies which KBUS device it should communicate
@@ -97,12 +134,14 @@ class Limpet(object):
         self.sock_address = limpet_socket_address
         self.sock_family = socket_family
         self.is_server = is_server
+        self.network_id = network_id
 
         if socket_family not in (socket.AF_UNIX, socket.AF_INET):
             raise GiveUp('Socket family is %d, must be AF_UNIX (%s) or AF_INET (%d)'%(socket_family,
                 socket.AF_UNIX, socket.AF_INET))
 
         self.sock = None
+        self.listener = None
         self.ksock = KSock(kbus_device, 'rw')
 
         self.replier_for = set()
@@ -115,8 +154,24 @@ class Limpet(object):
 
     def setup_as_server(self, address, family):
         """Set ourselves up as a server Limpet.
+
+        We start listening, until we get someone connecting to us.
         """
-        pass
+        print 'Listening on', address
+        listener = self.listener = socket.socket(family, socket.SOCK_STREAM)
+        # Try to allow address reuse as soon as possible after we've finished
+        # with it
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(address)
+        try:
+            listener.listen(1)
+            connection, address = self.listener.accept()
+            print 'Connection accepted from (%s, %s)'%(connection, address)
+
+            return connection
+        except:
+            self.close()
+            raise
 
     def setup_as_client(self, address, family):
         """Set ourselves up as a client Limpet.
@@ -138,16 +193,28 @@ class Limpet(object):
     def close(self):
         """Tidy up when we're finished.
         """
-        self.ksock.close()
+        if self.ksock:
+            self.ksock.close()
+            self.ksock = None
 
         if self.sock:
+            print 'Closing socket'
             if self.is_server:
+                print '...for server'
                 self.sock.close()
-                if self.sock_family == socket.AF_UNIX:
-                    self.remove_socket_file(self.socket_address)
             else:
+                print '...for client'
                 self.sock.shutdown(socket.SHUT_RDWR)
                 self.sock.close()
+            self.sock = None
+
+        if self.listener:
+            print 'Closing listener socket'
+            self.listener.close()
+            self.listener = None
+            if self.sock_family == socket.AF_UNIX:
+                print '...removing socket file'
+                self.remove_socket_file(self.sock_address)
 
         print 'Limpet closed'
 
@@ -189,18 +256,80 @@ class Limpet(object):
         else:
             self.listener_for.remove(name)
 
+    def read_message_from_socket(self):
+        """Read a message from the other Limpet.
+
+        Returns the corresponding Message instance.
+        """
+
+        # All KBUS messages start with the start guard:
+        print 'Waiting for a message start guard: length 4'
+        start_guard = self.sock.recv(4, socket.MSG_WAITALL)
+        if start_guard == '':
+          raise OtherLimpetGoneAway()
+        ##elif start_guard == 'QUIT': # Sort-of out of bound data
+        ##  raise OutOfBoundQuit('Client asked us to QUIT')
+        elif start_guard != 'kbus': # This is perhaps a bit naughty, relying on byte order
+          raise BadMessage('Data read starts with "%s", not "kbus"'%start_guard)
+
+        # So we start with the message header - this is always the same length
+        print 'Read the rest of message header: length',MSG_HEADER_LEN-4
+        rest_of_header_data = self.sock.recv(MSG_HEADER_LEN-4, socket.MSG_WAITALL)
+
+        header_data = start_guard + rest_of_header_data
+
+        header = _struct_from_string(_MessageHeaderStruct, header_data)
+
+        overall_length = entire_message_len(header.name_len, header.data_len)
+
+        print 'Message header: header length %d, total length %d'%(MSG_HEADER_LEN,
+          overall_length)
+
+        print 'Reading rest of message: length', overall_length - MSG_HEADER_LEN
+        rest_of_message = self.sock.recv(overall_length - MSG_HEADER_LEN, socket.MSG_WAITALL)
+
+        return Message(header_data + rest_of_message)
+
+    def write_message_to_socket(self, msg):
+        """Write a Message to the other Limpet.
+
+        Adjust it to reflect our network id.
+
+        Caveats:
+
+        1. We change the network id of the message given to us, which is
+           a non-obvious SIDE EFFECT - we could instead copy the message
+           and change the copy (or amend the "string" representation of
+           the message before sending it!)
+
+        2. We do not change the network id if it was already non-zero
+           (i.e., came to us from another network). Is this the right
+           thing to do?
+        """
+        if msg.id.network_id == 0:
+            msg.id.network_id = self.network_id
+        data = msg.to_string()
+        self.sock.sendall(data)
+
     def run_forever(self):
         """Or, at least, until we're interrupted.
         """
         while 1:
             # Wait for a message written to us, with no timeout
             # (at least for the moment)
-            (r, w, x) = select.select( [self.ksock], [], [])
+            (r, w, x) = select.select( [self.ksock, self.sock], [], [])
 
-            # Since we know that we only queued for one thing, then presumably
-            # that one thing must be all we have to listen for...
-            msg = self.ksock.read_next_msg()
-            print 'Limpet heard',msgstr(msg)
+            if self.ksock in r:
+                msg = self.ksock.read_next_msg()
+                print 'KBUS->Us  ',msgstr(msg)
+                self.write_message_to_socket(msg)
+                print 'Us->Limpet',msgstr(msg)  # i.e., with amended network id
+
+            if self.sock in r:
+                msg = self.read_message_from_socket()
+                print 'Limpet->Us',msgstr(msg)
+                self.ksock.send_msg(msg)
+                print 'Us->KBUS  ',msgstr(msg)
 
     # Implement 'with'
     def __enter__(self):
@@ -221,7 +350,7 @@ class Limpet(object):
 def run_a_limpet(is_server, address, family, ksock_id, network_id, message_names):
     """Run a Limpet. Use kmsg to send messages (via KBUS) to it...
     """
-    with Limpet(ksock_id, address, is_server, family) as l:
+    with Limpet(ksock_id, network_id, address, is_server, family) as l:
         print l
         for message_name in message_names:
             try:
@@ -301,6 +430,9 @@ def main(args):
     if network_id is None:
         network_id = 2 if is_server else 1
 
+    print 'Limpet: %s via %s for KSock %d, using network id %d'%('server' if is_server else 'client',
+            address, ksock_id, network_id)
+
     # And then do whatever we've been asked to do...
     run_a_limpet(is_server, address, family, ksock_id, network_id, message_names)
 
@@ -310,6 +442,8 @@ if __name__ == "__main__":
         main(args)
     except GiveUp as exc:
         print exc
+    except OtherLimpetGoneAway as exc:
+        print 'The Limpet at the other end of the connection has closed'
     except KeyboardInterrupt:
         pass
 
