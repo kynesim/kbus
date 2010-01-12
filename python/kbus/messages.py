@@ -80,7 +80,8 @@ class MessageId(ctypes.Structure):
         >>> a + 3
         MessageId(1, 5)
 
-    simply to make it convenient to generate unique message ids.
+    simply to make it convenient to generate unique message ids. This returns
+    a new MessageId - it doesn't amend the existing one.
     """
     _fields_ = [('network_id', ctypes.c_uint32),
                 ('serial_num', ctypes.c_uint32)]
@@ -920,7 +921,8 @@ class Message(object):
         if network_id == 0 and serial_num == 0:
             return None
         else:
-            return MessageId(network_id, serial_num)
+            #return MessageId(network_id, serial_num)
+            return self.msg.id
 
     @property
     def in_reply_to(self):
@@ -929,7 +931,8 @@ class Message(object):
         if network_id == 0 and serial_num == 0:
             return None
         else:
-            return MessageId(network_id, serial_num)
+            #return MessageId(network_id, serial_num)
+            return self.msg.in_reply_to
 
     @property
     def to(self):
