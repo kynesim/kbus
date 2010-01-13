@@ -468,6 +468,11 @@ static void kbus_discard(struct kbus_private_data	*priv);
 
 /* I really want this function where it is in the code, so need to foreshadow */
 static int kbus_setup_new_device(int which);
+
+/* More or less ditto */
+static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
+					struct kbus_dev		   *dev,
+					struct kbus_message_header *msg);
 /* ========================================================================= */
 
 /*
@@ -1449,22 +1454,21 @@ static void kbus_push_synthetic_message(struct kbus_dev		  *dev,
  * Doesn't return anything since I can't think of anything useful to do if it
  * goes wrong.
  */
-static void kbus_push_synthetic_bind_message(struct kbus_dev	  *dev,
-					     uint32_t		   from,
-					     uint32_t		   is_bind,
-					     uint32_t		   name_len,
-					     char		  *name)
+static void kbus_push_synthetic_bind_message(struct kbus_private_data	*priv,
+					     uint32_t		  	 is_bind,
+					     uint32_t		  	 name_len,
+					     char			*name)
 {
-	struct kbus_private_data	*priv = NULL;
+	ssize_t				 retval;
 	struct kbus_message_header	*new_msg;
 	struct kbus_msg_id		 in_reply_to = {0,0};	/* no-one */
 
-#if VERBOSE_DEBUG
-	if (priv->dev->verbose) {
-		printk(KERN_DEBUG "kbus:   %u Pushing synthetic message '%s'"
-		       " onto queue\n",dev->index,name);
-	}
-#endif
+//#if VERBOSE_DEBUG
+//	if (priv->dev->verbose) {
+		printk(KERN_DEBUG "kbus:   %u Pushing synthetic bind message for %d:'%s'"
+		       " (bind %d) onto queue\n",priv->dev->index,name_len,name,is_bind);
+//	}
+//#endif
 
 	/*
 	 * XXX THIS IS NOT SUFFICIENT FOR WHAT THIS ROUTINE IS TO DO
@@ -1476,19 +1480,40 @@ static void kbus_push_synthetic_bind_message(struct kbus_dev	  *dev,
 	 * it's job properly.
 	 */
 
-	new_msg = kbus_build_kbus_message("$.KBUS.Replier.BindEvent",
-					  from, 0, in_reply_to);
+	new_msg = kbus_build_kbus_message("$.KBUS.ReplierBindEvent",
+					  0, 0, in_reply_to);
 	if (!new_msg) return;
+
+	printk(KERN_DEBUG "kbus: Synthetic message built\n");
+	kbus_report_message(KERN_DEBUG, new_msg);
 
 	/* XXX And its data... XXX */
 
 	/* XXX CHECK CHECK CHECK XXX */
-	(void) kbus_push_message(priv, new_msg, false);
+	printk(KERN_DEBUG "kbus: Writing synthetic message to recipients\n");
+	retval = kbus_write_to_recipients(priv, priv->dev, new_msg);
+
+	// What happens if any one of the listeners can't receive the message
+	// because they don't have room in their queues?
+	//
+	// * If the message was flagged ALL_OR_WAIT then we get -EAGAIN
+	// * If the message was flagged ALL_OR_FAIL then we get -EBUSY
+	// * Otherwise, the offending listener(s) just don't get the message,
+	//   and it will be sent to those who can receive it.
+	//
+	// So, what do we *want* to happen? We can choose by what flags we
+	// set on the message...
+
+
+	if (retval < 0) {
+		printk(KERN_DEBUG "kbus: Return code is %d\n", retval);
+	}
 
 	/*
 	 * kbus_push_message takes a copy of our message data, but
 	 * we don't want to free the message name!
 	 */
+	printk(KERN_DEBUG "kbus: Freeing synthetic message\n");
 	kbus_free_message(priv, new_msg, false);
 
 	return;
@@ -3265,7 +3290,7 @@ static int kbus_bind(struct kbus_private_data	*priv,
 	if (retval == 0 &&
 	    bind->is_replier &&
 	    priv->dev->report_replier_binds) {
-		kbus_push_synthetic_bind_message(priv->dev, priv->id, true,
+		kbus_push_synthetic_bind_message(priv, true,
 						 bind->name_len, bind->name); /* XXX */
 	}
 #endif
@@ -3345,7 +3370,7 @@ static int kbus_unbind(struct kbus_private_data	*priv,
 	if (retval == 0 &&
 	    bind->is_replier &&
 	    priv->dev->report_replier_binds) {
-		kbus_push_synthetic_bind_message(priv->dev, priv->id, false,
+		kbus_push_synthetic_bind_message(priv, false,
 						 bind->name_len, bind->name); /* XXX */
 	}
 #endif
