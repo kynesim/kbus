@@ -5,4 +5,4 @@
 from kbus.ksock import *
 from kbus.messages import *
 
-# vim: set tabstop=8 shiftwidth=2 expandtab:
+# vim: set tabstop=8 shiftwidth=4 softtabstop=4 expandtab:

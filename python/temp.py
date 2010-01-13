@@ -3,61 +3,96 @@ from __future__ import with_statement
 import os, time
 import errno
 from kbus import *
-from test_kbus import check_IOError
+from kbus.test.test_kbus import check_IOError
 
-from kbus import _struct_from_string
-from kbus import _MessageHeaderStruct
+from kbus.messages import _struct_from_string
+from kbus.messages import _MessageHeaderStruct
 
-os.system('sudo insmod kbus.ko')
+os.system('sudo insmod ../kbus/kbus.ko')
 time.sleep(0.5)
 
 
 try:
-        with KSock(0,'rw') as replier:
-            replier.bind('$.fred',True)
+        with KSock(0, 'rw') as thing:
+            thing.kernel_module_verbose(True)
+            # Just ask - default is off
+            state = thing.report_replier_binds(True, True)
+            assert not state
+            # When asking, first arg doesn't matter
+            state = thing.report_replier_binds(False, True)
+            assert not state
+            # Change it
+            state = thing.report_replier_binds(True)
+            assert not state
+            # Just ask - now it is on
+            state = thing.report_replier_binds(True, True)
+            assert state
+            # Change it back
+            state = thing.report_replier_binds(False)
+            assert state
 
-            with KSock(0,'rw') as sender:
+        with KSock(0, 'rw') as thing:
+            state = thing.report_replier_binds(True)
+            assert not state    # It was unset
 
-                r1 = Request('$.fred','one')
-                r2 = Request('$.fred','two')
-                r3 = Request('$.fred','three')
+            thing.bind('$.KBUS.ReplierBindEvent')
 
-                sender.write_msg(r1)
-                sender.send()
+            # There shouldn't be any outstanding messages to read
+            assert thing.num_messages() == 0
 
-                len1 = replier.next_msg()
+            # -------- Bind as a Replier
+            thing.bind('$.Fred', True)
+            assert thing.num_messages() == 1
+            msg = thing.read_next_msg()
+            assert msg.name == '$.KBUS.ReplierBindEvent'    # of course
+            # Data in the message isn't implemented yet...
 
-                sender.write_msg(r2)
+            # -------- Bind as a Listener
+            thing.bind('$.Jim')
+            # and there shouldn't be a message
+            assert thing.num_messages() == 0
 
-                m1 = replier.read_msg(len1)
+            # -------- Bind as a Replier again
+            thing.bind('$.Bob', True)
+            assert thing.num_messages() == 1
+            msg = thing.read_next_msg()
+            assert msg.name == '$.KBUS.ReplierBindEvent'    # of course
+            # Data in the message isn't implemented yet...
 
-                sender.send()
+            # -------- Unbind as a Replier
+            thing.unbind('$.Fred', True)
+            assert thing.num_messages() == 1
+            msg = thing.read_next_msg()
+            assert msg.name == '$.KBUS.ReplierBindEvent'    # of course
+            # Data in the message isn't implemented yet...
 
-                x1 = reply_to(m1)
-                replier.write_msg(x1)
+            # -------- Unbind as a Listener
+            thing.unbind('$.Jim')
+            # and there shouldn't be a message
+            assert thing.num_messages() == 0
 
-                sender.write_msg(r3)
+            # -------- Stop the messages
+            state = thing.report_replier_binds(False)
+            assert state
 
-                replier.send()
+            # -------- Bind as a Replier
+            thing.bind('$.Fred', True)
+            assert thing.num_messages() == 0
 
-                sender.send()
+            # -------- Restart the messages
+            state = thing.report_replier_binds(True)
+            assert not state
 
-                len2 = replier.next_msg()
+            # -------- Unbind as a Replier
+            thing.unbind('$.Fred', True)
+            assert thing.num_messages() == 1
+            msg = thing.read_next_msg()
+            assert msg.name == '$.KBUS.ReplierBindEvent'    # of course
+            # Data in the message isn't implemented yet...
 
-                m2 = replier.read_msg(len2)
-
-                x2 = reply_to(m2)
-                replier.write_msg(x2)
-
-                try:
-                    replier.send()
-                except:
-                    assert False, "Failed Issue 6 test"
-
-                while 1:
-                    time.sleep(100)
+            # -------- Stop the messages (be friendly to any other tests!)
+            state = thing.report_replier_binds(False)
 finally:
-    pass
-    ##os.system('sudo rmmod kbus')
+    os.system('sudo rmmod kbus')
 
-# vim: set tabstop=8 shiftwidth=4 expandtab:
+# vim: set tabstop=8 shiftwidth=4 softtabstop=4 expandtab:
