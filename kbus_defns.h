@@ -529,8 +529,22 @@ static inline uint32_t *kbus_end_ptr(struct kbus_entire_message  *entire)
  */
 #define KBUS_IOC_NEWDEVICE _IOR( KBUS_IOC_MAGIC, 16, char *)
 
+/*
+ * REPORTREPLIERBINDS - request synthetic messages announcing Replier bind/unbind events.
+ *
+ * If this flag is set, then when someone binds or unbinds to a message name as
+ * a Replier, KBUS will send out a synthetic Announcement of this fact.
+ *
+ * arg(in): uint32_t, 1 to change to "report", 0 to change to "do not report",
+ * 0xFFFFFFFF to just return the current/previous state.
+ * arg(out): uint32_t, the previous state.
+ * retval: 0 for success, negative for failure (-EINVAL if arg in was not one
+ * of the specified values)
+ */
+#define KBUS_IOC_REPORTREPLIERBINDS  _IOWR( KBUS_IOC_MAGIC, 17, char *)
+
 /* XXX If adding another IOCTL, remember to increment the next number! XXX */
-#define KBUS_IOC_MAXNR	16
+#define KBUS_IOC_MAXNR	17
 
 #if ! __KERNEL__ && defined(__cplusplus)
 }

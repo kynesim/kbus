@@ -416,6 +416,11 @@ struct kbus_dev
 
 	/* Are we wanting debugging messages? */
 	uint32_t		verbose;
+
+	/*
+	 * Are we wanting to send a synthetic message for each Replier
+	 * bind/unbind? */
+	uint32_t		report_replier_binds;
 };
 
 /* Our actual devices, 0 through kbus_num_devices-1 */
@@ -746,8 +751,10 @@ static int kbus_message_is_reply(struct kbus_message_header *msg)
 /*
  * Build a KBUS synthetic message/exception. We assume no data.
  *
- * - 'name' shall be a constant, and shall not be freed during the life of this
- *   synthetic message, since we do not take a copy of it.
+ * The message built is a 'pointy' message.
+ *
+ * - 'name' shall be a constant, or at least shall not be freed during the life
+ *   of this synthetic message, since we do not take a copy of it.
  */
 static struct kbus_message_header
 	*kbus_build_kbus_message(char			*name,
@@ -1408,7 +1415,7 @@ static void kbus_push_synthetic_message(struct kbus_dev		  *dev,
 	/*
 	 * Note that we do not check if the destination queue is full
 	 * - we're going to trust that the "keep enough room in the
-	 * message queue for a reply to each request" mechanims does
+	 * message queue for a reply to each request" mechanism does
 	 * it's job properly.
 	 *
 	 * XXX Think on this a little harder...
@@ -1418,6 +1425,64 @@ static void kbus_push_synthetic_message(struct kbus_dev		  *dev,
 	new_msg = kbus_build_kbus_message(name, from, to, in_reply_to);
 	if (!new_msg) return;
 
+	(void) kbus_push_message(priv, new_msg, false);
+
+	/*
+	 * kbus_push_message takes a copy of our message data, but
+	 * we don't want to free the message name!
+	 */
+	kbus_free_message(priv, new_msg, false);
+
+	return;
+}
+
+/*
+ * Generate a bind/unbind synthetic message, and broadcast it.
+ *
+ * This is for use when we have been asked to announce when a Replier binds or
+ * unbinds.
+ *
+ * 'is_bind' is true if this was a "bind" event, false if it was an "unbind".
+ *
+ * 'name' is the message name (or wildcard) that was bound (or unbound) to.
+ *
+ * Doesn't return anything since I can't think of anything useful to do if it
+ * goes wrong.
+ */
+static void kbus_push_synthetic_bind_message(struct kbus_dev	  *dev,
+					     uint32_t		   from,
+					     uint32_t		   is_bind,
+					     uint32_t		   name_len,
+					     char		  *name)
+{
+	struct kbus_private_data	*priv = NULL;
+	struct kbus_message_header	*new_msg;
+	struct kbus_msg_id		 in_reply_to = {0,0};	/* no-one */
+
+#if VERBOSE_DEBUG
+	if (priv->dev->verbose) {
+		printk(KERN_DEBUG "kbus:   %u Pushing synthetic message '%s'"
+		       " onto queue\n",dev->index,name);
+	}
+#endif
+
+	/*
+	 * XXX THIS IS NOT SUFFICIENT FOR WHAT THIS ROUTINE IS TO DO
+	 * XXX ...RETHINK...
+	 *
+	 * Note that we do not check if the destination queue is full
+	 * - we're going to trust that the "keep enough room in the
+	 * message queue for a reply to each request" mechanism does
+	 * it's job properly.
+	 */
+
+	new_msg = kbus_build_kbus_message("$.KBUS.Replier.BindEvent",
+					  from, 0, in_reply_to);
+	if (!new_msg) return;
+
+	/* XXX And its data... XXX */
+
+	/* XXX CHECK CHECK CHECK XXX */
 	(void) kbus_push_message(priv, new_msg, false);
 
 	/*
@@ -3195,6 +3260,16 @@ static int kbus_bind(struct kbus_private_data	*priv,
 		/* The binding will use our copy of the message name */
 		name = NULL;
 	}
+
+#if 1 // XXX
+	if (retval == 0 &&
+	    bind->is_replier &&
+	    priv->dev->report_replier_binds) {
+		kbus_push_synthetic_bind_message(priv->dev, priv->id, true,
+						 bind->name_len, bind->name); /* XXX */
+	}
+#endif
+
 done:
 	if (name) kfree(name);
 	kfree(bind);
@@ -3265,6 +3340,16 @@ static int kbus_unbind(struct kbus_private_data	*priv,
 				     bind->is_replier,
 				     bind->name_len,
 				     name);
+
+#if 1 // XXX
+	if (retval == 0 &&
+	    bind->is_replier &&
+	    priv->dev->report_replier_binds) {
+		kbus_push_synthetic_bind_message(priv->dev, priv->id, false,
+						 bind->name_len, bind->name); /* XXX */
+	}
+#endif
+
 done:
 	if (name) kfree(name);
 	kfree(bind);
@@ -4010,6 +4095,40 @@ static int kbus_set_verbosity(struct kbus_private_data	*priv,
 	return __put_user(old_value, (uint32_t __user *)arg);
 }
 
+static int kbus_set_report_binds(struct kbus_private_data	*priv,
+				 struct kbus_dev		*dev,
+				 unsigned long			 arg)
+{
+	int		retval = 0;
+	uint32_t	report_replier_binds;
+	int		old_value = priv->dev->report_replier_binds;
+
+	retval = __get_user(report_replier_binds, (uint32_t __user *)arg);
+	if (retval) return retval;
+
+#if VERBOSE_DEBUG
+	if (priv->dev->report_replier_binds) {
+		printk(KERN_DEBUG "kbus: %u/%u REPORTREPLIERBINDS requests %u (was %d)\n",
+		       priv->dev->index,priv->id, report_replier_binds, old_value);
+	}
+#endif
+
+	switch (report_replier_binds) {
+	case 0:
+		priv->dev->report_replier_binds = false;
+		break;
+	case 1:
+		priv->dev->report_replier_binds = true;
+		break;
+	case 0xFFFFFFFF:
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return __put_user(old_value, (uint32_t __user *)arg);
+}
+
 static int kbus_ioctl(struct inode *inode, struct file *filp,
 		      unsigned int cmd, unsigned long arg)
 {
@@ -4239,6 +4358,17 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 			kbus_num_devices++;
 			retval = __put_user(kbus_num_devices-1, (uint32_t __user *)arg);
 		}
+		break;
+
+	case KBUS_IOC_REPORTREPLIERBINDS:
+		/*
+		 * Should we report Replier bind/unbind events?
+		 *
+		 * arg in: 0 (for no), 1 (for yes), 0xFFFFFFFF (for query)
+		 * arg out: the previous value, before we were called
+		 * return: 0 means OK, otherwise not OK
+		 */
+		retval = kbus_set_report_binds(priv, dev, arg);
 		break;
 
 	default:  /* *Should* be redundant, if we got our range checks right */
