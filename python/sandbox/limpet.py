@@ -34,6 +34,7 @@ command line is not significant, but if a later <thing> contradicts an earlier
 
     -m <name>, -message <name>
                     Proxy any messages with this name to the other Limpet.
+                    Using "-m '$.*'" will proxy all messages.
 """
 
 import ctypes
@@ -306,6 +307,7 @@ class Limpet(object):
            (i.e., came to us from another network). Is this the right
            thing to do?
         """
+        # XXX As it says in the docstring...
         if msg.id.network_id == 0:
             msg.id.network_id = self.network_id
         data = msg.to_string()
