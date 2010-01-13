@@ -2858,4 +2858,29 @@ class TestKernelModule:
                 with KSock(another, 'rw') as third:
                     pass
 
-# vim: set tabstop=8 shiftwidth=4 expandtab:
+    def test_bind_messages_flag(self):
+        """Test changing the "receiving a message when someone binds/unbinds" flag.
+        """
+        with KSock(0, 'rw') as thing:
+            # Just ask - default is off
+            state = thing.report_replier_binds(True, True)
+            assert not state
+            # When asking, first arg doesn't matter
+            state = thing.report_replier_binds(False, True)
+            assert not state
+            # Change it
+            state = thing.report_replier_binds(True)
+            assert not state
+            # Just ask - now it is on
+            state = thing.report_replier_binds(True, True)
+            assert state
+            # Change it back
+            state = thing.report_replier_binds(False)
+            assert state
+
+    def test_bind_messages(self):
+        """Test receiving a message when someone binds/unbinds.
+        """
+        pass
+
+# vim: set tabstop=8 shiftwidth=4 softtabstop=4 expandtab:

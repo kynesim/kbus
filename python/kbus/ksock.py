@@ -125,6 +125,7 @@ class KSock(object):
     IOC_MSGONLYONCE = _IOWR(IOC_MAGIC, 14, ctypes.sizeof(ctypes.c_char_p))
     IOC_VERBOSE     = _IOWR(IOC_MAGIC, 15, ctypes.sizeof(ctypes.c_char_p))
     IOC_NEWDEVICE   = _IOR(IOC_MAGIC,  16, ctypes.sizeof(ctypes.c_char_p))
+    IOC_REPORTREPLIERBINDS = _IOWR(IOC_MAGIC, 17, ctypes.sizeof(ctypes.c_char_p))
 
     def __init__(self, which=0, mode='r'):
         if mode not in ('r', 'rw'):
@@ -294,8 +295,8 @@ class KSock(object):
         always get the Request, and it will be the Listener's version of the
         message that will be "dropped".
 
-        The default is to receive each message as many times as we are bound to
-        its name.
+        The default is False, i.e., to receive each message as many times as we
+        are bound to its name.
 
         * if 'only_once' is true then we want to receive each message once only.
         * if 'just_ask' is true, then we just want to find out the current state
@@ -325,8 +326,8 @@ class KSock(object):
         this device (this KSock). This will only have any effect if the kernel
         module was built with VERBOSE_DEBUG defined.
 
-        The default is not to output verbose messages (as this clutters up the
-        kernel log).
+        The default is False, i.e., not to output verbose messages (as this
+        clutters up the kernel log).
 
         * if 'verbose' is true then we want verbose messages.
         * if 'just_ask' is true, then we just want to find out the current state
@@ -359,6 +360,49 @@ class KSock(object):
         """
         id = array.array('L', [0])
         fcntl.ioctl(self.fd, KSock.IOC_NEWDEVICE, id, True)
+        return id[0]
+
+    def report_replier_binds(self, report_events=True, just_ask=False):
+        """Determine whether the kernel module should report Replier bind/unbind events.
+
+        Determine whether the kernel module should output a "synthetic" message
+        to announce each Replier bind/unbind event.
+
+        When the flag is set, then each time a Replier binds or unbinds to a
+        message (i.e., when ``ksock.bind(name,True)`` or
+        ``ksock.unbind(name,True`` is called), a message will automatically
+        be generated and sent.
+
+        The message generated is called '$.KBUS.ReplierBindEvent', and it has
+        data:
+
+          * a 32-bit value, 1 if this is a bind, 0 if it is an unbind
+          * a 32-bit value, the KSock id of the binder
+          * the name of the message being bound to by a Replier (terminated
+            by a null byte, and then, if necessary, padded up to the next
+            four-byte boundary with null bytes
+
+        The default is False, i.e., not to output report such events.
+
+        * if 'report_events' is true then we want bind/unbind messages.
+        * if 'just_ask' is true, then we just want to find out the current state
+          of the flag, and 'report_events' will be ignored.
+
+        Returns the previous value of the flag (i.e., what it used to be set to).
+        Which, if 'just_ask' is true, will also be the current state.
+
+        Beware that setting this flag affects the KSock as a whole, so it is
+        possible for several programs to open a KSock and "disagree" about how
+        this flag should be set.
+        """
+        if just_ask:
+            val = 0xFFFFFFFF
+        elif report_events:
+            val = 1
+        else:
+            val = 0
+        id = array.array('L', [val])
+        fcntl.ioctl(self.fd, KSock.IOC_REPORTREPLIERBINDS, id, True)
         return id[0]
 
     def write_msg(self, message):
