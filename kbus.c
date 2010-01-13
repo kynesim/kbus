@@ -1451,15 +1451,16 @@ static void kbus_push_synthetic_message(struct kbus_dev		  *dev,
  *
  * 'name' is the message name (or wildcard) that was bound (or unbound) to.
  *
- * Doesn't return anything since I can't think of anything useful to do if it
- * goes wrong.
+ * Returns 0 if all goes well, or a negative value if something goes wrong,
+ * notably -EBUSY if we couldn't send the message to ALL the Listeners who
+ * have bound to receive it.
  */
-static void kbus_push_synthetic_bind_message(struct kbus_private_data	*priv,
+static int kbus_push_synthetic_bind_message(struct kbus_private_data	*priv,
 					     uint32_t		  	 is_bind,
 					     uint32_t		  	 name_len,
 					     char			*name)
 {
-	ssize_t				 retval;
+	ssize_t				 retval = 0;
 	struct kbus_message_header	*new_msg;
 	struct kbus_msg_id		 in_reply_to = {0,0};	/* no-one */
 
@@ -1470,40 +1471,41 @@ static void kbus_push_synthetic_bind_message(struct kbus_private_data	*priv,
 //	}
 //#endif
 
-	/*
-	 * XXX THIS IS NOT SUFFICIENT FOR WHAT THIS ROUTINE IS TO DO
-	 * XXX ...RETHINK...
-	 *
-	 * Note that we do not check if the destination queue is full
-	 * - we're going to trust that the "keep enough room in the
-	 * message queue for a reply to each request" mechanism does
-	 * it's job properly.
-	 */
-
 	new_msg = kbus_build_kbus_message("$.KBUS.ReplierBindEvent",
 					  0, 0, in_reply_to);
-	if (!new_msg) return;
+	if (!new_msg) return -ENOMEM;
+
+	/* And set its flags to add ALL_OR_FAIL */
+	new_msg->flags |= KBUS_BIT_ALL_OR_FAIL;
 
 	printk(KERN_DEBUG "kbus: Synthetic message built\n");
 	kbus_report_message(KERN_DEBUG, new_msg);
 
 	/* XXX And its data... XXX */
 
+	/*
+	 * XXX STILL TO DO XXX
+	 */
+	printk(KERN_DEBUG "kbus: NO DATA FOR THE MESSAGE YET\n");
+
 	/* XXX CHECK CHECK CHECK XXX */
 	printk(KERN_DEBUG "kbus: Writing synthetic message to recipients\n");
 	retval = kbus_write_to_recipients(priv, priv->dev, new_msg);
 
-	// What happens if any one of the listeners can't receive the message
-	// because they don't have room in their queues?
-	//
-	// * If the message was flagged ALL_OR_WAIT then we get -EAGAIN
-	// * If the message was flagged ALL_OR_FAIL then we get -EBUSY
-	// * Otherwise, the offending listener(s) just don't get the message,
-	//   and it will be sent to those who can receive it.
-	//
-	// So, what do we *want* to happen? We can choose by what flags we
-	// set on the message...
-
+	/*
+	 * What happens if any one of the listeners can't receive the message
+	 * because they don't have room in their queues?
+	 *
+	 * Because the message is flagged ALL_OR_FAIL, if we can't deliver
+	 * to all of the listeners who care, we will get -EBUSY returned.
+	 *
+	 * In this scenario, the user needs to catch a "bind"/"unbind" return
+	 * of -EBUSY and realise that it needs to try again.
+	 *
+	 * EBUSY is correct, because it means no-one will have been notified
+	 * about the binding - notifying some people and not others is a bad
+	 * idea.
+	 */
 
 	if (retval < 0) {
 		printk(KERN_DEBUG "kbus: Return code is %d\n", retval);
@@ -1516,7 +1518,7 @@ static void kbus_push_synthetic_bind_message(struct kbus_private_data	*priv,
 	printk(KERN_DEBUG "kbus: Freeing synthetic message\n");
 	kbus_free_message(priv, new_msg, false);
 
-	return;
+	return retval;
 }
 
 /*
@@ -2021,6 +2023,24 @@ static int kbus_remember_binding(struct kbus_dev	  *dev,
 	new->name_len = name_len;
 	new->name = name;
 
+	/* XXX */ printk(KERN_DEBUG "kbus: replier %d dev->report_replier_binds %d\n",
+			 replier, dev->report_replier_binds);
+
+	if (replier && dev->report_replier_binds) {
+		/*
+		 * We've been asked to announce when a Replier binds.
+		 * If we can't tell all the Listeners who care, we want
+		 * to give up, rather than tell some of them, and then
+		 * bind anyway.
+		 */
+		retval = kbus_push_synthetic_bind_message(priv, true,
+							  name_len, name);
+		if (retval != 0) {	/* Hopefully, just -EBUSY */
+			kfree(new);
+			return retval;
+		}
+	}
+
 	list_add(&new->list, &dev->bound_message_list);
 	return 0;
 }
@@ -2250,7 +2270,55 @@ static int kbus_forget_binding(struct kbus_dev		*dev,
 
 	int removed_binding = false;
 
-	/* We don't want anyone writing to the list whilst we do this */
+	if (replier && dev->report_replier_binds) {
+
+		/*
+		 * We want to send a message indicating that we've unbound
+		 * the Replier for this message. But we only want to do that
+		 * if there *is* such a binding. So we need to check first...
+		 */
+		int found_binding = false;
+		int retval;
+
+		list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
+			if (bound_to_id != ptr->bound_to_id)
+				continue;
+			if (replier != ptr->is_replier)
+				continue;
+			if (name_len != ptr->name_len)
+				continue;
+			if ( !strncmp(name,ptr->name,name_len) ) {
+				found_binding = true;
+				break;
+			}
+		}
+		if (!found_binding) {
+			goto no_such_binding;
+		}
+
+		/*
+		 * If we can't tell all the Listeners who're listening for this
+		 * message, we want to give up, rather then tell some of them,
+		 * and then unbind anyway.
+		 */
+		retval = kbus_push_synthetic_bind_message(priv, false,
+							  name_len, name);
+		if (retval != 0) {	/* Hopefully, just -EBUSY */
+			return retval;
+		}
+		/*
+		 * Note that if we were ourselves listening for replier bind
+		 * events, then we will ourselves get the message announcing
+		 * we're about to unbind.
+		 */
+
+		/*
+		 * For simplicity, we then just fall through into the "normal"
+		 * code, even though we've already done "finding the binding"
+		 * above.
+		 */
+	}
+
 	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
 		if (bound_to_id != ptr->bound_to_id)
 			continue;
@@ -2292,28 +2360,27 @@ static int kbus_forget_binding(struct kbus_dev		*dev,
 		/* And forget any messages we now shouldn't receive */
 		(void) kbus_forget_matching_messages(priv,bound_to_id,
 						     replier,name_len,name);
+		/*
+		 * We carefully don't try to do anything about requests that
+		 * have already been read - the fact that the user has unbound
+		 * from receiving new messages with this name doesn't imply
+		 * anything about whether they're going to reply to requests
+		 * (with that name) which they've already read.
+		 */
 		return 0;
-	} else {
-#if VERBOSE_DEBUG
-		if (priv->dev->verbose) {
-			printk(KERN_DEBUG "kbus:   %u/%u Could not find/unbind %u %c '%.*s'\n",
-			       dev->index,priv->id,
-			       bound_to_id,
-			       (replier?'R':'L'),
-			       name_len,name);
-		}
-#endif
-
-		return -EINVAL;
 	}
 
-	/*
-	 * We carefully don't try to do anything about requests that have
-	 * already been read - the fact that the user has unbound from
-	 * receiving new messages with this name doesn't imply anything about
-	 * whether they're going to reply to requests (with that name) which
-	 * they've already read.
-	 */
+no_such_binding:
+#if VERBOSE_DEBUG
+	if (priv->dev->verbose) {
+		printk(KERN_DEBUG "kbus:   %u/%u Could not find/unbind %u %c '%.*s'\n",
+		       dev->index,priv->id,
+		       bound_to_id,
+		       (replier?'R':'L'),
+		       name_len,name);
+	}
+#endif
+	return -EINVAL;
 }
 
 /*
@@ -3286,15 +3353,6 @@ static int kbus_bind(struct kbus_private_data	*priv,
 		name = NULL;
 	}
 
-#if 1 // XXX
-	if (retval == 0 &&
-	    bind->is_replier &&
-	    priv->dev->report_replier_binds) {
-		kbus_push_synthetic_bind_message(priv, true,
-						 bind->name_len, bind->name); /* XXX */
-	}
-#endif
-
 done:
 	if (name) kfree(name);
 	kfree(bind);
@@ -3365,16 +3423,6 @@ static int kbus_unbind(struct kbus_private_data	*priv,
 				     bind->is_replier,
 				     bind->name_len,
 				     name);
-
-#if 1 // XXX
-	if (retval == 0 &&
-	    bind->is_replier &&
-	    priv->dev->report_replier_binds) {
-		kbus_push_synthetic_bind_message(priv, false,
-						 bind->name_len, bind->name); /* XXX */
-	}
-#endif
-
 done:
 	if (name) kfree(name);
 	kfree(bind);
@@ -4132,7 +4180,7 @@ static int kbus_set_report_binds(struct kbus_private_data	*priv,
 	if (retval) return retval;
 
 #if VERBOSE_DEBUG
-	if (priv->dev->report_replier_binds) {
+	if (priv->dev->verbose) {
 		printk(KERN_DEBUG "kbus: %u/%u REPORTREPLIERBINDS requests %u (was %d)\n",
 		       priv->dev->index,priv->id, report_replier_binds, old_value);
 	}
