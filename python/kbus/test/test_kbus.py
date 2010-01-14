@@ -2969,6 +2969,111 @@ class TestKernelModule:
                 # We should be OK
                 binder.unbind('$.Fred', True)
 
+                binder.kernel_module_verbose(False)   # XXX
+
+    def test_bind_messages_full_queue2(self):
+        """Test replier binding, with two listeners, one with a full queue
+        """
+        with KSock(0, 'rw') as binder:
+            with KSock(0, 'rw') as listener1:
+                with KSock(0, 'rw') as listener2:
+
+                    binder.kernel_module_verbose(True)   # XXX
+
+                    # Limit the first listener's queue
+                    assert listener1.set_max_messages(1) == 1
+
+                    # Ask for notification
+                    state = binder.report_replier_binds(True)
+                    assert not state
+
+                    # Both listeners care
+                    listener1.bind('$.KBUS.ReplierBindEvent')
+                    listener2.bind('$.KBUS.ReplierBindEvent')
+
+                    # Try to bind as a Listener
+                    binder.bind('$.Jim')
+
+                    # There shouldn't be any messages
+                    assert listener1.num_messages() == 0
+                    assert listener2.num_messages() == 0
+
+                    # Try to bind as a Replier
+                    # - this should fill listener1's queue, but be OK
+                    binder.bind('$.Fred', True)
+                    assert listener1.num_messages() == 1
+                    assert listener2.num_messages() == 1
+
+                    # Try to bind as a Replier for the same message name
+                    # - this should fail because the message name is already bound
+                    # (it seems more important to know that, rather than that
+                    # some potential listener wouldn't be able to be told!)
+                    check_IOError(errno.EADDRINUSE, binder.bind, '$.Fred', True)
+                    assert listener1.num_messages() == 1
+                    assert listener2.num_messages() == 1
+
+                    # Try to bind as a Replier for a different message name
+                    # - this should fail because we can't send the ReplierBindEvent
+                    check_IOError(errno.EBUSY, binder.bind, '$.JimBob', True)
+                    assert listener1.num_messages() == 1
+                    assert listener2.num_messages() == 1
+
+                    # Ask not to get notification again
+                    state = binder.report_replier_binds(False)
+                    assert state
+
+                    # That shouldn't affect trying to bind to a name that is
+                    # already bound to
+                    check_IOError(errno.EADDRINUSE, binder.bind, '$.Fred', True)
+
+                    # But we now *should* be able to bind as a Replier to the other name
+                    # (because it doesn't try to send a synthetic message)
+                    binder.bind('$.JimBob', True)
+
+                    # And, of course, there still shouldn't be any more messages
+                    assert listener1.num_messages() == 1
+                    assert listener2.num_messages() == 1
+
+                    # Then do the same sort of check for unbinding...
+                    state = binder.report_replier_binds(True)
+                    assert not state
+
+                    # Unbinding as a Listener should still just work
+                    binder.unbind('$.Jim')
+
+                    # Unbinding as a Replier can't send the ReplierBindEvent
+                    check_IOError(errno.EBUSY, binder.unbind, '$.Fred', True)
+
+                    # So, there still shouldn't be any more messages
+                    assert listener1.num_messages() == 1
+                    assert listener2.num_messages() == 1
+                    
+                    # But if we stop asking for reports
+                    state = binder.report_replier_binds(False)
+                    assert state
+
+                    # We should be OK
+                    binder.unbind('$.Fred', True)
+
+                    # If we read the message from the first (limited) listener
+                    msg = listener1.read_next_msg()
+                    assert msg.name == '$.KBUS.ReplierBindEvent'    # of course
+                    # Data in the message isn't implemented yet...
+
+                    # We should be able to have a reported bind again
+                    # - but again, just once
+                    binder.report_replier_binds(True)
+                    binder.bind('$.Wibble', True)
+                    check_IOError(errno.EBUSY, binder.bind, '$.Fred', True)
+
+                    # Note that, of course, the message we did get is now seriously
+                    # out of date - if a reporting is switched on and off, then
+                    # binding event messages will not be reliable
+
+                    # Stop the messages (be friendly to any other tests!)
+                    binder.report_replier_binds(False)
+
+                    binder.kernel_module_verbose(False)   # XXX
 
     def test_bind_messages(self):
         """Test receiving a message when someone binds/unbinds.
