@@ -3067,7 +3067,10 @@ class TestKernelModule:
                     # If we read the message from the first (limited) listener
                     msg = listener1.read_next_msg()
                     assert msg.name == '$.KBUS.ReplierBindEvent'    # of course
-                    # Data in the message isn't implemented yet...
+                    is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
+                    assert is_bind
+                    assert binder_id == binder.ksock_id()
+                    assert name == '$.Fred'
 
                     # We should be able to have a reported bind again
                     # - but again, just once
@@ -3101,7 +3104,10 @@ class TestKernelModule:
             assert thing.num_messages() == 1
             msg = thing.read_next_msg()
             assert msg.name == '$.KBUS.ReplierBindEvent'    # of course
-            # Data in the message isn't implemented yet...
+            is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
+            assert is_bind
+            assert binder_id == thing.ksock_id()
+            assert name == '$.Fred'
 
             # -------- Bind as a Listener
             thing.bind('$.Jim')
@@ -3113,14 +3119,20 @@ class TestKernelModule:
             assert thing.num_messages() == 1
             msg = thing.read_next_msg()
             assert msg.name == '$.KBUS.ReplierBindEvent'    # of course
-            # Data in the message isn't implemented yet...
+            is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
+            assert is_bind
+            assert binder_id == thing.ksock_id()
+            assert name == '$.Bob'
 
             # -------- Unbind as a Replier
             thing.unbind('$.Fred', True)
             assert thing.num_messages() == 1
             msg = thing.read_next_msg()
             assert msg.name == '$.KBUS.ReplierBindEvent'    # of course
-            # Data in the message isn't implemented yet...
+            is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
+            assert not is_bind
+            assert binder_id == thing.ksock_id()
+            assert name == '$.Fred'
 
             # -------- Unbind as a Listener
             thing.unbind('$.Jim')
@@ -3143,11 +3155,11 @@ class TestKernelModule:
             thing.unbind('$.Fred', True)
             assert thing.num_messages() == 1
             msg = thing.read_next_msg()
-            ##assert msg.name == '$.KBUS.ReplierBindEvent'    # of course
-            ##is_bind, binder, name = split_replier_bind_event_data(msg.data)
-            ##assert not is_bind
-            ##assert binder == thing.ksock_id()
-            ##assert name == '$.Fred'
+            assert msg.name == '$.KBUS.ReplierBindEvent'    # of course
+            is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
+            assert not is_bind
+            assert binder_id == thing.ksock_id()
+            assert name == '$.Fred'
 
             # -------- Stop the messages (be friendly to any other tests!)
             state = thing.report_replier_binds(False)
