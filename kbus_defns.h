@@ -224,7 +224,7 @@ struct kbus_entire_message {
  *    (some limit seems sensible, after all)
  *
  * 2. An "entire" message, when written to us, may not be more than
- *    2000 bytes long -- this guarantees we're not going to hit any
+ *    2048 bytes long -- this guarantees we're not going to hit any
  *    page boundaries when trying to copy the entire message into
  *    kernel space. If big messages are wanted, write them with
  *    "pointy" headers.
@@ -385,6 +385,26 @@ static inline uint32_t *kbus_end_ptr(struct kbus_entire_message  *entire)
  * sent, all recipients must have room on their message queues for this
  * message, and if they do not, the send will fail.
  */
+
+/*
+ * When a $.KBUS.ReplierBindEvent message is constructed, we use the
+ * following to encapsulate its data.
+ *
+ * This indicates whether it is a bind or unbind event, who is doing the
+ * bind or unbind, and for what message name. The message name is padded
+ * out to a multiple of four bytes, allowing for a terminating null byte,
+ * but the name length is the length without said padding (so, in C terms,
+ * strlen(name)).
+ *
+ * As for the message header data structure, the actual data "goes off the end"
+ * of the datastructure.
+ */
+struct kbus_replier_bind_event_data {
+	uint32_t			is_bind;    /* 1=bind, 0=unbind */
+	uint32_t			binder;     /* KSock id of binder */
+	uint32_t			name_len;   /* Length of name */
+	uint32_t			rest[];     /* Message name */
+};
 
 #if ! __KERNEL__
 #define BIT(num)                 (((unsigned)1) << (num))

@@ -1460,63 +1460,164 @@ static int kbus_push_synthetic_bind_message(struct kbus_private_data	*priv,
 					     uint32_t		  	 name_len,
 					     char			*name)
 {
+	/*
+	 * The initial design of things didn't really expect us to be
+	 * generating messages with actual data inside the kernel module,
+	 * so it's all a little bit more complicated than it might otherwise
+	 * be, and there's some playing with things directly that might best
+	 * be done otherwise (notably, sorting out the wrapping up of the
+	 * data in a reference count). I think that's excusable given this
+	 * should be the only sort of message we ever generate with actual
+	 * data (or so I believe).
+	 */
+
 	ssize_t				 retval = 0;
 	struct kbus_message_header	*new_msg;
 	struct kbus_msg_id		 in_reply_to = {0,0};	/* no-one */
+	char  *msg_name_copy;
+
+	static char *msg_name = "$.KBUS.ReplierBindEvent";
+	size_t msg_name_len = strlen(msg_name);
 
 //#if VERBOSE_DEBUG
 //	if (priv->dev->verbose) {
-		printk(KERN_DEBUG "kbus:   %u Pushing synthetic bind message for %d:'%s'"
-		       " (bind %d) onto queue\n",priv->dev->index,name_len,name,is_bind);
+		printk(KERN_DEBUG "kbus:   %u Pushing synthetic bind message for '%s'"
+		       " (%s) onto queue\n",priv->dev->index,name,
+		       is_bind?"bind":"unbind");
 //	}
 //#endif
 
-	new_msg = kbus_build_kbus_message("$.KBUS.ReplierBindEvent",
-					  0, 0, in_reply_to);
-	if (!new_msg) return -ENOMEM;
-
-	/* And set its flags to add ALL_OR_FAIL */
-	new_msg->flags |= KBUS_BIT_ALL_OR_FAIL;
-
-	printk(KERN_DEBUG "kbus: Synthetic message built\n");
-	kbus_report_message(KERN_DEBUG, new_msg);
-
-	/* XXX And its data... XXX */
-
 	/*
-	 * XXX STILL TO DO XXX
+	 * We are building a new message with (reference counted) data.
+	 * Thus we'd like to be able to use the normal mechanisms to
+	 * free that message when we've finished with it. Which includes
+	 * freeing the message name (in the message). So when we create
+	 * the message, we need to use a "freeable" message name. That
+	 * costs us another string copy, but is worth it for the simpler
+	 * handling of the actual message.
 	 */
-	printk(KERN_DEBUG "kbus: NO DATA FOR THE MESSAGE YET\n");
 
-	/* XXX CHECK CHECK CHECK XXX */
-	printk(KERN_DEBUG "kbus: Writing synthetic message to recipients\n");
-	retval = kbus_write_to_recipients(priv, priv->dev, new_msg);
+	msg_name_copy = kmalloc(msg_name_len+1, GFP_KERNEL);
+	if (!msg_name_copy) return -ENOMEM;
+
+	strncpy(msg_name_copy, msg_name, msg_name_len);
+	msg_name_copy[msg_name_len] = '\0';
+
+	new_msg = kbus_build_kbus_message(msg_name_copy, 0, 0, in_reply_to);
+	if (!new_msg) {
+		kfree(msg_name_copy);
+	       	return -ENOMEM;
+	}
 
 	/*
 	 * What happens if any one of the listeners can't receive the message
 	 * because they don't have room in their queues?
 	 *
-	 * Because the message is flagged ALL_OR_FAIL, if we can't deliver
+	 * If we flag the message as ALL_OR_FAIL, then if we can't deliver
 	 * to all of the listeners who care, we will get -EBUSY returned.
 	 *
 	 * In this scenario, the user needs to catch a "bind"/"unbind" return
 	 * of -EBUSY and realise that it needs to try again.
 	 *
-	 * EBUSY is correct, because it means no-one will have been notified
-	 * about the binding - notifying some people and not others is a bad
-	 * idea.
+	 * So, EBUSY is correct, because it means no-one will have been
+	 * notified about the binding - notifying some people and not others is
+	 * a bad idea.
 	 */
+	new_msg->flags |= KBUS_BIT_ALL_OR_FAIL;
 
+	printk(KERN_DEBUG "kbus: Synthetic message built\n");
+	kbus_report_message(KERN_DEBUG, new_msg);
+
+	/*
+	 * That gave us the basis of the message, but now we need to add in
+	 * its meaning.
+	 */
+	{
+		struct kbus_replier_bind_event_data 	*data;
+		struct kbus_data_ptr			*wrapped_data;
+		uint32_t padded_name_len = KBUS_PADDED_NAME_LEN(name_len);
+		uint32_t data_len = sizeof(*data) + padded_name_len;
+		uint32_t rest_len = padded_name_len / 4;
+		char    *name_p;
+
+		unsigned long *parts;
+		unsigned      *lengths;
+
+		printk(KERN_DEBUG "kbus: name_len %u, padded_name_len %u, rest_len %u, data_len %u\n",
+		       name_len, padded_name_len, rest_len, data_len);
+
+		data = kmalloc(data_len, GFP_KERNEL);
+		if (!data) {
+			kbus_free_message(priv, new_msg, true);
+			return -ENOMEM;
+		}
+
+	        name_p = (char *) &data->rest[0];
+
+		data->is_bind = is_bind;
+		data->binder = priv->id;	// XXX Is this right? XXX
+		data->name_len = name_len;
+
+		printk(KERN_DEBUG "kbus: data %p, data->is_bind %u, binder %u, name_len %u\n",
+		       data, data->is_bind, data->binder, data->name_len);
+
+		data->rest[rest_len-1] = 0;	/* terminating with enough '\0' */
+		strncpy(name_p, name, name_len);
+
+		/*
+		 * And that data, unfortunately for our simple mindedness,
+		 * needs wrapping up in a reference count...
+		 *
+		 * Note/remember that we are happy for the reference counting
+		 * wrapper to "own" our data, and free it when the it is done
+		 * with it.
+		 *
+		 * I'm going to assert that we have less than a PAGE length
+		 * of data, so we can simply do:
+		 */
+		parts = kmalloc(sizeof(*parts), GFP_KERNEL);
+		if (!parts) {
+			kfree(data);
+			kbus_free_message(priv, new_msg, true);
+			return -ENOMEM;
+		}
+		lengths = kmalloc(sizeof(*lengths), GFP_KERNEL);
+		if (!lengths) {
+			kfree(parts);
+			kfree(data);
+			kbus_free_message(priv, new_msg, true);
+			return -ENOMEM;
+		}
+		lengths[0] = data_len;
+		parts[0] = (unsigned long) data;
+		wrapped_data = kbus_new_data_ref(priv, false, 1, parts, lengths);
+		if (!wrapped_data) {
+			kfree(lengths);
+			kfree(parts);
+			kfree(data);
+			kbus_free_message(priv, new_msg, true);
+			return -ENOMEM;
+		}
+
+		new_msg->data_len = data_len;
+		new_msg->data = wrapped_data;
+		kbus_report_message(KERN_DEBUG, new_msg);
+	}
+
+	printk(KERN_DEBUG "kbus: Writing synthetic message to recipients\n");
+	retval = kbus_write_to_recipients(priv, priv->dev, new_msg);
 	if (retval < 0) {
 		printk(KERN_DEBUG "kbus: Return code is %d\n", retval);
 	}
 
 	/*
-	 * kbus_push_message takes a copy of our message data, but
-	 * we don't want to free the message name!
+	 * kbus_push_message takes a copy of our message data, so we
+	 * must remember to free ours. Since we've made sure that it
+	 * looks just like a user-generated message (i.e., the name
+	 * can be freed as well as the data), this is fairly simple.
 	 */
 	printk(KERN_DEBUG "kbus: Freeing synthetic message\n");
-	kbus_free_message(priv, new_msg, false);
+	kbus_free_message(priv, new_msg, true);
 
 	return retval;
 }
@@ -2022,9 +2123,6 @@ static int kbus_remember_binding(struct kbus_dev	  *dev,
 	new->is_replier = replier;
 	new->name_len = name_len;
 	new->name = name;
-
-	/* XXX */ printk(KERN_DEBUG "kbus: replier %d dev->report_replier_binds %d\n",
-			 replier, dev->report_replier_binds);
 
 	if (replier && dev->report_replier_binds) {
 		/*
