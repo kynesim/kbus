@@ -140,10 +140,11 @@ def _same_message_struct(this, that):
         this.data_len != that.data_len or
         this.name != that.name):
         return False
+
     if this.data_len:
-        for ii in range(this.data_len):
-            if this.data[ii] != that.data[ii]:
-                return False
+        this_data = c_data_as_string(this.is_pointy, this.data, this.data_len)
+        that_data = c_data_as_string(this.is_pointy, that.data, that.data_len)
+        return this_data == that_data
     return True
 
 def _equivalent_message_struct(this, that):
@@ -174,11 +175,36 @@ def _equivalent_message_struct(this, that):
         this.data_len != that.data_len or
         this.name != that.name):
         return False
+
     if this.data_len:
-        for ii in range(this.data_len):
-            if this.data[ii] != that.data[ii]:
-                return False
+        this_data = c_data_as_string(this.is_pointy, this.data, this.data_len)
+        that_data = c_data_as_string(this.is_pointy, that.data, that.data_len)
+        return this_data == that_data
     return True
+
+    #if this.data_len:
+    #    if isinstance(this.data, int):
+    #        this_array = ctypes.cast(this.data, ctypes.POINTER(ctypes.c_uint8))
+    #    else:
+    #        this_array = this.data
+    #    if isinstance(that.data, int):
+    #        that_array = ctypes.cast(that.data, ctypes.POINTER(ctypes.c_uint8))
+    #    else:
+    #        that_array = that.data
+    #
+    #    for ii in range(this.data_len):
+    #        if this_array[ii] != that_array[ii]:
+    #            return False
+    #return True
+
+def c_data_as_string(is_pointy, data, data_len):
+    """Return the message data as a string.
+    """
+    # And, somewhat inefficiently, convert it to a (byte) string
+    w = []
+    for ii in range(data_len):
+        w.append(chr(data[ii]))
+    return ''.join(w)
 
 def hexdata(data):
     r"""Return a representation of a 'string' in printable form.
@@ -255,8 +281,10 @@ class _MessageHeaderStruct(ctypes.Structure):
                 ('name_len',    ctypes.c_uint32),
                 ('data_len',    ctypes.c_uint32),
                 ('name',        ctypes.c_char_p),
-                ('data',        ctypes.c_char_p),
+                ('data',        ctypes.POINTER(ctypes.c_uint8)),
                 ('end_guard',   ctypes.c_uint32)]
+
+    is_pointy = True
 
     def __repr__(self):
         """For debugging, not construction of an instance of ourselves.
@@ -268,7 +296,14 @@ class _MessageHeaderStruct(ctypes.Structure):
         if self.data == None:
             dd = 'None'
         else:
-            dd = repr(hexdata(self.data))
+            # We need to retrieve our array from the pointer - ick
+            array = ctypes.cast(self.data, ctypes.POINTER(ctypes.c_uint8))
+            # And, somewhat inefficiently, convert it to something printable
+            w = []
+            for ii in range(self.data_len):
+                w.append(chr(array[ii]))
+            s = ''.join(w)
+            dd = repr(hexdata(s))
         return "<%08x] %s %s %u %u %08x %u %u %s %s [%08x>"%(
                 self.start_guard,
                 self.id._short_str(),
@@ -348,7 +383,10 @@ def message_from_parts(id, in_reply_to, to, from_, flags, name, data):
 
     name_ptr = ctypes.c_char_p(name)
     if data:
-        data_ptr = ctypes.c_char_p(data)
+        # This seems a bit clumsy and wasteful, but I can't see
+        # how else to do it
+        DataArray = ctypes.c_uint8 * padded_data_len
+        data_ptr = DataArray( *[ord(x) for x in data] )
     else:
         data_ptr = None
 
@@ -372,14 +410,17 @@ def message_from_string(msg_data):
 
     h.name = msg_data[52:52+h.name_len]
 
+    data_offset = 52+padded_name_len
+
     if h.data_len == 0:
         h.data = None
     else:
-        data = msg_data[52+padded_name_len:52+padded_name_len+h.data_len]
+        data = msg_data[data_offset:data_offset+h.data_len]
 
-        h.data = ctypes.c_char_p(data)
+        DataArray = ctypes.c_uint8 * h.data_len
+        h.data = DataArray( *[ord(x) for x in data] )
 
-    final_end_guard = msg_data[52+padded_name_len+padded_data_len:]
+    final_end_guard = msg_data[data_offset+padded_data_len:]
     return h
 
 class _EntireMessageStructBaseclass(ctypes.Structure):
@@ -417,6 +458,8 @@ class _EntireMessageStructBaseclass(ctypes.Structure):
     # could use the "anonymous" capability to make the "header"
     # names be used directly. But that would not allow us to
     # fudge "name" and "data", so...
+
+    is_pointy = False
 
     @property
     def start_guard(self):
@@ -502,8 +545,8 @@ def _specific_entire_message_struct(padded_name_len, padded_data_len):
         class localEntireMessageStruct(_EntireMessageStructBaseclass):
             _fields_ = [('header',     _MessageHeaderStruct),
                         ('rest_name',  ctypes.c_char  * padded_name_len),
-                        #('rest_data',  ctypes.c_uint8 * padded_data_len),
-                        ('rest_data',  ctypes.c_char * padded_data_len),
+                        ('rest_data',  ctypes.c_uint8 * padded_data_len),
+                        #('rest_data',  ctypes.c_char * padded_data_len),
                         ('rest_end_guard',  ctypes.c_uint32)]
         _specific_entire_message_struct_dict[key] = localEntireMessageStruct
         return localEntireMessageStruct
@@ -550,20 +593,33 @@ def entire_message_from_parts(id, in_reply_to, to, from_, flags, name, data):
                                   to, from_, flags, name_len, data_len,
                                   None, None, Message.END_GUARD)
 
+    DataArray = ctypes.c_uint8 * padded_data_len
+    data_array = DataArray( *[ord(x) for x in data] )
+
     # We rather rely on 'data' "disappearing" (being of zero length)
     # if 'data_len' is zero, and it appears that that just works.
 
     local_class = _specific_entire_message_struct(padded_name_len,
                                                   padded_data_len)
 
-    return local_class(header, name, data, Message.END_GUARD)
+    return local_class(header, name, data_array, Message.END_GUARD)
 
 def entire_message_from_string(data):
     """Return a message structure of a size that satisfies.
 
     'data' is a string-like object (as, for instance, returned by 'read')
     """
+    ## ===================================
+    debug = False
+    if debug:
+        print
+        print 'entire_message_from_string(%d:%s)'%(len(data),hexify(data))
+    ## ===================================
     h = _struct_from_string(_MessageHeaderStruct, data)
+    ## ===================================
+    if debug:
+        print '_MessageHeaderStruct: %s'%h
+    ## ===================================
 
     # Don't forget that the string will be terminated with a 0 byte
     padded_name_len = 4*((h.name_len +1 + 3) / 4)
@@ -573,6 +629,14 @@ def entire_message_from_string(data):
 
     local_class = _specific_entire_message_struct(padded_name_len,
                                                   padded_data_len)
+
+    ## ===================================
+    if debug:
+        print 'name_len %d -> %d, data_len %d -> %d'%(h.name_len, padded_name_len, h.data_len, padded_data_len)
+        x = _struct_from_string(local_class, data)
+        print '_specific_class:      %s'%x
+        print
+    ## ===================================
 
     return _struct_from_string(local_class, data)
 
@@ -955,15 +1019,10 @@ class Message(object):
 
     @property
     def data(self):
-        return self.msg.data
-
-    #def data_as_string(self):
-    #    """Return the message data as a Python string.
-    #
-    #    The returned string will be data_len*4 bytes long.
-    #    """
-    #    d = array.array('L', self.data)
-    #    return d.tostring()
+        if self.msg.data_len == 0:
+            return None
+        # To be friendly, return data as a Python (byte) string
+        return c_data_as_string(self.msg.is_pointy, self.msg.data, self.msg.data_len)
 
     def extract(self):
         """Return our parts as a tuple.
@@ -1385,5 +1444,26 @@ def reply_to(original, data=None, flags=0):
     # any flags from the original message.
     return Reply(name, data=data, in_reply_to=id, to=from_, flags=flags)
 
+
+
+
+class _ReplierBindEventHeader(ctypes.Structure):
+    """The "header" part of a '$.KBUS.ReplierBindEvent' message
+    """
+    _fields_ = [('is_bind', ctypes.c_uint32),
+                ('binder',  ctypes.c_uint32),
+                ('name_len',ctypes.c_uint32)]
+
+def split_replier_bind_event_data(data):
+    """Split the data from a '$.KBUS.ReplierBindEvent' message.
+
+    Returns a tuple of the form (is_bind, binder, name)
+    """
+
+    hdr = _struct_from_string(_ReplierBindEventHeader, data)
+
+    name = data[12:12+hdr.name_len]
+
+    return (hdr.is_bind, hdr.binder, name)
 
 # vim: set tabstop=8 shiftwidth=4 expandtab:
