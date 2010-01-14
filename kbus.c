@@ -1543,8 +1543,8 @@ static int kbus_push_synthetic_bind_message(struct kbus_private_data	*priv,
 		unsigned long *parts;
 		unsigned      *lengths;
 
-		printk(KERN_DEBUG "kbus: name_len %u, padded_name_len %u, rest_len %u, data_len %u\n",
-		       name_len, padded_name_len, rest_len, data_len);
+		printk(KERN_DEBUG "kbus: name_len %u, padded_name_len %u, rest_len %u,  sizeof(*data) %u, data_len %u\n",
+		       name_len, padded_name_len, rest_len, sizeof(*data), data_len);
 
 		data = kmalloc(data_len, GFP_KERNEL);
 		if (!data) {
