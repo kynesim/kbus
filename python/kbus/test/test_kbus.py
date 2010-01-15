@@ -2871,7 +2871,6 @@ class TestKernelModule:
         """Test changing the "receiving a message when someone binds/unbinds" flag.
         """
         with KSock(0, 'rw') as thing:
-            thing.kernel_module_verbose(True)   # XXX
             # Just ask - default is off
             state = thing.report_replier_binds(True, True)
             assert not state
@@ -2892,7 +2891,6 @@ class TestKernelModule:
         """Test unbinding a not-bound message, with report_replier_binds.
         """
         with KSock(0, 'rw') as thing:
-            thing.kernel_module_verbose(True)   # XXX
             # Ask for notification
             state = thing.report_replier_binds(True)
             assert not state
@@ -2920,8 +2918,6 @@ class TestKernelModule:
         """
         with KSock(0, 'rw') as binder:
             with KSock(0, 'rw') as listener:
-
-                binder.kernel_module_verbose(True)   # XXX
 
                 # Make the listener have a full queue
                 assert listener.set_max_messages(1) == 1
@@ -2978,16 +2974,12 @@ class TestKernelModule:
                 # We should be OK
                 binder.unbind('$.Fred', True)
 
-                binder.kernel_module_verbose(False)   # XXX
-
     def test_bind_messages_full_queue2(self):
         """Test replier binding, with two listeners, one with a full queue
         """
         with KSock(0, 'rw') as binder:
             with KSock(0, 'rw') as listener1:
                 with KSock(0, 'rw') as listener2:
-
-                    binder.kernel_module_verbose(True)   # XXX
 
                     # Limit the first listener's queue
                     assert listener1.set_max_messages(1) == 1
@@ -3084,8 +3076,6 @@ class TestKernelModule:
 
                     # Stop the messages (be friendly to any other tests!)
                     binder.report_replier_binds(False)
-
-                    binder.kernel_module_verbose(False)   # XXX
 
     def test_bind_messages(self):
         """Test receiving a message when someone binds/unbinds.

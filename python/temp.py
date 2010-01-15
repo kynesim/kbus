@@ -32,8 +32,6 @@ try:
         with KSock(0, 'rw') as binder:
             with KSock(0, 'rw') as listener:
 
-                binder.kernel_module_verbose(True)   # XXX
-
                 # Ask for notification
                 state = binder.report_replier_binds(True)
                 assert not state
