@@ -218,12 +218,17 @@ Replier Unbind Event.
 Deferred for now: Requests with the "to" field set (i.e., to Request a
 particular KSock) - the story for this needs writing.
 
+Things to worry about
+=====================
+Status messages (KBUS synthetic messsages) and passing them over multiple
+Limpet boundaries...
 """
 
 import ctypes
 import os
 import select
 import socket
+import struct
 import sys
 
 from kbus import KSock, Message
@@ -237,6 +242,11 @@ class GiveUp(Exception):
 
 class OtherLimpetGoneAway(Exception):
     """The other end has closed its end of the socket.
+    """
+    pass
+
+class NoMessage(Exception):
+    """There was no message.
     """
     pass
 
@@ -321,6 +331,9 @@ class Limpet(object):
         self.is_server = is_server
         self.network_id = network_id
 
+        # We don't know the network id of our Limpet pair yet
+        self.other_network_id = None
+
         if socket_family not in (socket.AF_UNIX, socket.AF_INET):
             raise GiveUp('Socket family is %d, must be AF_UNIX (%s) or AF_INET (%d)'%(socket_family,
                 socket.AF_UNIX, socket.AF_INET))
@@ -351,6 +364,21 @@ class Limpet(object):
         # And ask KBUS to *send* such messages
         self.ksock.report_replier_binds(True)
 
+    def _send_network_id(self, sock):
+        """Send our pair Limpet our network id.
+        """
+        sock.sendall('HELO')
+        value = socket.ntohl(self.network_id)
+        data = struct.pack('!L', value)   # unsigned long, network order
+        sock.sendall(data)
+
+    def _read_network_id(self):
+        """Read our pair Limpet's network id.
+        """
+        data = self.sock.recv(4, socket.MSG_WAITALL)
+        value = struct.unpack('!L', data)   # unsigned long, network order
+        return socket.ntohl(value[0])
+
     def setup_as_server(self, address, family):
         """Set ourselves up as a server Limpet.
 
@@ -366,6 +394,9 @@ class Limpet(object):
             listener.listen(1)
             connection, address = self.listener.accept()
             print 'Connection accepted from (%s, %s)'%(connection, address)
+
+            # Tell the other end what our network id is
+            self._send_network_id(connection)
 
             return connection
         except:
@@ -384,6 +415,10 @@ class Limpet(object):
             sock = socket.socket(family, socket.SOCK_STREAM)
             sock.connect(address)
             print 'Connected to "%s" as client'%sockname
+
+            # Tell the other end what our network id is
+            self._send_network_id(sock)
+
             return sock
         except Exception as exc:
             raise GiveUp('Unable to connect to "%s" as client: %s'%(sockname, exc))
@@ -450,17 +485,22 @@ class Limpet(object):
         """
 
         # All KBUS messages start with the start guard:
-        print 'Waiting for a message start guard: length 4'
+        #print 'Waiting for a message start guard: length 4'
         start_guard = self.sock.recv(4, socket.MSG_WAITALL)
         if start_guard == '':
           raise OtherLimpetGoneAway()
-        ##elif start_guard == 'QUIT': # Sort-of out of bound data
-        ##  raise OutOfBoundQuit('Client asked us to QUIT')
+        elif start_guard == 'HELO':
+            # It's the other Limpet telling us its network id
+            self.other_network_id = self._read_network_id()
+            print 'Other Limpet has network id',self.other_network_id
+            raise NoMessage
+        ####elif start_guard == 'QUIT': # Sort-of out of bound data
+        ####  raise OutOfBoundQuit('Client asked us to QUIT')
         elif start_guard != 'kbus': # This is perhaps a bit naughty, relying on byte order
           raise BadMessage('Data read starts with "%s", not "kbus"'%start_guard)
 
         # So we start with the message header - this is always the same length
-        print 'Read the rest of message header: length',MSG_HEADER_LEN-4
+        #print 'Read the rest of message header: length',MSG_HEADER_LEN-4
         rest_of_header_data = self.sock.recv(MSG_HEADER_LEN-4, socket.MSG_WAITALL)
 
         header_data = start_guard + rest_of_header_data
@@ -469,10 +509,9 @@ class Limpet(object):
 
         overall_length = entire_message_len(header.name_len, header.data_len)
 
-        print 'Message header: header length %d, total length %d'%(MSG_HEADER_LEN,
-          overall_length)
+        #print 'Message header: header length %d, total length %d'%(MSG_HEADER_LEN, overall_length)
 
-        print 'Reading rest of message: length', overall_length - MSG_HEADER_LEN
+        #print 'Reading rest of message: length', overall_length - MSG_HEADER_LEN
         rest_of_message = self.sock.recv(overall_length - MSG_HEADER_LEN, socket.MSG_WAITALL)
 
         return Message(header_data + rest_of_message)
@@ -484,18 +523,33 @@ class Limpet(object):
 
         Caveats:
 
-        1. We change the network id of the message given to us, which is
-           a non-obvious SIDE EFFECT - we could instead copy the message
-           and change the copy (or amend the "string" representation of
-           the message before sending it!)
+        1. What do we *do* about the network id?
+        
+           If KBUS gave us a message with an unset network id, then it is
+           a local message, and we set its network id to our own before we
+           pass it on. This means that its serial number is unique within
+           our own locality.
 
-        2. We do not change the network id if it was already non-zero
-           (i.e., came to us from another network). Is this the right
-           thing to do?
+           If KBUS gave us a message with a set network id, then we must
+           preserve it, as the message serial number is unique within that
+           network id, but might be the same as a local message.
+
+           That is, we might well have a local message "called" [0:27], and
+           also receive a remote message called [130:27] -- we need to retain
+           these as distinct, so we can change the first (to have our own
+           "local" network id), but may not change the second.
+
+               (This does, of course, assume that network ids are unique - we
+               are going to have to trust that has been set up correctly).
+
+        2. When we change the network id, we actually change it in the message
+           given to us, which is a non-obvious SIDE EFFECT - we could instead
+           copy the message and change the copy (or amend the "string"
+           representation of the message before sending it!)
         """
-        # XXX As it says in the docstring...
         if msg.id.network_id == 0:
             msg.id.network_id = self.network_id
+
         data = msg.to_string()
         self.sock.sendall(data)
 
@@ -553,13 +607,18 @@ class Limpet(object):
             # (at least for the moment)
             (r, w, x) = select.select( [self.ksock, self.sock], [], [])
 
+            print
+
             if self.ksock in r:
                 msg = self.ksock.read_next_msg()
                 self.handle_message_from_kbus(msg)
 
             if self.sock in r:
-                msg = self.read_message_from_socket()
-                self.handle_message_from_socket(msg)
+                try:
+                    msg = self.read_message_from_socket()
+                    self.handle_message_from_socket(msg)
+                except NoMessage:       # Presumably, a HELO <network_id>
+                    pass
 
     # Implement 'with'
     def __enter__(self):

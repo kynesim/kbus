@@ -1,12 +1,12 @@
 #! /usr/bin/env python
 """Simple Limpet testing...
 
-Usage:  ./test.py 1 [-k <number:0>] <address>
-        ./test.py 2 [-k <number:1>] <address>
-        ./test.py 3 [-k <number:0>]
-        ./test.py 4 [-k <number:1>]
+Usage:  ./test.py 1 [-k <number:1>] <address>
+        ./test.py 2 [-k <number:2>] <address>
+        ./test.py 3 [-k <number:1>]
+        ./test.py 4 [-k <number:2>]
 
-* '1' starts the first (server) limpet, and also starts/stops KBUs
+* '1' starts the first (server) limpet, and also starts/stops KBUS
 * '2' starts the second (client) limpet
 * '3' starts the "listener" client
 * '4' starts the "sender" client (which starts the message sending)
@@ -16,7 +16,7 @@ a <host>:<port> or a <pathname>, for communication via host/port or named
 Unix domain socket respectively.
 
 All four may also be given an explicit KSock number to connect to -
-otherwise these default to 0 and 1 (i.e., two different KSocks) as
+otherwise these default to 1 and 2 (i.e., two different KSocks) as
 indicated.
 
 The assumption is that each command will be run in a different terminal, and
@@ -88,14 +88,14 @@ def limpet1(args):
     Also start up KBUS, since we're the first runner.
     """
     print 'Limpet number 1'
-    ksock_id, address, family = parse_limpet_args(args, default_ksock_id=0)
+    ksock_id, address, family = parse_limpet_args(args, default_ksock_id=1)
     print 'Starting KBUS'
     retval = subprocess.call('sudo insmod ../../kbus/kbus.ko kbus_num_devices=3', shell=True)
     time.sleep(0.5)
     try:
-        message_names = ['$.*']
-        network_id = 2
-        run_a_limpet(True, address, family, ksock_id, network_id, message_names)
+        message_name = '$.*'
+        network_id = 1          # Limpet 1, network id 1
+        run_a_limpet(True, address, family, ksock_id, network_id, message_name)
     finally:
         print 'Stopping KBUS'
         retval = subprocess.call('sudo rmmod kbus', shell=True)
@@ -104,26 +104,27 @@ def limpet2(args):
     """Start the second (client) limpet.
     """
     print 'Limpet number 2'
-    ksock_id, address, family = parse_limpet_args(args, default_ksock_id=1)
-    message_names = ['$.*']
-    network_id = 1
-    run_a_limpet(False, address, family, ksock_id, network_id, message_names)
+    ksock_id, address, family = parse_limpet_args(args, default_ksock_id=2)
+    message_name = '$.*'
+    network_id = 2              # Limpet 2, network id 2
+    run_a_limpet(False, address, family, ksock_id, network_id, message_name)
 
 def sender(args):
     """Start the first client.
     """
-    ksock_id = parse_client_args(args, default_ksock_id=1)
+    ksock_id = parse_client_args(args, default_ksock_id=2)
     print '"Sender" client on KSock %d'%ksock_id
 
     with KSock(ksock_id, 'rw') as sender:
         msg = Message('$.Fred','1234')
-        print 'Sending message',msg
-        sender.send_msg(msg)
+        print 'Sending',str(msg),
+        id = sender.send_msg(msg)
+        print 'with id',str(id)
 
 def listener(args):
     """Start the second client.
     """
-    ksock_id = parse_client_args(args, default_ksock_id=0)
+    ksock_id = parse_client_args(args, default_ksock_id=1)
     print '"Listener" client on KSock %d'%ksock_id
 
     with KSock(ksock_id, 'rw') as sender:
