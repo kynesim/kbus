@@ -34,7 +34,8 @@ command line is not significant, but if a later <thing> contradicts an earlier
 
     -m <name>, -message <name>
                     Proxy any messages with this name to the other Limpet.
-                    Using "-m '$.*'" will proxy all messages.
+                    Using "-m '$.*'" will proxy all messages, and this is
+                    the default.
 """
 
 documentation = """\
@@ -62,20 +63,52 @@ message from A to V over a Limpet proxy should have an id of the form [x:n]
 
 Complexities may arise for three reasons:
 
-    1. B binds as a Replier - we want it to be able to reply to messages from A
-    2. A is also listening to messages - we don't want it to hear too many
-    3. A Limpet does not necessarily have to forward all messages (the default
+    1. A Limpet does not necessarily have to forward all messages (the default
        is presumably to forward '$.*', subject to solving (1) and (2) above).
+    2. A is also listening to messages - we don't want it to hear too many
+    3. B binds as a Replier - we want it to be able to reply to messages from A
 
 .. note:: There's a question in that last which will also need answering,
    namely, do Limpets always listen to '$.*', or is it reasonable to be able
    to limit them? If we can limit them, what happens if we accidentally end
    up asking them to listen to the same message more than once?
 
-Looking at 1: B binds as a Replier
-----------------------------------
+Looking at 1: A Limpet does not have to forward all messages
+------------------------------------------------------------
+The possibilities are broadly:
 
+    1. Limpets always listen for '$.*'
 
+       This is the simplest option, but wastes the maximum bandwith (since it
+       seems likely that we might know that only a subset of messages are of
+       interest to the other Limpet's system).
+
+    2. Limpets default to listening for '$.*', but the user may replace
+       that with a single (possibly wildcarded) name, e.g., '$.Fred.%'
+
+       This is the next simplest option. It retains much of the simplicity of
+       the first option, but allows us to not send some (many) messages. It
+       does, however, assume that a single wildcarding is enough to do the
+       restriction we wish.
+
+       For the moment, I think this is my favoured option, as it seems to be a
+       good middle ground.
+
+    3. Limpets default to listening for '$.*', but the user may replace
+       that with more than one (possibly wildcarded) name. That may
+       cause philosophical problems if they choose (for instance) '$.Fred.*'
+       and '$.Fred.Jim', since the Limpet will "hear" some messages twice.
+
+       This is the most flexible option, but is most likely to cause problems
+       when the user specifies overlapping wildcards (if it's possible, we have
+       to support it). I'd like to avoid it unless it is needed.
+
+There's also a variant of each of the second and third where the Limpet doesn't
+have a default at all, and thus won't transmit anything until told what to do.
+But I think that is sufficiently similar not to worry about separately.
+
+Remember that Limpets will always transmit Replies (things that they are
+proxying as Sender for).
 
 Looking at 2: A is also listening to messages
 ---------------------------------------------
@@ -129,22 +162,61 @@ That is:
          message name once, if we allow otherwise, then we need to be a bit
          more careful
 
-Looking at 3: A Limpet does not have to forward all messages
-------------------------------------------------------------
-The possibilities are broadly:
+Looking at 3: B binds as a Replier
+----------------------------------
+B binds as a replier, and thus Limpet:x has to bind as a Replier for the same
+message name.
 
-    1. Limpets always listen for '$.*'
-    2. Limpets default to listening for '$.*', but the user may replace
-       that with a single (possibly wildcarded) name, e.g., '$.Fred.%'
-    3. Limpets default to listening for '$.*', but the user may replace
-       that with more than one (possibly wildcarded) name. That may
-       cause philosophical problems if they choose (for instance) '$.Fred.*'
-       and '$.Fred.Jim', since the Limpet will "hear" some messages twice.
+    .. note:: From the KBUS documentation
 
-There's also a variant of each of the second and third where the Limpet doesn't
-have a default at all, and thus won't transmit anything until told what to do.
-But I think that is sufficiently similar not to worry about separately.
+       **Things KBUS changes in a message**
 
+       In general, KBUS leaves the content of a message alone - mostly so that an
+       individual KBUS module can *pass through* messages from another domain.
+       However, it does change:
+
+       * the message id's serial number (but only if its network id is unset)
+       * the "from" id (to indicate the KSock this message was sent from)
+       * the WANT_YOU_TO_REPLY bit in the flags (set or cleared as appropriate)
+       * the SYNTHETIC bit, which will always be unset in a message sent by a Sender
+
+A sends a Request with that name, which gets sent to Limpet:x marked "you
+should reply", and with the "from" field set to A.
+
+Limpet:x passes it on to Limpet:y (amending the message ids network id to x,
+and amending the "from" fields network id to x as well). Limpet:x remembers
+that it has done this (by remembering the message id).
+
+Limpet:y then sends the message to its KBUS, which will:
+
+    1. ignore the "you should reply" flag, but reset it for the message
+       that gets sent to B
+    2. ignore the "from" field, and reset it to the KSock id for Limpet:y
+
+Thus Limpet:y needs to remember the correspondence between the Request message
+it received, and the message that actually got sent to B. It can, of course,
+determine the new message id, and it knows its own KSock id.
+
+B then receives the message, marked that *it* should reply. Presumably it does so.
+
+In that case, Limpet:y receives the message (as Sender). It can recognise what
+it is a reply to, because of the "in_reply_to" field. It sets the network id
+for the message id, and for the "from" field. It needs to replace that
+"in_reply_to" field with the saved (original) message id, and send the whole
+thing back to Limpet:x.
+
+Limpet:x is acting as Replier for this message on its side. It needs to set the
+"in reply to" field to the message id of the original Request, i.e., removing
+the network id.
+
+NB: I think the above works for "synthetic" messages as well, but of course if
+B's KBUS says that B has gone away, then the Limpet needs to do appropriate
+things (such as, for instance, forgetting about any outstanding messages - this
+may need action by both Limpets). B going away should, of course, generate a
+Replier Unbind Event.
+
+Deferred for now: Requests with the "to" field set (i.e., to Request a
+particular KSock) - the story for this needs writing.
 
 """
 
@@ -505,7 +577,7 @@ class Limpet(object):
             return False
 
 
-def run_a_limpet(is_server, address, family, ksock_id, network_id, message_names):
+def run_a_limpet(is_server, address, family, ksock_id, network_id, message_name):
     """Run a Limpet. Use kmsg to send messages (via KBUS) to it...
     """
     print 'Limpet: %s via %s for KSock %d, using network id %d'%('server' if is_server else 'client',
@@ -513,12 +585,11 @@ def run_a_limpet(is_server, address, family, ksock_id, network_id, message_names
 
     with Limpet(ksock_id, network_id, address, is_server, family) as l:
         print l
-        for message_name in message_names:
-            try:
-                l.bind(message_name)
-                print 'Bound to message name "%s"'%message_name
-            except IOError as exc:
-                raise GiveUp('Unable to bind to message name "%s": %s'%(message_name, exc))
+        try:
+            l.bind(message_name)
+            print 'Bound to message name "%s"'%message_name
+        except IOError as exc:
+            raise GiveUp('Unable to bind to message name "%s": %s'%(message_name, exc))
 
         print "Use 'kmsg -bus %d send <message_name> s <data>'"%ksock_id
         print " or 'kmsg -bus %d call <message_name> s <data>' to send messages."%ksock_id
@@ -550,7 +621,7 @@ def main(args):
     address = None              # ditto
     ksock_id = 0
     network_id = None
-    message_names = []
+    message_name = '$.*'
 
     if not args:
         print __doc__
@@ -573,7 +644,7 @@ def main(args):
                 args = args[1:]
             elif word in ('-m', '-message'):
                 try:
-                    message_names.append(args[0])
+                    message_name = args[0]
                 except:
                     raise GiveUp('-message requires an argument (message name)')
                 args = args[1:]
@@ -600,7 +671,7 @@ def main(args):
         network_id = 2 if is_server else 1
 
     # And then do whatever we've been asked to do...
-    run_a_limpet(is_server, address, family, ksock_id, network_id, message_names)
+    run_a_limpet(is_server, address, family, ksock_id, network_id, message_name)
 
 if __name__ == "__main__":
     args = sys.argv[1:]
