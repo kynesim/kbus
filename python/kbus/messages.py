@@ -94,6 +94,9 @@ class MessageId(ctypes.Structure):
         """
         return '%u:%u'%(self.network_id, self.serial_num)
 
+    def __str__(self):
+        return '[%u:%u]'%(self.network_id, self.serial_num)
+
     def __cmp__(self, other):
         if not isinstance(other, MessageId):
             return NotImplemented
@@ -893,6 +896,33 @@ class Message(object):
                 'flags=0x%08x'%flags,
                 'id='+repr(id)]
         return 'Message(%s)'%(', '.join(args))
+
+    def __str__(self):
+        (id, in_reply_to, to, from_, flags, name, data) = self.extract()
+        # Try to be a bit friendly about what type of message this is
+        if in_reply_to:
+            if name.startswith('$.KBUS.'):
+                what = 'Status'
+            else:
+                what = 'Reply'
+        elif flags & Message.WANT_A_REPLY:
+            what = 'Request'
+        else:
+            what = 'Announcement'
+        parts = [repr(name)]
+        if id:
+            parts.append('id=%s'%str(id))
+        if to:
+            parts.append('to=%d'%to)
+        if from_:
+            parts.append('from=%d'%from_)
+        if in_reply_to:
+            parts.append('in_reply_to=%s'%str(in_reply_to))
+        if flags:
+            parts.append('flags=0x%x'%flags)
+        if data:
+            parts.append('data=%s'%repr(data))
+        return '<%s %s>'%(what, ', '.join(parts))
 
     def __eq__(self, other):
         if not isinstance(other, Message):
