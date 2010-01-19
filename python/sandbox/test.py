@@ -15,8 +15,8 @@ The first two need an <address> specifying, which must be the same - either
 a <host>:<port> or a <pathname>, for communication via host/port or named
 Unix domain socket respectively.
 
-All four may also be given an explicit KSock number to connect to -
-otherwise these default to 1 and 2 (i.e., two different KSocks) as
+All four may also be given an explicit KBUS device number to connect to -
+otherwise these default to 1 and 2 (i.e., two different KBUS devices) as
 indicated.
 
 The assumption is that each command will be run in a different terminal, and
@@ -35,11 +35,11 @@ def help():
     print __doc__
     return
 
-def parse_limpet_args(args, default_ksock_id):
+def parse_limpet_args(args, default_kbus_device):
     """Parse any arguments to our limpet.
     """
     address = None
-    ksock_id = default_ksock_id
+    kbus_device = default_kbus_device
 
     while args:
         word = args[0]
@@ -48,9 +48,9 @@ def parse_limpet_args(args, default_ksock_id):
         if word.startswith('-'):
             if word == '-k':
                 try:
-                    ksock_id = int(args[0])
+                    kbus_device = int(args[0])
                 except:
-                    raise GiveUp('-k requires an integer argument (KSock id)')
+                    raise GiveUp('-k requires an integer argument (KBUS device)')
                 args = args[1:]
             else:
                 raise GiveUp('Unrecognised switch "%s"'%word)
@@ -60,12 +60,12 @@ def parse_limpet_args(args, default_ksock_id):
     if address is None:
         raise GiveUp('An address (either <host>:<port> or <path>) is needed')
 
-    return (ksock_id, address, family)
+    return (kbus_device, address, family)
 
-def parse_client_args(args, default_ksock_id):
+def parse_client_args(args, default_kbus_device):
     """Parse any arguments to our client.
     """
-    ksock_id = default_ksock_id
+    kbus_device = default_kbus_device
 
     while args:
         word = args[0]
@@ -73,14 +73,14 @@ def parse_client_args(args, default_ksock_id):
 
         if word == '-k':
             try:
-                ksock_id = int(args[0])
+                kbus_device = int(args[0])
             except:
                 raise GiveUp('-k requires an integer argument (KSock id)')
             args = args[1:]
         else:
             raise GiveUp('Unrecognised switch "%s"'%word)
 
-    return ksock_id
+    return kbus_device
 
 def limpet1(args):
     """Run the first (server) limpet.
@@ -88,14 +88,14 @@ def limpet1(args):
     Also start up KBUS, since we're the first runner.
     """
     print 'Limpet number 1'
-    ksock_id, address, family = parse_limpet_args(args, default_ksock_id=1)
+    kbus_device, address, family = parse_limpet_args(args, default_kbus_device=1)
     print 'Starting KBUS'
     retval = subprocess.call('sudo insmod ../../kbus/kbus.ko kbus_num_devices=3', shell=True)
     time.sleep(0.5)
     try:
         message_name = '$.*'
         network_id = 1          # Limpet 1, network id 1
-        run_a_limpet(True, address, family, ksock_id, network_id, message_name)
+        run_a_limpet(True, address, family, kbus_device, network_id, message_name)
     finally:
         print 'Stopping KBUS'
         retval = subprocess.call('sudo rmmod kbus', shell=True)
@@ -104,18 +104,18 @@ def limpet2(args):
     """Start the second (client) limpet.
     """
     print 'Limpet number 2'
-    ksock_id, address, family = parse_limpet_args(args, default_ksock_id=2)
+    kbus_device, address, family = parse_limpet_args(args, default_kbus_device=2)
     message_name = '$.*'
     network_id = 2              # Limpet 2, network id 2
-    run_a_limpet(False, address, family, ksock_id, network_id, message_name)
+    run_a_limpet(False, address, family, kbus_device, network_id, message_name)
 
 def sender(args):
     """Start the first client.
     """
-    ksock_id = parse_client_args(args, default_ksock_id=2)
-    print '"Sender" client on KSock %d'%ksock_id
+    kbus_device = parse_client_args(args, default_kbus_device=2)
+    print '"Sender" client on KBUS %d'%kbus_device
 
-    with KSock(ksock_id, 'rw') as sender:
+    with KSock(kbus_device, 'rw') as sender:
         msg = Message('$.Fred','1234')
         print 'Sending',str(msg),
         id = sender.send_msg(msg)
@@ -124,10 +124,10 @@ def sender(args):
 def listener(args):
     """Start the second client.
     """
-    ksock_id = parse_client_args(args, default_ksock_id=1)
-    print '"Listener" client on KSock %d'%ksock_id
+    kbus_device = parse_client_args(args, default_kbus_device=1)
+    print '"Listener" client on KBUS %d'%kbus_device
 
-    with KSock(ksock_id, 'rw') as sender:
+    with KSock(kbus_device, 'rw') as sender:
         pass
 
 actions = {'1' : limpet1,
