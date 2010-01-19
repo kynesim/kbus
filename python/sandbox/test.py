@@ -23,6 +23,7 @@ The assumption is that each command will be run in a different terminal, and
 started in numerical order.
 """
 
+import select
 import subprocess
 import sys
 import time
@@ -115,11 +116,16 @@ def sender(args):
     kbus_device = parse_client_args(args, default_kbus_device=2)
     print '"Sender" client on KBUS %d'%kbus_device
 
+    hdr = 'KBUS%d'%kbus_device
+
     with KSock(kbus_device, 'rw') as sender:
+        print 'Using KSock %d'%sender.ksock_id()
+        sender.bind('$.*')
         msg = Message('$.Fred','1234')
         print 'Sending',str(msg),
         id = sender.send_msg(msg)
         print 'with id',str(id)
+        wait_for_message(hdr, sender)
 
 def listener(args):
     """Start the second client.
@@ -127,8 +133,23 @@ def listener(args):
     kbus_device = parse_client_args(args, default_kbus_device=1)
     print '"Listener" client on KBUS %d'%kbus_device
 
+    hdr = 'KBUS%d'%kbus_device
+
     with KSock(kbus_device, 'rw') as sender:
-        pass
+        print 'Using KSock %d'%sender.ksock_id()
+        sender.bind('$.*')
+        wait_for_message(hdr, sender)
+
+def wait_for_message(hdr, ksock):
+    """Wait for messages from a KSock, and report any when they come.
+    """
+    (r, w, x) = select.select([ksock], [], [])
+    while 1:
+        msg = ksock.read_next_msg()
+        if msg is None:
+            break
+        else:
+            print '%s: %s'%(hdr, str(msg))
 
 actions = {'1' : limpet1,
            '2' : limpet2,
