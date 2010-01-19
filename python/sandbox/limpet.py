@@ -110,6 +110,13 @@ But I think that is sufficiently similar not to worry about separately.
 Remember that Limpets will always transmit Replies (things that they are
 proxying as Sender for).
 
+    .. note:: Limpets must always listen to $.KBUS.ReplierBindEvent. If we
+       allow them to choose to listen to something other then '$.*', then
+       we also need to CHECK that the thing-listened-to includes the replier
+       bind events, and if not, add them in as well.
+       
+       TODO: Which means writing code to do such a check.
+
 Looking at 2: A is also listening to messages
 ---------------------------------------------
 
@@ -222,6 +229,9 @@ Things to worry about
 =====================
 Status messages (KBUS synthetic messsages) and passing them over multiple
 Limpet boundaries...
+
+Remember that synthetic messages (being from KBUS itself) have message id
+[0:0] (which shows up as None when we ask for msg.id)
 """
 
 import ctypes
@@ -231,7 +241,7 @@ import socket
 import struct
 import sys
 
-from kbus import KSock, Message
+from kbus import KSock, Message, Reply, MessageId
 from kbus.messages import _MessageHeaderStruct, _struct_from_string
 from kbus.messages import split_replier_bind_event_data
 
@@ -258,14 +268,31 @@ class BadMessage(Exception):
 def msgstr(msg):
     """Return a short string for what we want to know of a message.
     """
-    if msg.wants_us_to_reply():
-        what = 'Request (to us)'
+    if msg.name == '$.KBUS.ReplierBindEvent':
+        is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
+        return '<%s %s: %s for %d>'%('Bind' if is_bind else 'Unbind',
+                                     str(msg.id) if msg.id else '[0:0]',
+                                     name, binder_id)
+
+    if msg.flags & Message.WANT_A_REPLY:
+        if msg.wants_us_to_reply():
+            what = 'Request (to us)'
+        else:
+            what = 'Request'
     elif msg.in_reply_to:
-        what = 'Reply (to ksock %d)'%msg.in_reply_to
+        what = 'Reply (to request %s)'%str(msg.in_reply_to)
     else:
         what = 'Message'
-    return '%s "%s" [%d,%d]: "%s", from %s, to %s'%(what, msg.name, msg.id.network_id,
-            msg.id.serial_num, msg.data, msg.from_, msg.to)
+
+    if msg.is_synthetic():
+        flag = ' <synthetic>'
+    elif msg.is_urgent():
+        flag = ' <urgent>'
+    else:
+        flag = ''
+
+    return '%s %s %s: %s,%s from %s, to %s'%(what, msg.name,
+            str(msg.id) if msg.id else '[0:0]', flag, repr(msg.data), msg.from_, msg.to)
 
 def padded_name_len(name_len):
     """Calculate the length of a message name, in bytes, after padding.
@@ -309,7 +336,8 @@ class Limpet(object):
     And probably some other things I've not yet thought of.
     """
 
-    def __init__(self, kbus_device, network_id, limpet_socket_address, is_server, socket_family):
+    def __init__(self, kbus_device, network_id, limpet_socket_address,
+                 is_server, socket_family, message_name='$.*'):
         """A Limpet has two "ends":
 
         1. 'kbus_device' specifies which KBUS device it should communicate
@@ -324,6 +352,19 @@ class Limpet(object):
         Messages received from KBUS get sent to the other Limpet.
 
         Messages sent from the other Limpet get sent to KBUS.
+
+        - kbus_device is which KBUS to open
+        - network_id is the network id to set in message ids when we are
+          forwarding a message to the other Limpet
+        - limpet_socket_address is the socket address we use to talk to the
+          other Limpet
+        - is_server is true if we are the "server" of the Limpet pair, false
+          if we are the "client"
+        - socket_family is AF_UNIX or AF_INET, determining what sort of
+          address we want -- a pathname for the former, a <host>:<port>
+          string for the latter
+        - message_name is the name of the message (presumably a wildcard)
+          we are forwarding
         """
         self.kbus_device = kbus_device
         self.sock_address = limpet_socket_address
@@ -347,6 +388,11 @@ class Limpet(object):
         # we are bound as a "Replier in proxy" for.
         self.replier_for = {}
 
+        # A dictionary of information about each Request that we have proxied
+        # as a Replier for that Request. We remember the Request message id as
+        # the key, and the from/to information as the data
+        self.our_requests = {}
+
         # A set of the messages we are to Listen for, in order to proxy them
         # (remembering, of course, that '$.*' would mean "everything")
         self.listener_for = set()
@@ -357,9 +403,17 @@ class Limpet(object):
             self.sock = self.setup_as_client(limpet_socket_address, socket_family)
 
         # Once that's all done and we are actually ready to cope with the world,
-        # register for the Replier Bind Event messages. We do this "directly"
-        # (not through our own bind method) because we do not proxy these messages
-        self.ksock.bind('$.KBUS.ReplierBindEvent')
+        # bind to proxy the requested message name
+        self.message_name = message_name
+        self.bind(message_name)
+
+        # We always want to bind for Replier Bind Event messages, as well,
+        # but not if the above has already done that...
+        # XXX The following is WRONG but may do for the moment...
+        if message_name != '$.*':
+            # Don't bind via our own "bind" mechanism - we don't want to
+            # proxy these messages
+            self.ksock.bind('$.KBUS.ReplierBindEvent')
 
         # And ask KBUS to *send* such messages
         self.ksock.report_replier_binds(True)
@@ -547,80 +601,181 @@ class Limpet(object):
            copy the message and change the copy (or amend the "string"
            representation of the message before sending it!)
         """
-        if msg.id.network_id == 0:
-            msg.id.network_id = self.network_id
+
+        # By design (honest, I designed it), if you ask for ``msg.id`` and
+        # the id is [0:0], then you get None back.
+        # Seriously, that's normally a Good Thing.
+        # However, in this instance we want to be able to cope with messages
+        # from KBUS itself, which *will* have message id [0:0]. So we need
+        # to go "under the hood" a bit, and the following is the current
+        # correct way to do so.
+        if msg.msg.id.network_id == 0:
+            msg.msg.id.network_id = self.network_id
 
         data = msg.to_string()
         self.sock.sendall(data)
 
     def handle_message_from_kbus(self, msg):
         """Do the appropriate thing with a message from KBUS.
+
+        We take a message read from KBUS, and write it to the other Limpet.
+
+        * ReplierBindEvent - if this is a "reflection" of us binding as a
+          (proxy) replier, then ignore it, otherwise forward it to the other
+          Limpet so it can bind as a proxy.
+
+        * Request marked WANT_YOU_TO_REPLY - KBUS thinks we're the Replier for
+          this message, but it is actually someone beyond the other Limpet, who
+          we are proxying for. Send the message through.
+
+        * Request not marked WANT_YOU_TO_REPLY - this is just a normal "listen"
+          message, so we treat it as "anything else" below.
+
+        * Reply - we got this because KBUS thinks we're the original Sender,
+          for whom we are actually proxying. Send it on to the other Limpet.
+
+        * Status - synthetic messages from KBUS itself, and these are
+          essentially special forms of Reply, and so can be treated just as
+          such.
+
+        * anything else - just send it through, with the appropriate changes to
+          the message id's network id.
         """
         kbus_name   = 'KBUS%u'%self.kbus_device
         limpet_name = 'Limpet%d'%self.other_network_id
         kbus_hdr  = '%s->Us%s'%(kbus_name, ' '*(len(limpet_name)-2))
         limpet_hdr = '%s->%s'%(' '*len(kbus_name), limpet_name)
 
+        print '%s %s'%(kbus_hdr, msgstr(msg)),
+
         if msg.name == '$.KBUS.ReplierBindEvent':
-            is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
-            print '%s <%s> "%s" for %d'%(kbus_hdr,
-                                         'bind' if is_bind else 'unbind',
-                                         name, binder_id),
             # If this is the result of *us* binding as a replier (by proxy),
             # then we do *not* want to send it to the other Limpet!
+            is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
             if binder_id == self.ksock_id:
                 print ' which is us -- ignore'
                 return
-            else:
-                print
-        else:
-            print '%s %s'%(kbus_hdr, msgstr(msg)),
-            if msg.id.network_id == self.other_network_id:
-                # This is a message that originated with our pair Limpet
-                # (so it's been from the other Limpet, to us, to KBUS, and
-                # we're now getting it back again), then we want to ignore
-                # it. When the original message was sent to the other KBUS
-                # (before any Limpet touched it), any listeners on that side
-                # would have heard it from that KBUS, so we don't want to send
-                # it back to them yet again...
-                print 'which was from the other Limpet -- ignore'
-                return
-            # XXX And I think the next is entirely replaced by the above...
-            #elif msg.id.network_id == self.network_id:
-            #    # This is a message we already dealt with (which we can
-            #    # assume if it has our network id), then don't resend it(!)
-            #    print ' which was from us -- ignore'
-            #    return
-            else:
-                print
 
+        elif msg.in_reply_to:                   # a Reply (or Status)
+            pass            # send it on
+
+        elif msg.flags & Message.WANT_A_REPLY:  # a Request
+            if msg.flags & Message.WANT_YOU_TO_REPLY:
+                # Remember the details of this Request for when we get a Reply
+                key = (msg.msg.id.network_id, msg.msg.id.serial_num)
+                self.our_requests[key] = (msg.from_, msg.to)
+                # and send it on
+            else:
+                pass        # send it on
+
+        else: # It's a "normal" message, and Announcement
+            pass
+
+        if msg.msg.id.network_id == self.other_network_id:
+            # This is a message that originated with our pair Limpet (so it's
+            # been from the other Limpet, to us, to KBUS, and we're now getting
+            # it back again). Therefore we want to ignore it. When the original
+            # message was sent to the other KBUS (before any Limpet touched
+            # it), any listeners on that side would have heard it from that
+            # KBUS, so we don't want to send it back to them yet again...
+            print ' from the other Limpet -- ignore'
+            return
+
+        print
         self.write_message_to_socket(msg)
         print '%s %s'%(limpet_hdr, msgstr(msg))  # i.e., with amended network id
 
     def handle_message_from_socket(self, msg):
         """Do the appropriate thing with a message from the socket.
+
+        We take a message read from the other Limpet, and write it to KBUS.
+
+        * ReplierBindEvent - we never pass these on (when we bind/unbind to the
+          local KBUS, it will generate its own if necessary). This acts as a
+          signal to us to bind/unbind (as a proxy).
+
+        * Request marked WANT_YOU_TO_REPLY - it's not us that should reply,
+          but the original sender. Remove the flag, adjust ids as normal, and
+          throw it at our local KBUS, who should know who is bound as a Replier
+          on this side.
+
+        * Request not marked WANT_YOU_TO_REPLY - this is just a normal "listen"
+          message, so we treat it as "anything else" below.
+
+        * Reply - we got this because someone replied to the other Limpet. They
+          only do that if we're proxying for the actual Sender, who is beyond
+          the other Limpet. So we need to change its in_reply_to to match local
+          conditions (we should have remembered the message id from the
+          original Request when it came past us earlier on -- see
+          handle_message_from_kbus()), and then send it on.
+
+        * Status - synthetic messages from KBUS itself, and these are
+          essentially special forms of Reply, and so can be treated just as
+          such.
+
+        * anything else - just send it through, with the appropriate changes to
+          the message id's network id.
         """
         kbus_name  = 'KBUS%u'%self.kbus_device
         limpet_name = 'Limpet%d'%self.other_network_id
         limpet_hdr  = '%s->Us%s'%(limpet_name, ' '*(len(kbus_name)-2))
         kbus_hdr   = '%s->%s'%(' '*len(limpet_name), kbus_name)
 
+        print '%s %s'%(limpet_hdr, msgstr(msg))
+
         if msg.name == '$.KBUS.ReplierBindEvent':
+            # We have to bind/unbind as a Replier in proxy
             is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
-            print '%s <%s> "%s" for %d'%(limpet_hdr,
-                                         'bind' if is_bind else 'unbind',
-                                         name, binder_id)
-            # And we have to bind/unbind as a Replier in proxy
             if is_bind:
-                self.kbus.bind(name, True)
+                print '%s BIND "%s'%(' '*len(limpet_hdr),name)
+                self.ksock.bind(name, True)
                 self.replier_for[name] = binder_id
             else:
-                self.kbus.unbind(name, True)
+                print '%s UNBIND "%s'%(' '*len(limpet_hdr),name)
+                self.ksock.unbind(name, True)
                 del self.replier_for[name]
+            return
+
+        elif msg.in_reply_to:                   # a Reply (or Status)
+            # Only the intended recipient (the Sender) receives a Reply,
+            # so we don't have to worry about multiple copies of it
+
+            # If this message is in reply to a message from our network,
+            # revert to the original message id
+            if msg.msg.in_reply_to.network_id == self.network_id:
+                msg.msg.in_reply_to.network_id = 0
+
+            # Look up the original Request and amend appropriately
+            key = (msg.msg.in_reply_to.network_id, msg.msg.in_reply_to.serial_num)
+            try:
+                from_, to = self.our_requests[key]
+                del self.our_requests[key]          # we shouldn't see it again
+
+                # Unfortunately, we really are best off creating a whole new message
+                #msg = Reply(msg, from_=to, to=from_, in_reply_to=MessageId(key[0],key[1]))
+                msg = Reply(msg, to=from_, in_reply_to=MessageId(key[0],key[1]))
+            except KeyError:
+                # We already dealt with this Reply once, so this is presumably
+                # a "listening" copy - ignore it, the KBUS at this end will
+                # let anyone who cares (at this end) have their own copies
+                print '%s ignored as a "listen" copy'%(' '*len(limpet_hdr))
+                return
+
+            print '%s as %s'%(' '*(len(limpet_hdr)-3), msgstr(msg))
+
+        elif msg.flags & Message.WANT_A_REPLY:  # a Request
+            if msg.flags & Message.WANT_YOU_TO_REPLY:
+                # KBUS will set/unset the WANT_YOU_TO_REPLY flag for us,
+                # so we don't need to.
+                pass
+            else:
+                pass
+
         else:
-            print '%s %s'%(limpet_hdr, msgstr(msg))
-            self.ksock.send_msg(msg)
-            print '%s %s'%(kbus_hdr, msgstr(msg))
+            pass
+
+        self.ksock.send_msg(msg)
+        print '%s %s'%(kbus_hdr, msgstr(msg))
 
     def run_forever(self):
         """Or, at least, until we're interrupted.
@@ -665,14 +820,8 @@ def run_a_limpet(is_server, address, family, kbus_device, network_id, message_na
     print 'Limpet: %s via %s for KBUS %d, using network id %d'%('server' if is_server else 'client',
             address, kbus_device, network_id)
 
-    with Limpet(kbus_device, network_id, address, is_server, family) as l:
+    with Limpet(kbus_device, network_id, address, is_server, family, message_name) as l:
         print l
-        try:
-            l.bind(message_name)
-            print 'Bound to message name "%s"'%message_name
-        except IOError as exc:
-            raise GiveUp('Unable to bind to message name "%s": %s'%(message_name, exc))
-
         print "Use 'kmsg -bus %d send <message_name> s <data>'"%kbus_device
         print " or 'kmsg -bus %d call <message_name> s <data>' to send messages."%kbus_device
         l.run_forever()

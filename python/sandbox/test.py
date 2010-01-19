@@ -29,7 +29,7 @@ import sys
 import time
 
 from kbus.ksock import KSock
-from kbus.messages import Message
+from kbus.messages import Message, Request, reply_to
 from limpet import GiveUp, OtherLimpetGoneAway, parse_address, run_a_limpet
 
 def help():
@@ -110,8 +110,50 @@ def limpet2(args):
     network_id = 2              # Limpet 2, network id 2
     run_a_limpet(False, address, family, kbus_device, network_id, message_name)
 
+def send_message(hdr, sender, msg):
+    print '%s send %s'%(hdr, str(msg)),
+    id = sender.send_msg(msg)
+    print 'with id',str(id)
+
+def wait_for_message(hdr, ksock):
+    """Wait for a message from a KSock, report it and return it
+    """
+    (r, w, x) = select.select([ksock], [], [])
+    msg = ksock.read_next_msg()
+    print '%s read %s'%(hdr, str(msg))
+    return msg
+
+def wait_at_prompt():
+    ignore = raw_input('Press RETURN to continue:')
+
+def listener(args):
+    """Start the "listener" client.
+    """
+    kbus_device = parse_client_args(args, default_kbus_device=1)
+    print '"Listener" client on KBUS %d'%kbus_device
+
+    hdr = 'KBUS%d'%kbus_device
+
+    with KSock(kbus_device, 'rw') as listener:
+        print 'Using KSock %d'%listener.ksock_id()
+        listener.bind('$.*')
+        listener.bind('$.Question', True)
+
+        # First we get the message telling us we bound as a Replier, above
+        msg = wait_for_message(hdr, listener)
+
+        # Then we get the first message from the other client
+        msg = wait_for_message(hdr, listener)
+
+        # Then we get a request from the client, which we answer
+        msg = wait_for_message(hdr, listener)
+
+        wait_at_prompt()
+        ans = reply_to(msg, data="2'6")
+        send_message(hdr, listener, ans)
+
 def sender(args):
-    """Start the first client.
+    """Start the "sender" client.
     """
     kbus_device = parse_client_args(args, default_kbus_device=2)
     print '"Sender" client on KBUS %d'%kbus_device
@@ -121,35 +163,25 @@ def sender(args):
     with KSock(kbus_device, 'rw') as sender:
         print 'Using KSock %d'%sender.ksock_id()
         sender.bind('$.*')
+
+        # Send a message to the other client
+        wait_at_prompt()
         msg = Message('$.Fred','1234')
-        print 'Sending',str(msg),
-        id = sender.send_msg(msg)
-        print 'with id',str(id)
-        wait_for_message(hdr, sender)
+        send_message(hdr, sender, msg)
 
-def listener(args):
-    """Start the second client.
-    """
-    kbus_device = parse_client_args(args, default_kbus_device=1)
-    print '"Listener" client on KBUS %d'%kbus_device
+        # We should read one message (the one we just sent) - we do not get the
+        # Replier Bind Event from the KBUS on the far Limpet
+        msg = wait_for_message(hdr, sender)
 
-    hdr = 'KBUS%d'%kbus_device
+        # Send a Request to the other client
+        wait_at_prompt()
+        req = Request('$.Question', 'How long is a piece of string?')
+        send_message(hdr, sender, req)
 
-    with KSock(kbus_device, 'rw') as sender:
-        print 'Using KSock %d'%sender.ksock_id()
-        sender.bind('$.*')
-        wait_for_message(hdr, sender)
-
-def wait_for_message(hdr, ksock):
-    """Wait for messages from a KSock, and report any when they come.
-    """
-    (r, w, x) = select.select([ksock], [], [])
-    while 1:
-        msg = ksock.read_next_msg()
-        if msg is None:
-            break
-        else:
-            print '%s: %s'%(hdr, str(msg))
+        # We should get the "reflection" of it first, and then the reply
+        # from the other client
+        msg = wait_for_message(hdr, sender)
+        msg = wait_for_message(hdr, sender)
 
 actions = {'1' : limpet1,
            '2' : limpet2,
