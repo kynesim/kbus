@@ -752,8 +752,8 @@ class Limpet(object):
                 del self.our_requests[key]          # we shouldn't see it again
 
                 # Unfortunately, we really are best off creating a whole new message
-                #msg = Reply(msg, from_=to, to=from_, in_reply_to=MessageId(key[0],key[1]))
-                msg = Reply(msg, to=from_, in_reply_to=MessageId(key[0],key[1]))
+                msg = Reply(msg.name, data=msg.data,
+                            in_reply_to=MessageId(key[0],key[1]), to=from_)
             except KeyError:
                 # We already dealt with this Reply once, so this is presumably
                 # a "listening" copy - ignore it, the KBUS at this end will
