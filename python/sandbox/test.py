@@ -136,6 +136,7 @@ def listener(args):
 
     with KSock(kbus_device, 'rw') as listener:
         print 'Using KSock %d'%listener.ksock_id()
+        listener.kernel_module_verbose(True)
         listener.bind('$.*')
         listener.bind('$.Question', True)
 

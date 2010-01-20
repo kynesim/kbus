@@ -115,7 +115,9 @@ proxying as Sender for).
        we also need to CHECK that the thing-listened-to includes the replier
        bind events, and if not, add them in as well.
        
-       TODO: Which means writing code to do such a check.
+       Which is luckily solved if I use MSGONLYONCE to ask for messages
+       to be sent only once to the Limpet's KSock - which is really what
+       I want anyway, I think...
 
 Looking at 2: A is also listening to messages
 ---------------------------------------------
@@ -316,7 +318,7 @@ def entire_message_len(name_len, data_len):
     Matches the definition in the kernel module's header file
     """
     return MSG_HEADER_LEN + padded_name_len(name_len) + \
-                          padded_data_len(data_len) + 4
+                            padded_data_len(data_len) + 4
 
 class Limpet(object):
     """A Limpet proxies KBUS messages to/from another Limpet.
@@ -336,14 +338,15 @@ class Limpet(object):
     And probably some other things I've not yet thought of.
     """
 
-    def __init__(self, kbus_device, network_id, limpet_socket_address,
-                 is_server, socket_family, message_name='$.*'):
+    def __init__(self, kbus_device, network_id, socket_addresss,
+                 is_server, socket_family, message_name='$.*',
+                 termination_message=None):
         """A Limpet has two "ends":
 
         1. 'kbus_device' specifies which KBUS device it should communicate
            with, via ``ksock = KSock(kbus_device, 'rw')``.
 
-        2. 'limpet_socket_address' is the address for the socket used to
+        2. 'socket_addresss' is the address for the socket used to
            communicate with its paired Limpet. This should generally be a
            path name (if communication is with another Limpet on the same
            machine, via Unix domain sockets), or a ``(host, port)`` tuple (for
@@ -356,7 +359,7 @@ class Limpet(object):
         - kbus_device is which KBUS to open
         - network_id is the network id to set in message ids when we are
           forwarding a message to the other Limpet
-        - limpet_socket_address is the socket address we use to talk to the
+        - socket_addresss is the socket address we use to talk to the
           other Limpet
         - is_server is true if we are the "server" of the Limpet pair, false
           if we are the "client"
@@ -365,12 +368,16 @@ class Limpet(object):
           string for the latter
         - message_name is the name of the message (presumably a wildcard)
           we are forwarding
+        - if termination_message is specified, then we will exit when we
+          receive this message
         """
         self.kbus_device = kbus_device
-        self.sock_address = limpet_socket_address
+        self.sock_address = socket_addresss
         self.sock_family = socket_family
         self.is_server = is_server
         self.network_id = network_id
+        self.message_name = message_name
+        self.termination_message = termination_message
 
         # We don't know the network id of our Limpet pair yet
         self.other_network_id = None
@@ -381,7 +388,7 @@ class Limpet(object):
 
         self.sock = None
         self.listener = None
-        self.ksock = KSock(kbus_device, 'rw')
+        self.ksock = KSock(self.kbus_device, 'rw')
         self.ksock_id = self.ksock.ksock_id()
 
         # A dictionary of { <message_name> : <binder_id> } of the messages
@@ -393,30 +400,33 @@ class Limpet(object):
         # the key, and the from/to information as the data
         self.our_requests = {}
 
-        # A set of the messages we are to Listen for, in order to proxy them
-        # (remembering, of course, that '$.*' would mean "everything")
-        self.listener_for = set()
-
         if is_server:
-            self.sock = self.setup_as_server(limpet_socket_address, socket_family)
+            self.sock = self.setup_as_server(self.sock_address, self.sock_family)
         else:
-            self.sock = self.setup_as_client(limpet_socket_address, socket_family)
+            self.sock = self.setup_as_client(self.sock_address, self.sock_family)
 
-        # Once that's all done and we are actually ready to cope with the world,
-        # bind to proxy the requested message name
-        self.message_name = message_name
-        self.bind(message_name)
+        # So we're set up to talk at both ends - now sort out what we're
+        # talking about
 
-        # We always want to bind for Replier Bind Event messages, as well,
-        # but not if the above has already done that...
-        # XXX The following is WRONG but may do for the moment...
-        if message_name != '$.*':
-            # Don't bind via our own "bind" mechanism - we don't want to
-            # proxy these messages
+        try:
+            # Note that we only want one copy of a message, even if we were
+            # registered as (for instance) both Replier and Listener
+            self.ksock.want_messages_once(True)
+
+            # Bind to proxy the requested message name
+            self.ksock.bind(self.message_name)
+
+            # We always want to bind for Replier Bind Event messages, as well
+            # - since we're only going to get one copy of each message, it is
+            # safe to bind to this again, even if the ``message_name`` has
+            # implicitly already done that
             self.ksock.bind('$.KBUS.ReplierBindEvent')
 
-        # And ask KBUS to *send* such messages
-        self.ksock.report_replier_binds(True)
+            # And ask KBUS to *send* such messages
+            self.ksock.report_replier_binds(True)
+        except:
+            self.close()
+            raise
 
     def _send_network_id(self, sock):
         """Send our pair Limpet our network id.
@@ -515,22 +525,24 @@ class Limpet(object):
             raise GiveUp('Unable to delete socket file "%s": %s'%(name, err))
 
     def __repr__(self):
-        return 'Limpet(%s, %s)'%(self.kbus_device, repr(self.sock_address))
+        sf = {socket.AF_INET:'socket.AF_INET',
+              socket.AF_UNIX:'socket.AF_UNIX'}
+        parts = []
+        parts.append('kbus_device=%s'%self.kbus_device)
+        parts.append('network_id=%d'%self.network_id)
+        parts.append('socket_address=%s'%self.sock_address)
+        parts.append('is_server=%s'%('True' if self.is_server else 'False'))
+        parts.append('socket_family=%s'%sf.get(self.sock_family, self.sock_family))
+        if self.message_name != '$.*':
+            parts.append('message_name=%s'%repr(self.message_name))
+        if self.termination_message:
+            parts.append('termination_message=%s'%repr(self.termination_message))
+
+        return 'Limpet(%s)'%(', '.join(parts))
 
     def __str__(self):
-        return 'Limpet from KBUS %d via %s'%(self.kbus_device, self.sock_address)
-
-    def bind(self, name):
-        """Bind this Limpet to Listen for (and proxy) the named message(s).
-        """
-        self.ksock.bind(name)
-        self.listener_for.add(name)
-
-    def unbind(self, name):
-        """Unbind this Limpet from Listening for (and proxying) the named message(s).
-        """
-        self.ksock.unbind(name)
-        self.listener_for.remove(name)
+        return 'Limpet from KBUS %d KSock %u via %s'%(self.kbus_device,
+                self.ksock_id, self.sock_address)
 
     def read_message_from_socket(self):
         """Read a message from the other Limpet.
