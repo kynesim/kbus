@@ -583,6 +583,14 @@ static uint32_t kbus_next_size(uint32_t		old_size)
 		return old_size + (old_size >> 3);
 }
 
+/* Determine (and return) the next message serial number */
+static uint32_t kbus_next_serial_num(struct kbus_dev	*dev)
+{
+	if (dev->next_msg_serial_num == 0)
+		dev->next_msg_serial_num ++;
+	return dev->next_msg_serial_num ++;
+}
+
 static int kbus_same_message_id(struct kbus_msg_id 	*msg_id,
 				uint32_t		 network_id,
 				uint32_t		 serial_num)
@@ -1378,7 +1386,7 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 /*
  * Generate a synthetic message, and add it to the recipient's message queue.
  *
- * This is expected to be used when a Reply is not going to be generated
+ * This is to be used when a Reply is not going to be generated
  * by the intended Replier. Since we don't want KBUS itself to block on
  * (trying to) SEND a message to someone not expecting it, I don't think
  * there are any other occasions when it is useful.
@@ -1389,6 +1397,10 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
  * 'to' is the 'from' for the message we're bouncing (or whatever).
  *
  * 'in_reply_to' should be the message id of that same message.
+ *
+ * Note that the message is essentially a Reply, so it only goes to the
+ * original Sender. Since it is a Reply from KBUS itself, we do not give
+ * it a unique message id.
  *
  * Doesn't return anything since I can't think of anything useful to do if it
  * goes wrong.
@@ -1612,6 +1624,14 @@ static int kbus_push_synthetic_bind_message(struct kbus_private_data	*priv,
 		kbus_free_message(priv, new_msg, true);
 		return retval;
 	}
+
+	/* Although this is a synthetic message, we want it to have a proper
+	 * message id (not least because we might be delivering it to multiple
+	 * listeners). Note that if we *didn't* give it a proper message id,
+	 * it would be "invisible" to the "send a message only once" mechanism,
+	 * which would be a Bad Thing.
+	 */
+	new_msg->id.serial_num = kbus_next_serial_num(priv->dev);
 
 #if VERBOSE_DEBUG
 	if (priv->dev->verbose) {
@@ -4131,9 +4151,7 @@ static int kbus_send(struct kbus_private_data	*priv,
 	if (!priv->sending) {
 		/* The message seems well formed, give it an id if necessary */
 		if (msg->id.network_id == 0) {
-			if (dev->next_msg_serial_num == 0)
-				dev->next_msg_serial_num ++;
-			msg->id.serial_num = dev->next_msg_serial_num ++;
+			msg->id.serial_num = kbus_next_serial_num(dev);
 		}
 	}
 
