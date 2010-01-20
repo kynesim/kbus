@@ -38,6 +38,32 @@ command line is not significant, but if a later <thing> contradicts an earlier
                     the default.
 """
 
+# ***** BEGIN LICENSE BLOCK *****
+# Version: MPL 1.1
+#
+# The contents of this file are subject to the Mozilla Public License Version
+# 1.1 (the "License"); you may not use this file except in compliance with
+# the License. You may obtain a copy of the License at
+# http://www.mozilla.org/MPL/
+#
+# Software distributed under the License is distributed on an "AS IS" basis,
+# WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
+# for the specific language governing rights and limitations under the
+# License.
+#
+# The Original Code is the KBUS Lightweight Linux-kernel mediated
+# message system
+#
+# The Initial Developer of the Original Code is Kynesim, Cambridge UK.
+# Portions created by the Initial Developer are Copyright (C) 2009
+# the Initial Developer. All Rights Reserved.
+#
+# Contributor(s):
+#   Kynesim, Cambridge UK
+#   Tibs <tony.ibbs@gmail.com>
+#
+# ***** END LICENSE BLOCK *****
+
 documentation = """\
 ===============
 How things work
@@ -349,8 +375,7 @@ class Limpet(object):
     """
 
     def __init__(self, kbus_device, network_id, socket_addresss,
-                 is_server, socket_family, message_name='$.*',
-                 termination_message=None):
+            is_server, socket_family, message_name='$.*'):
         """A Limpet has two "ends":
 
         1. 'kbus_device' specifies which KBUS device it should communicate
@@ -378,8 +403,6 @@ class Limpet(object):
           string for the latter
         - message_name is the name of the message (presumably a wildcard)
           we are forwarding
-        - if termination_message is specified, then we will exit when we
-          receive this message
         """
         self.kbus_device = kbus_device
         self.sock_address = socket_addresss
@@ -387,7 +410,6 @@ class Limpet(object):
         self.is_server = is_server
         self.network_id = network_id
         self.message_name = message_name
-        self.termination_message = termination_message
 
         # We don't know the network id of our Limpet pair yet
         self.other_network_id = None
@@ -545,8 +567,6 @@ class Limpet(object):
         parts.append('socket_family=%s'%sf.get(self.sock_family, self.sock_family))
         if self.message_name != '$.*':
             parts.append('message_name=%s'%repr(self.message_name))
-        if self.termination_message:
-            parts.append('termination_message=%s'%repr(self.termination_message))
 
         return 'Limpet(%s)'%(', '.join(parts))
 
@@ -832,8 +852,8 @@ class Limpet(object):
         self.ksock.send_msg(msg)
         print '%s %s'%(kbus_hdr, msgstr(msg))
 
-    def run_forever(self):
-        """Or, at least, until we're interrupted.
+    def run_forever(self, termination_message):
+        """Or until we're interrupted, or receive the termination message.
         """
         while 1:
             # Wait for a message written to us, with no timeout
@@ -844,6 +864,8 @@ class Limpet(object):
 
             if self.ksock in r:
                 msg = self.ksock.read_next_msg()
+                if msg.name == termination_message:
+                    raise GiveUp('Termination requested via %s message'%termination_message)
                 self.handle_message_from_kbus(msg)
 
             if self.sock in r:
@@ -869,8 +891,9 @@ class Limpet(object):
             return False
 
 
-def run_a_limpet(is_server, address, family, kbus_device, network_id, message_name):
-    """Run a Limpet. Use kmsg to send messages (via KBUS) to it...
+def run_a_limpet(is_server, address, family, kbus_device, network_id,
+                 message_name, termination_message=None):
+    """Run a Limpet.
     """
     print 'Limpet: %s via %s for KBUS %d, using network id %d'%('server' if is_server else 'client',
             address, kbus_device, network_id)
@@ -879,7 +902,9 @@ def run_a_limpet(is_server, address, family, kbus_device, network_id, message_na
         print l
         print "Use 'kmsg -bus %d send <message_name> s <data>'"%kbus_device
         print " or 'kmsg -bus %d call <message_name> s <data>' to send messages."%kbus_device
-        l.run_forever()
+        if termination_message:
+            print "Terminate by sending a message called '%s'"%termination_message
+        l.run_forever(termination_message)
 
 def parse_address(word):
     """Work out what sort of address we have.

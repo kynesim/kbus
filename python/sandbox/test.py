@@ -23,6 +23,32 @@ The assumption is that each command will be run in a different terminal, and
 started in numerical order.
 """
 
+# ***** BEGIN LICENSE BLOCK *****
+# Version: MPL 1.1
+#
+# The contents of this file are subject to the Mozilla Public License Version
+# 1.1 (the "License"); you may not use this file except in compliance with
+# the License. You may obtain a copy of the License at
+# http://www.mozilla.org/MPL/
+#
+# Software distributed under the License is distributed on an "AS IS" basis,
+# WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
+# for the specific language governing rights and limitations under the
+# License.
+#
+# The Original Code is the KBUS Lightweight Linux-kernel mediated
+# message system
+#
+# The Initial Developer of the Original Code is Kynesim, Cambridge UK.
+# Portions created by the Initial Developer are Copyright (C) 2009
+# the Initial Developer. All Rights Reserved.
+#
+# Contributor(s):
+#   Kynesim, Cambridge UK
+#   Tibs <tony.ibbs@gmail.com>
+#
+# ***** END LICENSE BLOCK *****
+
 import select
 import subprocess
 import sys
@@ -31,6 +57,8 @@ import time
 from kbus.ksock import KSock
 from kbus.messages import Message, Request, reply_to
 from limpet import GiveUp, OtherLimpetGoneAway, parse_address, run_a_limpet
+
+TERMINATION_MESSAGE = '$.Terminate.Limpet'
 
 def help():
     print __doc__
@@ -96,7 +124,8 @@ def limpet1(args):
     try:
         message_name = '$.*'
         network_id = 1          # Limpet 1, network id 1
-        run_a_limpet(True, address, family, kbus_device, network_id, message_name)
+        run_a_limpet(True, address, family, kbus_device, network_id,
+                     message_name, TERMINATION_MESSAGE)
     finally:
         print 'Stopping KBUS'
         retval = subprocess.call('sudo rmmod kbus', shell=True)
@@ -108,7 +137,8 @@ def limpet2(args):
     kbus_device, address, family = parse_limpet_args(args, default_kbus_device=2)
     message_name = '$.*'
     network_id = 2              # Limpet 2, network id 2
-    run_a_limpet(False, address, family, kbus_device, network_id, message_name)
+    run_a_limpet(False, address, family, kbus_device, network_id,
+                 message_name, TERMINATION_MESSAGE)
 
 def send_message(hdr, sender, msg):
     print '%s send %s'%(hdr, str(msg)),
@@ -183,6 +213,9 @@ def sender(args):
         # from the other client
         msg = wait_for_message(hdr, sender)
         msg = wait_for_message(hdr, sender)
+
+        end = Message(TERMINATION_MESSAGE)
+        send_message(hdr, sender, end)
 
 actions = {'1' : limpet1,
            '2' : limpet2,
