@@ -234,6 +234,16 @@ Limpet boundaries...
 
 Remember that synthetic messages (being from KBUS itself) have message id
 [0:0] (which shows up as None when we ask for msg.id)
+
+We can't *send* a synthetic message, because we can't send a message with id
+[0:0] - once we've passed it on to KBUS, it will get assigned a "proper"
+message id.
+
+Moreover, we probably don't want to - what we need to do instead is to provoke
+a corresponding event - which normally means "going away" like the Replier
+presumably did. On the other hand, if a Replier does "go away", we should get a
+Replier Unbind Event, which causes us to unbind, which should have the same
+effect...
 """
 
 import ctypes
@@ -647,8 +657,9 @@ class Limpet(object):
           for whom we are actually proxying. Send it on to the other Limpet.
 
         * Status - synthetic messages from KBUS itself, and these are
-          essentially special forms of Reply, and so can be treated just as
-          such.
+          essentially special forms of Reply, but with message id [0:0].
+          We still need to send them to the other Limpet because they *are*
+          the Reply for an earlier Request.
 
         * anything else - just send it through, with the appropriate changes to
           the message id's network id.
@@ -722,8 +733,8 @@ class Limpet(object):
           handle_message_from_kbus()), and then send it on.
 
         * Status - synthetic messages from KBUS itself, and these are
-          essentially special forms of Reply, and so can be treated just as
-          such.
+          essentially special forms of Reply, but with message id [0:0].
+          These need to be sent on like any other Reply.
 
         * anything else - just send it through, with the appropriate changes to
           the message id's network id.
@@ -763,7 +774,39 @@ class Limpet(object):
                 from_, to = self.our_requests[key]
                 del self.our_requests[key]          # we shouldn't see it again
 
-                # Unfortunately, we really are best off creating a whole new message
+                # What if it's a Status message? A Status message is one with
+                # a message id of [0:0] (at least when it is generated), which
+                # of course will not be preserved when we *send* it to KBUS
+                # ourselves.
+                #
+                # Status messages are:
+                #
+                # * $.KBUS.Replier.GoneAway - sent when the "to be read"
+                #   message queue is being emptied, because the KSock is being
+                #   closed.
+                # * $.KBUS.Replier.Ignored - sent when the "unsent" message
+                #   queue is being emptied, because the KSock is being closed.
+                # * $.KBUS.Replier.Unbound - sent when the KSock unbinds from
+                #   the message name, and there is a message of that name in
+                #   the "to be read" message queue.
+                # * $.KBUS.Replier.Disappeared - sent when polling tries to
+                #   send a message again, but the Replier has gone away.
+                # * $.KBUS.ErrorSending - sent when something went wrong in
+                #   the "send a message" mechanisms.
+                #
+                # So all of these *do* need sending on to KBUS, and I think
+                # we don't really care about the message id, or whatever.
+                #
+                # Note that $.KBUS.ReplierBindEvent is not a Status message in
+                # this sense, since it is not a Reply. So that's good, because
+                # it means we can treat a Status Reply just like any other Reply.
+
+                # XXX Caveat: *Should* Status messages have a "proper" message
+                # XXX         id? Since they don't, they don't participate in
+                # XXX         the message ordering that message ids give us...
+
+                # So, we want to send the Reply on to our KBUS
+                # The simplest thing to do really is creating a whole new message
                 msg = Reply(msg.name, data=msg.data,
                             in_reply_to=MessageId(key[0],key[1]), to=from_)
             except KeyError:
