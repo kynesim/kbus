@@ -44,13 +44,35 @@ from limpet import run_a_limpet, GiveUp, OtherLimpetGoneAway
 NUM_DEVICES = 5
 TERMINATION_MESSAGE = '$.Terminate'
 
+KBUS_SENDER   = 1
+KBUS_LISTENER = 2
+
+# The Limpet processes - so we can tidy them up neatly
+g_server = None
+g_client = None
+
+# Let's be good and not use os.system...
+def system(command):
+    """Taken from the Python reference manual. Thank you.
+    """
+    try:
+        retcode = subprocess.call(command, shell=True)
+        if retcode < 0:
+            print "'%s' was terminated by signal %s"%(command, -retcode)
+        else:
+            print "'%s' returned %s"%(command, retcode)
+        return retcode
+    except OSError, e:
+        print "Execution of '%s' failed: %s"%(command, e)
+
 def our_limpet(is_server, sock_address, sock_family, kbus_device, network_id):
     """Run a standardised Limpet.
     """
     try:
         run_a_limpet(is_server, sock_address, sock_family, kbus_device,
                      network_id, termination_message=TERMINATION_MESSAGE,
-                     verbosity=0)
+                     verbosity=2)
+                     #verbosity=0)
     except GiveUp as exc:
         print 'KBUS %d %s'%(kbus_device, '; '.join(exc.args))
     except OtherLimpetGoneAway as exc:
@@ -71,8 +93,7 @@ def run_limpets(sock_address, sock_family):
     Returns the server and client
     """
 
-    kbus_devices = (1,2)
-    network_ids  = (1,2)
+    kbus_devices = network_ids  = (KBUS_SENDER, KBUS_LISTENER)
 
     # First, start the server Limpet
     server = Process(target=our_limpet,
@@ -93,9 +114,6 @@ def run_limpets(sock_address, sock_family):
     time.sleep(0.5)
 
     return (server, client)
-
-g_client = None
-g_server = None
 
 def setup_module():
     # This path assumes that we are running the tests in the ``kbus/python/sandbox``
@@ -136,22 +154,37 @@ def teardown_module():
     time.sleep(1)
     assert not os.path.exists("/dev/kbus0")
 
-# Let's be good and not use os.system...
-def system(command):
-    """Taken from the Python reference manual. Thank you.
-    """
-    try:
-        retcode = subprocess.call(command, shell=True)
-        if retcode < 0:
-            print "'%s' was terminated by signal %s"%(command, -retcode)
-        else:
-            print "'%s' returned %s"%(command, retcode)
-        return retcode
-    except OSError, e:
-        print "Execution of '%s' failed: %s"%(command, e)
+class TestLimpets(object):
 
+    def test_the_first(self):
+        with KSock(KBUS_SENDER, 'rw') as sender:
+            with KSock(KBUS_LISTENER, 'rw') as listener:
+
+                listener.bind('$.Fred')
+
+                this = Message('$.Fred')
+                this_id = sender.send_msg(this)
+                print 'Sent', this
+
+                # Wait for the message to penetrate the labyrinth
+                (r, w, x) = select.select([listener], [], [])
+                that = listener.read_next_msg()
+                print 'Read', that
+
+                assert this.equivalent(that)
+                assert this_id.serial_num == that.id.serial_num
+
+import traceback
 if __name__ == '__main__':
     setup_module()
+    t = TestLimpets()
+    try:
+        t.test_the_first()
+    except Exception as exc:
+        print
+        print '============================================================'
+        traceback.print_exc()
+        print '============================================================'
     teardown_module()
 
 # vim: set tabstop=8 softtabstop=4 shiftwidth=4 expandtab:
