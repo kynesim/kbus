@@ -375,7 +375,7 @@ class Limpet(object):
     """
 
     def __init__(self, kbus_device, network_id, socket_addresss,
-            is_server, socket_family, message_name='$.*'):
+            is_server, socket_family, message_name='$.*', verbosity=1):
         """A Limpet has two "ends":
 
         1. 'kbus_device' specifies which KBUS device it should communicate
@@ -403,6 +403,9 @@ class Limpet(object):
           string for the latter
         - message_name is the name of the message (presumably a wildcard)
           we are forwarding
+        - if verbosity is 0, we don't output any "useful" messages, if it is
+          1 we just announce ourselves, if it is 2 (or higher) we output
+          information about each message as it is processed.
         """
         self.kbus_device = kbus_device
         self.sock_address = socket_addresss
@@ -410,6 +413,7 @@ class Limpet(object):
         self.is_server = is_server
         self.network_id = network_id
         self.message_name = message_name
+        self.verbosity = verbosity
 
         # We don't know the network id of our Limpet pair yet
         self.other_network_id = None
@@ -480,7 +484,9 @@ class Limpet(object):
 
         We start listening, until we get someone connecting to us.
         """
-        print 'Listening on', address
+        if self.verbosity > 1:
+            print 'Listening on', address
+
         listener = self.listener = socket.socket(family, socket.SOCK_STREAM)
         # Try to allow address reuse as soon as possible after we've finished
         # with it
@@ -489,7 +495,9 @@ class Limpet(object):
         try:
             listener.listen(1)
             connection, address = self.listener.accept()
-            print 'Connection accepted from (%s, %s)'%(connection, address)
+
+            if self.verbosity:
+                print 'Connection accepted from (%s, %s)'%(connection, address)
 
             # Tell the other end what our network id is
             self._send_network_id(connection)
@@ -510,7 +518,9 @@ class Limpet(object):
         try:
             sock = socket.socket(family, socket.SOCK_STREAM)
             sock.connect(address)
-            print 'Connected to "%s" as client'%sockname
+
+            if self.verbosity:
+                print 'Connected to "%s" as client'%sockname
 
             # Tell the other end what our network id is
             self._send_network_id(sock)
@@ -528,25 +538,25 @@ class Limpet(object):
             self.ksock = None
 
         if self.sock:
-            print 'Closing socket'
+            if self.verbosity > 1:
+                print 'Closing socket'
             if self.is_server:
-                print '...for server'
                 self.sock.close()
             else:
-                print '...for client'
                 self.sock.shutdown(socket.SHUT_RDWR)
                 self.sock.close()
             self.sock = None
 
         if self.listener:
-            print 'Closing listener socket'
+            if self.verbosity > 1:
+                print 'Closing listener socket'
             self.listener.close()
             self.listener = None
             if self.sock_family == socket.AF_UNIX:
-                print '...removing socket file'
                 self.remove_socket_file(self.sock_address)
 
-        print 'Limpet closed'
+        if self.verbosity:
+            print 'Limpet closed'
 
     def remove_socket_file(self, name):
         # Assuming this is an address representing a file in the filesystem,
@@ -581,33 +591,24 @@ class Limpet(object):
         """
 
         # All KBUS messages start with the start guard:
-        #print 'Waiting for a message start guard: length 4'
         start_guard = self.sock.recv(4, socket.MSG_WAITALL)
         if start_guard == '':
           raise OtherLimpetGoneAway()
         elif start_guard == 'HELO':
             # It's the other Limpet telling us its network id
             self.other_network_id = self._read_network_id()
-            print 'Other Limpet has network id',self.other_network_id
+            if self.verbosity > 1:
+                print 'Other Limpet has network id',self.other_network_id
             raise NoMessage
-        ####elif start_guard == 'QUIT': # Sort-of out of bound data
-        ####  raise OutOfBoundQuit('Client asked us to QUIT')
         elif start_guard != 'kbus': # This is perhaps a bit naughty, relying on byte order
           raise BadMessage('Data read starts with "%s", not "kbus"'%start_guard)
 
         # So we start with the message header - this is always the same length
-        #print 'Read the rest of message header: length',MSG_HEADER_LEN-4
         rest_of_header_data = self.sock.recv(MSG_HEADER_LEN-4, socket.MSG_WAITALL)
 
         header_data = start_guard + rest_of_header_data
-
         header = _struct_from_string(_MessageHeaderStruct, header_data)
-
         overall_length = entire_message_len(header.name_len, header.data_len)
-
-        #print 'Message header: header length %d, total length %d'%(MSG_HEADER_LEN, overall_length)
-
-        #print 'Reading rest of message: length', overall_length - MSG_HEADER_LEN
         rest_of_message = self.sock.recv(overall_length - MSG_HEADER_LEN, socket.MSG_WAITALL)
 
         return Message(header_data + rest_of_message)
@@ -689,14 +690,16 @@ class Limpet(object):
         kbus_hdr  = '%s->Us%s'%(kbus_name, ' '*(len(limpet_name)-2))
         limpet_hdr = '%s->%s'%(' '*len(kbus_name), limpet_name)
 
-        print '%s %s'%(kbus_hdr, msgstr(msg)),
+        if self.verbosity > 1:
+            print '%s %s'%(kbus_hdr, msgstr(msg)),
 
         if msg.name == '$.KBUS.ReplierBindEvent':
             # If this is the result of *us* binding as a replier (by proxy),
             # then we do *not* want to send it to the other Limpet!
             is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
             if binder_id == self.ksock_id:
-                print ' which is us -- ignore'
+                if self.verbosity > 1:
+                    print ' which is us -- ignore'
                 return
 
         elif msg.in_reply_to:                   # a Reply (or Status)
@@ -721,12 +724,15 @@ class Limpet(object):
             # message was sent to the other KBUS (before any Limpet touched
             # it), any listeners on that side would have heard it from that
             # KBUS, so we don't want to send it back to them yet again...
-            print ' from the other Limpet -- ignore'
+            if self.verbosity > 1:
+                print ' from the other Limpet -- ignore'
             return
 
-        print
+        if self.verbosity > 1:
+            print
         self.write_message_to_socket(msg)
-        print '%s %s'%(limpet_hdr, msgstr(msg))  # i.e., with amended network id
+        if self.verbosity > 1:
+            print '%s %s'%(limpet_hdr, msgstr(msg))  # i.e., with amended network id
 
     def handle_message_from_socket(self, msg):
         """Do the appropriate thing with a message from the socket.
@@ -764,17 +770,20 @@ class Limpet(object):
         limpet_hdr  = '%s->Us%s'%(limpet_name, ' '*(len(kbus_name)-2))
         kbus_hdr   = '%s->%s'%(' '*len(limpet_name), kbus_name)
 
-        print '%s %s'%(limpet_hdr, msgstr(msg))
+        if self.verbosity > 1:
+            print '%s %s'%(limpet_hdr, msgstr(msg))
 
         if msg.name == '$.KBUS.ReplierBindEvent':
             # We have to bind/unbind as a Replier in proxy
             is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
             if is_bind:
-                print '%s BIND "%s'%(' '*len(limpet_hdr),name)
+                if self.verbosity > 1:
+                    print '%s BIND "%s'%(' '*len(limpet_hdr),name)
                 self.ksock.bind(name, True)
                 self.replier_for[name] = binder_id
             else:
-                print '%s UNBIND "%s'%(' '*len(limpet_hdr),name)
+                if self.verbosity > 1:
+                    print '%s UNBIND "%s'%(' '*len(limpet_hdr),name)
                 self.ksock.unbind(name, True)
                 del self.replier_for[name]
             return
@@ -833,10 +842,12 @@ class Limpet(object):
                 # We already dealt with this Reply once, so this is presumably
                 # a "listening" copy - ignore it, the KBUS at this end will
                 # let anyone who cares (at this end) have their own copies
-                print '%s ignored as a "listen" copy'%(' '*len(limpet_hdr))
+                if self.verbosity > 1:
+                    print '%s ignored as a "listen" copy'%(' '*len(limpet_hdr))
                 return
 
-            print '%s as %s'%(' '*(len(limpet_hdr)-3), msgstr(msg))
+            if self.verbosity > 1:
+                print '%s as %s'%(' '*(len(limpet_hdr)-3), msgstr(msg))
 
         elif msg.flags & Message.WANT_A_REPLY:  # a Request
             if msg.flags & Message.WANT_YOU_TO_REPLY:
@@ -850,7 +861,8 @@ class Limpet(object):
             pass
 
         self.ksock.send_msg(msg)
-        print '%s %s'%(kbus_hdr, msgstr(msg))
+        if self.verbosity > 1:
+            print '%s %s'%(kbus_hdr, msgstr(msg))
 
     def run_forever(self, termination_message):
         """Or until we're interrupted, or receive the termination message.
@@ -860,7 +872,8 @@ class Limpet(object):
             # (at least for the moment)
             (r, w, x) = select.select( [self.ksock, self.sock], [], [])
 
-            print
+            if self.verbosity > 1:
+                print
 
             if self.ksock in r:
                 msg = self.ksock.read_next_msg()
@@ -892,18 +905,18 @@ class Limpet(object):
 
 
 def run_a_limpet(is_server, address, family, kbus_device, network_id,
-                 message_name, termination_message=None):
+                 message_name='$.*', termination_message=None, verbosity=1):
     """Run a Limpet.
     """
     print 'Limpet: %s via %s for KBUS %d, using network id %d'%('server' if is_server else 'client',
             address, kbus_device, network_id)
 
-    with Limpet(kbus_device, network_id, address, is_server, family, message_name) as l:
-        print l
-        print "Use 'kmsg -bus %d send <message_name> s <data>'"%kbus_device
-        print " or 'kmsg -bus %d call <message_name> s <data>' to send messages."%kbus_device
-        if termination_message:
-            print "Terminate by sending a message called '%s'"%termination_message
+    with Limpet(kbus_device, network_id, address, is_server, family,
+                message_name, verbosity) as l:
+        if verbosity:
+            print l
+            if termination_message:
+                print "Terminate by sending a message called '%s'"%termination_message
         l.run_forever(termination_message)
 
 def parse_address(word):
