@@ -40,6 +40,7 @@ from __future__ import with_statement
 import fcntl
 import ctypes
 import array
+import select
 
 from kbus.messages import MessageId, Message
 
@@ -465,6 +466,25 @@ class KSock(object):
             return Message(data)
         else:
             return None
+
+    def wait_for_msg(self, timeout=None):
+        """Wait for the next Message.
+
+        This is a simple wrapper around select.select, waiting for the
+        next Message on this KSock.
+
+        If timeout is given, it is a floating point number of seconds,
+        after which to timeout the select, otherwise this method will
+        wait forever.
+
+        Returns the new Message, or None if the timeout expired.
+        """
+        if timeout:
+            (r, w, x) = select.select([self], [], [], timeout)
+        else:
+            (r, w, x) = select.select([self], [], [], timeout)
+
+        return self.read_next_msg()
 
     def read_data(self, count):
         """Read the next 'count' bytes, and return them.
