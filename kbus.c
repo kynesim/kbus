@@ -2143,6 +2143,14 @@ static int kbus_remember_binding(struct kbus_dev	  *dev,
 		 * have some hope of telling what went wrong, and this is a
 		 * useful case to distinguish.
 		 */
+#if VERBOSE_DEBUG
+		if (dev->verbose) {
+			printk(KERN_DEBUG "kbus: %u/%u CANNOT BIND '%.*s' as replier,"
+			       " already bound\n",
+			       dev->index,priv->id,
+			       name_len,name);
+		}
+#endif
 		if (retval == 1) return -EADDRINUSE;
 	}
 
