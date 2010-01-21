@@ -3155,5 +3155,24 @@ class TestKernelModule:
             state = thing.report_replier_binds(False)
             assert state
 
+    def test_sender_gone_away(self):
+        """Test what happens if a Sender goes away before its Reply arrives.
+        """
+        with KSock(0, 'rw') as replier:
+            msg = None
+
+            with KSock(0, 'rw') as sender:
+
+                replier.bind('$.Fred', True)
+
+                req = Request('$.Fred')
+                sender.send_msg(req)
+
+                msg = replier.read_next_msg()
+
+            rep = reply_to(msg)
+            check_IOError(errno.EADDRNOTAVAIL, replier.send_msg, rep)
+            
+
 
 # vim: set tabstop=8 shiftwidth=4 softtabstop=4 expandtab:
