@@ -2903,6 +2903,9 @@ static int kbus_queue_is_full(struct kbus_private_data	*priv,
  * If the message is a Request, and there is no replier for it, then we return
  * -EADDRNOTAVAIL.
  *
+ * If the message is a Reply, and the is sender is no longer connected (it has
+ * released its KSock), then we return -EADDRNOTAVAIL.
+ *
  * If the message couldn't be sent because some of the targets (those that we
  * *have* to deliver to) had full queues, then it will return -EAGAIN or
  * -EBUSY. If -EAGAIN is returned, then the caller should try again later, if
@@ -3005,8 +3008,8 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 			}
 #endif
 
-			/* Which really means something nasty has gone wrong */
-			retval = -EFAULT;	/* XXX What *should* we say? */
+			/* We can't find the original Sender */
+			retval = -EADDRNOTAVAIL;
 			goto done_sending;
 		}
 
@@ -4957,7 +4960,7 @@ static int __init kbus_init(void)
 	/* We're quite happy with dynamic allocation of our major number */
 	kbus_major = MAJOR(devno);
 	if (result < 0) {
-		printk(KERN_WARNING "kbus: Cannot allocate character device region\n");
+		printk(KERN_WARNING "kbus: Cannot allocate character device region (error %d)\n",-result);
 		return result;
 	}
 
