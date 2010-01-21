@@ -88,6 +88,8 @@
 
 /* By default, enable verbose debug to be selected */
 #define VERBOSE_DEBUG 1
+/* But we don't normally want the extra debug for kbus_read */
+#define VERBOSE_READ_DEBUG 0
 
 static int  kbus_num_devices = DEF_NUM_DEVICES;
 
@@ -3322,7 +3324,7 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 		 * technically broken, since (as it stands) it's not a
 		 * legitimate "entire" header, either...
 		 */
-#if VERBOSE_DEBUG
+#if VERBOSE_READ_DEBUG
 		if (priv->dev->verbose) {
 			printk(KERN_DEBUG "kbus:   xx kbus_read ========================\n");
 			printk(KERN_DEBUG "kbus:   xx Unsetting name and header pointers\n");
@@ -3343,7 +3345,7 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 			left = priv->read.lengths[which] - priv->read.pos;
 			len = min(left,count);
 
-#if VERBOSE_DEBUG
+#if VERBOSE_READ_DEBUG
 			if (priv->dev->verbose) {
 				printk(KERN_DEBUG "kbus:   xx which %d, read_len[%d] %u, pos %u,"
 				       " left %u, len %u, count %u\n",
@@ -3377,7 +3379,7 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 				which ++;
 			}
 		} else {
-#if VERBOSE_DEBUG
+#if VERBOSE_READ_DEBUG
 			if (priv->dev->verbose) {
 				printk(KERN_DEBUG "kbus:   xx which %d, read_len[%d] %u\n",
 				       which,which,priv->read.lengths[which]);
@@ -3675,7 +3677,7 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 		return __put_user(0, (uint32_t __user *)arg);
 	}
 
-#if VERBOSE_DEBUG
+#if VERBOSE_READ_DEBUG
 	if (priv->dev->verbose) {
 		printk(KERN_DEBUG "kbus:   xx Setting up read_hdr\n");
 	}
