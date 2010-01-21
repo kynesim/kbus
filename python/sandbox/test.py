@@ -148,8 +148,7 @@ def send_message(hdr, sender, msg):
 def wait_for_message(hdr, ksock):
     """Wait for a message from a KSock, report it and return it
     """
-    (r, w, x) = select.select([ksock], [], [])
-    msg = ksock.read_next_msg()
+    msg = ksock.wait_for_msg()
     print '%s read %s'%(hdr, str(msg))
     return msg
 

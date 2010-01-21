@@ -47,6 +47,8 @@ TERMINATION_MESSAGE = '$.Terminate'
 KBUS_SENDER   = 1
 KBUS_LISTENER = 2
 
+TIMEOUT = 10        # 10 seconds seems like a reasonably long time...
+
 # The Limpet processes - so we can tidy them up neatly
 g_server = None
 g_client = None
@@ -157,6 +159,8 @@ def teardown_module():
 class TestLimpets(object):
 
     def test_the_first(self):
+        """An establishing test, to check we can send a single message.
+        """
         with KSock(KBUS_SENDER, 'rw') as sender:
             with KSock(KBUS_LISTENER, 'rw') as listener:
 
@@ -167,19 +171,94 @@ class TestLimpets(object):
                 print 'Sent', this
 
                 # Wait for the message to penetrate the labyrinth
-                (r, w, x) = select.select([listener], [], [])
-                that = listener.read_next_msg()
+                that = listener.wait_for_msg(TIMEOUT)
                 print 'Read', that
 
                 assert this.equivalent(that)
                 assert this_id.serial_num == that.id.serial_num
+
+    def test_request_vs_message(self):
+        """Test repliers and Requests versus Messages
+        """
+        with KSock(KBUS_SENDER, 'rw') as sender:
+            with KSock(KBUS_LISTENER, 'r') as listener:
+                listener.bind('$.Fred.Message', False)
+                
+                # A listener receives Messages
+                m = Message('$.Fred.Message')
+                sender.send_msg(m)
+                r = listener.wait_for_msg(TIMEOUT)
+                assert r.equivalent(m)
+                assert not r.wants_us_to_reply()
+
+                with KSock(KBUS_LISTENER, 'rw') as replier:
+                    replier.bind('$.Fred.Message', True)
+
+                    # And a listener receives Requests (although it need not reply)
+                    m = Request('$.Fred.Message')
+                    sender.send_msg(m)
+                    r = listener.wait_for_msg(TIMEOUT)
+                    assert r.equivalent(m)
+                    assert not r.wants_us_to_reply()
+                    
+                    # The Replier receives the Request (and should reply)
+                    r = replier.wait_for_msg(TIMEOUT)
+                    assert r.equivalent(m)
+                    assert r.wants_us_to_reply()
+
+                    # A replier does not receive Messages
+                    m = Message('$.Fred.Message')
+                    sender.send_msg(m)
+
+                    x = listener.wait_for_msg(TIMEOUT)
+                    # So we hope it *would* have had time to percolate for the
+                    # replier as well
+                    assert replier.next_msg() == 0
+
+    def test_request_vs_message_flat(self):
+        """Test repliers and Requests versus Messages (listener is replier)
+        """
+        with KSock(KBUS_SENDER, 'rw') as sender:
+            with KSock(KBUS_LISTENER, 'rw') as listener:
+                listener.bind('$.Fred.Message', False)
+                
+                # A listener receives Messages
+                m = Message('$.Fred.Message')
+                sender.send_msg(m)
+                r = listener.wait_for_msg(TIMEOUT)
+                assert r.equivalent(m)
+                assert not r.wants_us_to_reply()
+
+                listener.bind('$.Fred.Message', True)
+
+                # And a listener receives Requests (although it need not reply)
+                m = Request('$.Fred.Message')
+                sender.send_msg(m)
+                r = listener.wait_for_msg(TIMEOUT)
+                assert r.equivalent(m)
+                assert not r.wants_us_to_reply()
+                
+                # The Replier receives the Request (and should reply)
+                r = listener.wait_for_msg(TIMEOUT)
+                assert r.equivalent(m)
+                assert r.wants_us_to_reply()
+
+                # A replier does not receive Messages
+                m = Message('$.Fred.Message')
+                sender.send_msg(m)
+
+                x = listener.wait_for_msg(TIMEOUT)
+                # So we hope it *would* have had time to percolate for the
+                # replier as well
+                assert listener.next_msg() == 0
 
 import traceback
 if __name__ == '__main__':
     setup_module()
     t = TestLimpets()
     try:
-        t.test_the_first()
+        #t.test_the_first()
+        t.test_request_vs_message_flat()
     except Exception as exc:
         print
         print '============================================================'
