@@ -5,6 +5,7 @@ in KBUS.
 
     errno.py  99
     errno.py  EPERM
+    errno.py  -list             # to list all known errors
 """
 
 import sys
@@ -20,7 +21,11 @@ kbus_codes = {
     'EADDRINUSE'    : __('On attempting to bind a message name as replier:' \
                       ' There is already a replier bound for this message'),
     'EADDRNOTAVAIL' : __('On attempting to send a Request message:'\
-                      ' There is no replier bound for this message\'s name.'),
+                      ' There is no replier bound for this message\'s name.') + \
+                      '\n\n' + \
+                      __('On attempting to send a Reply message: The sender of' \
+                      ' the original request (i.e., the KSock mentioned as the' \
+                      ' "to" in the Reply) is no longer connected.'),
     'EALREADY'      : __('On attempting to write to a KSock, when a previous send has'\
                       ' returned EAGAIN: Either DISCARD the message, or use select/poll'\
                       ' to wait for the send to complete, and write to be allowed.'),
@@ -64,6 +69,14 @@ kbus_codes = {
                       ' send, or because the message being written has been discarded).'),
     'EPIPE'         : __('On attempting to send *to* a specific replier, the replier with'\
                       ' that id is no longer bound to the given message\'s name.'),
+
+    # Things not explicit in the KBUS documentation
+    'EFAULT'        : __('Memory allocation, copy from user space, or other such failed.' \
+                         ' This is normally very bad, it should not happen, UNLESS it is' \
+                         ' the result of calling an ioctl, when it indicates that the'
+                         ' ioctl argument cannot be accessed.'),
+    'ENOMEM'        : __('Memory allocation failed (return NULL).' \
+                         ' This is normally very bad, it should not happen.'),
     }
 
 def check_kbus(errname):
@@ -78,6 +91,11 @@ def main(args):
         return
 
     thing = args[0]
+
+    if thing == '-list':
+        for key, value in errorcode.items():
+            print '%3d: %-20s %s'%(key, value, os.strerror(key))
+        return
 
     try:
         errnum = int(thing)
