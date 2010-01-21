@@ -1039,6 +1039,10 @@ as values inside the IOError exception.
                 already a replier bound for this message
 :EADDRNOTAVAIL: On attempting to send a Request message: There is no replier
                 bound for this message's name.
+
+                On attempting to send a Reply message: The sender of the
+                original request (i.e., the KSock mentioned as the ``to``
+                in the Reply) is no longer connected.
 :EALREADY:      On attempting to write to a KSock, when a previous send has
                 returned EAGAIN. Either DISCARD the message, or use
                 select/poll to wait for the send to complete, and write to be
