@@ -308,8 +308,9 @@ def msgstr(msg):
     """
     if msg.name == '$.KBUS.ReplierBindEvent':
         is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
-        return '<%s %s: %s for %d>'%('Bind' if is_bind else 'Unbind',
+        return '<%s %s from %s: %s for %d>'%('Bind' if is_bind else 'Unbind',
                                      str(msg.id) if msg.id else '[0:0]',
+                                     msg.from_,
                                      name, binder_id)
 
     if msg.flags & Message.WANT_A_REPLY:
@@ -323,13 +324,13 @@ def msgstr(msg):
         what = 'Message'
 
     if msg.is_synthetic():
-        flag = ' <synthetic>'
+        flag = ' <synthetic> '
     elif msg.is_urgent():
-        flag = ' <urgent>'
+        flag = ' <urgent> '
     else:
         flag = ''
 
-    return '%s %s %s: %s,%s from %s, to %s'%(what, msg.name,
+    return '%s %s %s: %s%s from %s, to %s'%(what, msg.name,
             str(msg.id) if msg.id else '[0:0]', flag, repr(msg.data), msg.from_, msg.to)
 
 def padded_name_len(name_len):
@@ -597,6 +598,11 @@ class Limpet(object):
         elif start_guard == 'HELO':
             # It's the other Limpet telling us its network id
             self.other_network_id = self._read_network_id()
+            if self.other_network_id == self.network_id:
+                # We rather rely on unique network ids, and *in particular*
+                # that this pair have different ids
+                raise GiveUp('This Limpet and its pair both have'
+                             ' network id %d'%self.network_id)
             if self.verbosity > 1:
                 print 'Other Limpet has network id',self.other_network_id
             raise NoMessage
@@ -860,33 +866,43 @@ class Limpet(object):
         else:
             pass
 
-        self.ksock.send_msg(msg)
-        if self.verbosity > 1:
-            print '%s %s'%(kbus_hdr, msgstr(msg))
+        try:
+            self.ksock.send_msg(msg)
+            if self.verbosity > 1:
+                print '%s %s'%(kbus_hdr, msgstr(msg))
+        except IOError as exc:
+            print '%s send_msg: %s -- continuing'%(kbus_hdr, exc)
+
 
     def run_forever(self, termination_message):
         """Or until we're interrupted, or receive the termination message.
+
+        If an exception is raised, then the Limpet is closed as the method
+        is exited.
         """
-        while 1:
-            # Wait for a message written to us, with no timeout
-            # (at least for the moment)
-            (r, w, x) = select.select( [self.ksock, self.sock], [], [])
+        try:
+            while 1:
+                # Wait for a message written to us, with no timeout
+                # (at least for the moment)
+                (r, w, x) = select.select( [self.ksock, self.sock], [], [])
 
-            if self.verbosity > 1:
-                print
+                if self.verbosity > 1:
+                    print
 
-            if self.ksock in r:
-                msg = self.ksock.read_next_msg()
-                if msg.name == termination_message:
-                    raise GiveUp('Termination requested via %s message'%termination_message)
-                self.handle_message_from_kbus(msg)
+                if self.ksock in r:
+                    msg = self.ksock.read_next_msg()
+                    if msg.name == termination_message:
+                        raise GiveUp('Termination requested via %s message'%termination_message)
+                    self.handle_message_from_kbus(msg)
 
-            if self.sock in r:
-                try:
-                    msg = self.read_message_from_socket()
-                    self.handle_message_from_socket(msg)
-                except NoMessage:       # Presumably, a HELO <network_id>
-                    pass
+                if self.sock in r:
+                    try:
+                        msg = self.read_message_from_socket()
+                        self.handle_message_from_socket(msg)
+                    except NoMessage:       # Presumably, a HELO <network_id>
+                        pass
+        finally:
+            self.close()
 
     # Implement 'with'
     def __enter__(self):
@@ -989,7 +1005,7 @@ def main(args):
         raise GiveUp('Either -client or -server must be specified')
 
     if address is None:
-        raise GiveUp('An address (either <host>:<port> or <path>) is needed')
+        raise GiveUp('An address (either <host>:<port> or < is needed')
 
     if network_id is None:
         network_id = 2 if is_server else 1

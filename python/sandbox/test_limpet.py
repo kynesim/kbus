@@ -64,7 +64,7 @@ def system(command):
         else:
             print "'%s' returned %s"%(command, retcode)
         return retcode
-    except OSError, e:
+    except OSError as e:
         print "Execution of '%s' failed: %s"%(command, e)
 
 def our_limpet(is_server, sock_address, sock_family, kbus_device, network_id):
@@ -79,6 +79,8 @@ def our_limpet(is_server, sock_address, sock_family, kbus_device, network_id):
         print 'KBUS %d %s'%(kbus_device, '; '.join(exc.args))
     except OtherLimpetGoneAway as exc:
         print 'KBUS %d The Limpet at the other end of the connection has closed'%kbus_device
+    except Exception as exc:
+        print 'KBUS %d %s'%(kbus_device, exc)
 
 # The "normal" KBUS test code uses a single KBUS, and tests open KSocks
 # on it to send/receive messages.
@@ -134,6 +136,12 @@ def setup_module():
 
         global g_server, g_client
         g_server, g_client = run_limpets('fred', socket.AF_UNIX)
+
+        # Debug output may be useful...
+        for devno in range(3):
+            with KSock(devno, 'rw') as friend:
+                friend.kernel_module_verbose(True)
+
     except:
         system('sudo rmmod kbus')
         raise
@@ -177,11 +185,67 @@ class TestLimpets(object):
                 assert this.equivalent(that)
                 assert this_id.serial_num == that.id.serial_num
 
-    def test_request_vs_message(self):
-        """Test repliers and Requests versus Messages
+    def test_request_vs_message_flat(self):
+        """Test repliers and Requests versus Messages (listener is replier)
         """
         with KSock(KBUS_SENDER, 'rw') as sender:
+            print 'Sender',str(sender)
+            with KSock(KBUS_LISTENER, 'rw') as replier:
+                print 'Listener',str(replier)
+                replier.bind('$.Fred.Message', False)
+
+                # Just receiving messages should be simple
+                m = Message('$.Fred.Message')
+                sender.send_msg(m)
+                r = replier.wait_for_msg(TIMEOUT)
+                assert r.equivalent(m)
+                assert not r.wants_us_to_reply()
+
+                # Being a Replier needs a bit more synchronisation
+                #
+                # The replier asks to be a Replier. This sends a message to its
+                # local Limpet, who tells the other Limpet (on the sender's
+                # end) to register as a Replier in proxy on *its* KBUS.
+                #
+                # This will take a while to make its way through the system.
+                # We can cheat and look for the event that occurs when the
+                # "far" Limpet binds as a (proxy) Replier...
+                sender.bind('$.KBUS.ReplierBindEvent')
+
+                # So, the replier binds on *its* KBUS
+                replier.bind('$.Fred.Message', True)
+                # and we then wait for the bind to take effect on the sender's
+                # end (i.e., for the proxying Limpet to bind)
+                b = sender.wait_for_msg()
+                assert b.name == '$.KBUS.ReplierBindEvent'
+                # after which it should be "safe" to make our Request...
+
+                m = Request('$.Fred.Message')
+                sender.send_msg(m)
+                
+                # The Replier receives the Request (and should reply)
+                r = replier.wait_for_msg(TIMEOUT)
+                assert r.equivalent(m)
+                assert r.wants_us_to_reply()
+
+                # But if the message is an Announcement of the same name
+                m = Message('$.Fred.Message')
+                sender.send_msg(m)
+
+                # The Replier will not see it
+                x = replier.wait_for_msg(TIMEOUT)
+                # (Hopefully our timeout is long enough to "prove" this)
+                assert replier.next_msg() == 0
+
+    def test_request_vs_message(self):
+        """Test repliers and Requests versus Messages
+
+        This is closer to the original test than the "flat" version above
+        """
+        with KSock(KBUS_SENDER, 'rw') as sender:
+            print 'Sender',str(sender)
             with KSock(KBUS_LISTENER, 'r') as listener:
+                print 'Listener',str(listener)
                 listener.bind('$.Fred.Message', False)
                 
                 # A listener receives Messages
@@ -191,8 +255,15 @@ class TestLimpets(object):
                 assert r.equivalent(m)
                 assert not r.wants_us_to_reply()
 
+                sender.bind('$.KBUS.ReplierBindEvent')
+
                 with KSock(KBUS_LISTENER, 'rw') as replier:
+                    print 'Replier',str(replier)
                     replier.bind('$.Fred.Message', True)
+
+                    # Synchronise...
+                    b = sender.wait_for_msg()
+                    assert b.name == '$.KBUS.ReplierBindEvent'
 
                     # And a listener receives Requests (although it need not reply)
                     m = Request('$.Fred.Message')
@@ -215,55 +286,46 @@ class TestLimpets(object):
                     # replier as well
                     assert replier.next_msg() == 0
 
-    def test_request_vs_message_flat(self):
-        """Test repliers and Requests versus Messages (listener is replier)
-        """
-        with KSock(KBUS_SENDER, 'rw') as sender:
-            with KSock(KBUS_LISTENER, 'rw') as listener:
-                listener.bind('$.Fred.Message', False)
-                
-                # A listener receives Messages
-                m = Message('$.Fred.Message')
-                sender.send_msg(m)
-                r = listener.wait_for_msg(TIMEOUT)
-                assert r.equivalent(m)
-                assert not r.wants_us_to_reply()
-
-                listener.bind('$.Fred.Message', True)
-
-                # And a listener receives Requests (although it need not reply)
-                m = Request('$.Fred.Message')
-                sender.send_msg(m)
-                r = listener.wait_for_msg(TIMEOUT)
-                assert r.equivalent(m)
-                assert not r.wants_us_to_reply()
-                
-                # The Replier receives the Request (and should reply)
-                r = listener.wait_for_msg(TIMEOUT)
-                assert r.equivalent(m)
-                assert r.wants_us_to_reply()
-
-                # A replier does not receive Messages
-                m = Message('$.Fred.Message')
-                sender.send_msg(m)
-
-                x = listener.wait_for_msg(TIMEOUT)
-                # So we hope it *would* have had time to percolate for the
-                # replier as well
-                assert listener.next_msg() == 0
-
 import traceback
+    
 if __name__ == '__main__':
+
+    num_tests = 0
+
+    def announce(index, name):
+        if index:
+            name = '%d/%d: %s'%(index,num_tests,name)
+        print '%s %s %s'%('-'*10, name, '-'*(50 - len(name)))
+
+    announce(None, 'SETUP')
     setup_module()
+
     t = TestLimpets()
-    try:
-        #t.test_the_first()
-        t.test_request_vs_message_flat()
-    except Exception as exc:
-        print
-        print '============================================================'
-        traceback.print_exc()
-        print '============================================================'
+
+    tests = []
+    for name in dir(t):
+        if name.startswith('test_'):
+            tests.append(name)
+
+    num_tests = len(tests)
+    print 'Found %s tests'%num_tests
+
+    passed = 0
+    for name in tests:
+        announce(passed+1, name)
+        try:
+            getattr(t, name)()
+            passed += 1
+        except Exception as exc:
+            print
+            print '='*60
+            traceback.print_exc()
+            print '='*60
+            break
+
+    announce(None, 'TEARDOWN')
     teardown_module()
+
+    print 'Passed %d out of %d tests'%(passed, num_tests)
 
 # vim: set tabstop=8 softtabstop=4 shiftwidth=4 expandtab:
