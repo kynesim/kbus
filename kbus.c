@@ -77,7 +77,7 @@
  *     at module startup, and leave the user to ask for the first one, but
  *     that seems rather cruel.)
  *
- * We need to set a maximum number of KBUS devices (corrsponding to a limit on
+ * We need to set a maximum number of KBUS devices (corresponding to a limit on
  * minor device numbers). The obvious limit (corresponding to what we'd have
  * got if we used the deprecated "register_chrdev" to setup our device) is 256,
  * so we'll go with that.
@@ -1605,14 +1605,15 @@ static int kbus_push_synthetic_bind_message(struct kbus_private_data	*priv,
 	 * because they don't have room in their queues?
 	 *
 	 * If we flag the message as ALL_OR_FAIL, then if we can't deliver
-	 * to all of the listeners who care, we will get -EBUSY returned.
+	 * to all of the listeners who care, we will get -EBUSY returned to
+	 * us, which we shall then return as -EAGAIN (people expect to check
+	 * for -EAGAIN to find out if they should, well, try again).
 	 *
 	 * In this scenario, the user needs to catch a "bind"/"unbind" return
-	 * of -EBUSY and realise that it needs to try again.
+	 * of -EAGAIN and realise that it needs to try again.
 	 *
-	 * So, EBUSY is correct, because it means no-one will have been
-	 * notified about the binding - notifying some people and not others is
-	 * a bad idea.
+	 * XXX Ideally, we should be able to use select to wait until that's
+	 * XXX sensible - does that work !out of the box???
 	 */
 	new_msg->flags |= KBUS_BIT_ALL_OR_FAIL;
 
@@ -1650,6 +1651,15 @@ static int kbus_push_synthetic_bind_message(struct kbus_private_data	*priv,
 	 * can be freed as well as the data), this is fairly simple.
 	 */
 	kbus_free_message(priv, new_msg, true);
+
+	/*
+	 * Because we used ALL_OR_FAIL, we will get -EBUSY back if we FAIL,
+	 * but we want to tell the user -EAGAIN, since they *should* try
+	 * again later.
+	 */
+	if (retval == -EBUSY)
+		retval = -EAGAIN;
+
 	return retval;
 }
 
@@ -1707,7 +1717,7 @@ static struct kbus_message_header *kbus_pop_message(struct kbus_private_data *pr
  * Empty a message queue. Send synthetic messages for any outstanding
  * request messages that are now not going to be delivered/replied to.
  */
-static int kbus_empty_message_queue(struct kbus_private_data  *priv)
+static void kbus_empty_message_queue(struct kbus_private_data  *priv)
 {
 	struct list_head		*queue = &priv->message_queue;
 	struct kbus_message_queue_item	*ptr;
@@ -1757,7 +1767,7 @@ static int kbus_empty_message_queue(struct kbus_private_data  *priv)
 	}
 #endif
 
-	return 0;
+	return;
 }
 
 /*
@@ -1874,7 +1884,7 @@ static int kbus_reply_now_sent(struct kbus_private_data  *priv,
  * Empty our "replies unsent" queue. Send synthetic messages for any
  * request messages that are now not going to be replied to.
  */
-static int kbus_empty_replies_unsent(struct kbus_private_data  *priv)
+static void kbus_empty_replies_unsent(struct kbus_private_data  *priv)
 {
 	struct list_head		*queue = &priv->replies_unsent;
 	struct kbus_unreplied_item	*ptr;
@@ -1910,7 +1920,7 @@ static int kbus_empty_replies_unsent(struct kbus_private_data  *priv)
 	}
 #endif
 
-	return 0;
+	return;
 }
 
 /*
@@ -2546,6 +2556,51 @@ static void kbus_forget_my_bindings(struct kbus_dev	*dev,
 			}
 #endif
 
+#if 0
+			if (ptr->is_replier && dev->report_replier_binds) {
+
+				/*
+				 * What we want to do:
+				 *
+				 * 1. Send an UNBIND message to each listener
+				 * 2. Don't send them to ourselves!
+				 * 3. If we can't send the message to all the listeners
+				 *    (if we get -EAGAIN back) then add it to the stack
+				 *    of "we couldn't send these because someone wasn't
+				 *    ready" messages
+				 * 4. Unless said stack is full, in which case add a
+				 *    "we couldn't send the unbind message because
+				 *    the stack filled up" message to the stack
+				 * 5. And next time we try to add to the stack, if
+				 *    its got one of those on it, don't do so.
+				 *
+				 * So every so often (including before the list above)
+				 * if we have stuff on the put-aside list, try to send
+				 * stuff from it. 
+				 */
+
+				// Need to take care not to tell ourselves we're
+				// unbinding, since we know we don't care...
+
+				/*
+				 * We want to send a message indicating that we've unbound
+				 * the Replier for this message.
+				 */
+				int retval;
+
+				/*
+				 * If we can't tell all the Listeners who're listening for this
+				 * message, we want to give up, rather then tell some of them,
+				 * and then unbind anyway.
+				 */
+				retval = kbus_push_synthetic_bind_message(priv, false,
+									  name_len, name);
+				if (retval != 0) {	/* Hopefully, just -EBUSY */
+					return retval;	/* XXX Doesn't make sense? */
+				}
+			}
+#endif
+
 			list_del(&ptr->list);
 			if (ptr->name)
 				kfree(ptr->name);
@@ -2640,7 +2695,7 @@ static struct kbus_private_data *kbus_find_open_ksock(struct kbus_dev	*dev,
 /*
  * Remove an open file remembrance.
  *
- * Returns 0 if all went well, a negative value if it did not.
+ * Returns 0 if all went well, -EINVAL if we couldn't find the open KSock
  */
 static int kbus_forget_open_ksock(struct kbus_dev	*dev,
 				  uint32_t		 id)
@@ -2779,9 +2834,7 @@ static int kbus_open(struct inode *inode, struct file *filp)
 
 static int kbus_release(struct inode *inode, struct file *filp)
 {
-	int	retval1 = 0;
 	int	retval2 = 0;
-	int	retval3 = 0;
 	struct kbus_private_data *priv = filp->private_data;
 	struct kbus_dev *dev = priv->dev;
 
@@ -2799,20 +2852,15 @@ static int kbus_release(struct inode *inode, struct file *filp)
 
 	kbus_empty_msg_id_memory(priv);
 
-	retval1 = kbus_empty_message_queue(priv);
+	kbus_empty_message_queue(priv);
 	kbus_forget_my_bindings(dev,priv->id);
+	kbus_empty_replies_unsent(priv);
 	retval2 = kbus_forget_open_ksock(dev,priv->id);
-	retval3 = kbus_empty_replies_unsent(priv);
 	kfree(priv);
 
 	up(&dev->sem);
 
-	if (retval1)
-		return retval1;
-	else if (retval2)
-		return retval2;
-	else
-		return retval3;
+	return retval2;
 }
 
 /*
@@ -4286,10 +4334,12 @@ static int kbus_set_verbosity(struct kbus_private_data	*priv,
 	if (retval) return retval;
 
 #if VERBOSE_DEBUG
-	if (priv->dev->verbose) {
-		printk(KERN_DEBUG "kbus: %u/%u VERBOSE requests %u (was %d)\n",
-		       priv->dev->index,priv->id, verbose, old_value);
-	}
+	/*
+	 * If we're *leaving* verbose mode, we would say so (!),
+	 * and we should arguably announce when we enter it as well...
+	 */
+	printk(KERN_DEBUG "kbus: %u/%u VERBOSE requests %u (was %d)\n",
+	       priv->dev->index,priv->id, verbose, old_value);
 #endif
 
 	switch (verbose) {
