@@ -15,41 +15,22 @@ time.sleep(0.5)
 try:
 
         with KSock(0, 'rw') as sender:
-            with KSock(0, 'rw') as listener:
-                listener.bind('$.Fred')
-                data = '1\x0034'
-                msg = Message('$.Fred', data=data)
-                print msg
-                sender.send_msg(msg)
-                got = listener.read_next_msg()
-                print got
-                assert got.data == data
+            with KSock(0, 'rw') as listener1:
+                with KSock(0, 'rw') as listener2:
 
-                print hexify(msg.to_string())
-                print hexify(got.to_string())
+                    sender.kernel_module_verbose(True)
 
+                    listener1.bind('$.Fred')
+                    listener1.bind('$.Fred')
 
-        with KSock(0, 'rw') as binder:
-            with KSock(0, 'rw') as listener:
+                    listener2.bind('$.Fred')
+                    listener2.bind('$.Fred')
+                    listener2.want_messages_once(True)
 
-                # Ask for notification
-                state = binder.report_replier_binds(True)
-                assert not state
+                    sender.send_msg(Message('$.Fred'))
 
-                listener.bind('$.KBUS.ReplierBindEvent')
-
-                binder.bind('$.Fred', True)
-
-                msg = listener.read_next_msg()
-
-                print 'Event message %s'%msg
-                print 'Data %s'%hexify(msg.data)
-
-                is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
-
-                assert is_bind == 1
-                assert binder_id == binder.ksock_id()
-                assert name == '$.Fred'
+                    assert listener1.num_messages() == 2
+                    assert listener2.num_messages() == 1
 
 
 finally:

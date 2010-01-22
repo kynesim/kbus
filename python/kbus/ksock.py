@@ -142,6 +142,13 @@ class KSock(object):
         # for binary, it is possible that some version of Python may
         self.fd = open(self.name, mode+'b')
 
+    def __str__(self):
+        if self.fd:
+            return 'KSock device %d, id %d, mode %s'%(self.which,
+                    self.ksock_id(), self.mode)
+        else:
+            return 'KSock device %d (closed)'%(self.which)
+
     def __repr__(self):
         if self.fd:
             return '<KSock %s open for %s>'%(self.name, self.mode)

@@ -919,10 +919,31 @@ class Message(object):
         if in_reply_to:
             parts.append('in_reply_to=%s'%str(in_reply_to))
         if flags:
-            parts.append('flags=0x%x'%flags)
+            txt = self._flag_text(flags)
+            if txt:
+                parts.append('flags=0x%x (%s)'%(flags,txt))
+            else:
+                parts.append('flags=0x%x'%flags)
         if data:
             parts.append('data=%s'%repr(data))
         return '<%s %s>'%(what, ', '.join(parts))
+
+    def _flag_text(self, flags):
+        """A simple representation of the known flags.
+        """
+        words = []
+        if flags & Message.WANT_A_REPLY:
+            words.append('REQ')
+        if flags & Message.WANT_YOU_TO_REPLY:
+            words.append('YOU')
+        if flags & Message.SYNTHETIC:
+            words.append('SYN')
+        if flags & Message.URGENT:
+            words.append('URG')
+        if len(words):
+            return ','.join(words)
+        else:
+            return ''
 
     def __eq__(self, other):
         if not isinstance(other, Message):
