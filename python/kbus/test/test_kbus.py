@@ -3173,6 +3173,11 @@ class TestKernelModule:
             rep = reply_to(msg)
             check_IOError(errno.EADDRNOTAVAIL, replier.send_msg, rep)
             
+    def test_bind_replier_event_as_replier(self):
+        """Test that we can't bind $.KBUS.ReplierBindEvent as a Replier
+        """
+        with KSock(0, 'rw') as replier:
+            check_IOError(errno.EBADMSG, replier.bind, '$.KBUS.ReplierBindEvent', True)
 
 
 # vim: set tabstop=8 shiftwidth=4 softtabstop=4 expandtab:

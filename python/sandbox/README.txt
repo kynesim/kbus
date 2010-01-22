@@ -218,6 +218,67 @@ If we send a message through kbus, and the message has an id with the network
 id set, then kbus must preserve the entire message id. Does it already do
 this?
 
+2010-01-22
+==========
+Friday 22 January
 
+Reporting "replier unbind" events when kbus_release is called
+-------------------------------------------------------------
+
+Here's the thing.
+
+First, try to send our message as normal. If that works, all and
+good.
+
+If it doesn't work, add all the messages (which we would have sent)
+to a set-aside list. Also set a flag on each recipient ksock to say
+there may be messages for it on the set-aside list.
+
+When a ksock want to know if it has a next message, if the "maybe
+something on the set-aside list" flag is set, first look through
+that list to see if there is a message there (before doing the normal
+"have I got a next message" check). If there isn't, unset the flag.
+
+When a ksock goes to read the next message, if the flag is set,
+it first looks for a message from the set-aside list, and if it
+finds one, it returns that instead. It does *not* unset the flag,
+because it doesn't know if there is another message waiting for
+it on the list. If it doesn't find a message on the set-aside
+list, then it clears the flag, and returns the "normal" next
+message.
+
+When a ksock releases, if the flag is set, it looks through the
+set-aside list and removes any messages for it.
+
+When a ksock unbinds from $.KBUS.ReplierBindEvent, I suspect that
+it should check the flag, and if it is set, remove any messages
+for it from the set-aside list, and then clear the flag. This last
+needs rethinking, because (a) it makes the replier bind event
+message even more special, and (b) I'm not 100% sure yet that this
+is the expected/correct behaviour from the user-space perspective.
+
+    NB: That message is getting very special. Put a prohibition
+    in the "bind" code to forbid anyone from binding to it as a
+    Replier.
+
+The set-aside list has a limit on how long it can get. When it
+reaches that limit, instead of putting a copy of the UNBIND messages
+on the list, a "tragic world" flag is set, and each recipient gets a
+"the world has gone tragically wrong" message instead. This does
+not attempt to have any data associated with it - the intent is that
+the user space programm closes the relevant KSock and restarts.
+
+When the "tragic world" flag is set, an attempt to add a new unbind
+message to the list will add a "world gone tragic" message instead,
+if the recipient didn't already have one in the list. Note that
+searching for these need not be too bad, as they are guaranteed to
+be at the end of the list, and all together.
+
+Once the list is empty again (because people have read the messages
+off it), the "tragic world" flag gets unset.
+
+NB: Richard reckons that a network up/down event could cause lots
+of these events, temporarily, in a Limpet situation, so we really
+want to allow quite a few messages in our set-aside list.
 
 .. vim: set filetype=rst tabstop=8 shiftwidth=2 expandtab:
