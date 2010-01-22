@@ -1543,7 +1543,7 @@ static int kbus_add_bind_message_data(struct kbus_private_data	 *priv,
  * 'name' is the message name (or wildcard) that was bound (or unbound) to.
  *
  * Returns 0 if all goes well, or a negative value if something goes wrong,
- * notably -EBUSY if we couldn't send the message to ALL the Listeners who
+ * notably -EAGAIN if we couldn't send the message to ALL the Listeners who
  * have bound to receive it.
  */
 static int kbus_push_synthetic_bind_message(struct kbus_private_data	*priv,
@@ -2533,14 +2533,91 @@ no_such_binding:
 }
 
 /*
+ * Report a Replier Bind Event for unbinding from the given message name,
+ * in such a way that we do not lose the message even if we can't send it
+ * right away.
+ */
+static void kbus_safe_report_unbinding(struct kbus_private_data *priv,
+				       uint32_t			 name_len,
+				       char			*name)
+{
+	/*
+	 * Here's the thing.
+	 *
+	 * First, try to send our message as normal. If that works, all and
+	 * good.
+	 *
+	 * If it doesn't work, add all the messages (which we would have sent)
+	 * to a set-aside list. Also set a flag on each recipient ksock to say
+	 * there may be messages for it on the set-aside list.
+	 *
+	 * When a ksock want to know if it has a next message, if the "maybe
+	 * something on the set-aside list" flag is set, first look through
+	 * that list to see if there is a message there (before doing the normal
+	 * "have I got a next message" check). If there isn't, unset the flag.
+	 *
+	 * When a ksock goes to read the next message, if the flag is set,
+	 * it first looks for a message from the set-aside list, and if it
+	 * finds one, it returns that instead. It does *not* unset the flag,
+	 * because it doesn't know if there is another message waiting for
+	 * it on the list. If it doesn't find a message on the set-aside
+	 * list, then it clears the flag, and returns the "normal" next
+	 * message.
+	 *
+	 * When a ksock releases, if the flag is set, it looks through the
+	 * set-aside list and removes any messages for it.
+	 *
+	 * When a ksock unbinds from $.KBUS.ReplierBindEvent, I suspect that
+	 * it should check the flag, and if it is set, remove any messages
+	 * for it from the set-aside list, and then clear the flag. This last
+	 * needs rethinking, because (a) it makes the replier bind event
+	 * message even more special, and (b) I'm not 100% sure yet that this
+	 * is the expected/correct behaviour from the user-space perspective.
+	 *
+	 *     NB: That message is getting very special. Put a prohibition
+	 *     in the "bind" code to forbid anyone from binding to it as a
+	 *     Replier.
+	 *
+	 * The set-aside list has a limit on how long it can get. When it
+	 * reaches that limit, instead of putting a copy of the UNBIND messages
+	 * on the list, a "tragic world" flag is set, and each recipient gets a
+	 * "the world has gone tragically wrong" message instead. This does
+	 * not attempt to have any data associated with it - the intent is that
+	 * the user space programm closes the relevant KSock and restarts.
+	 *
+	 * When the "tragic world" flag is set, an attempt to add a new unbind
+	 * message to the list will add a "world gone tragic" message instead,
+	 * if the recipient didn't already have one in the list. Note that
+	 * searching for these need not be too bad, as they are guaranteed to
+	 * be at the end of the list, and all together.
+	 *
+	 * Once the list is empty again (because people have read the messages
+	 * off it), the "tragic world" flag gets unset.
+	 *
+	 * NB: Richard reckons that a network up/down event could cause lots
+	 * of these events, temporarily, in a Limpet situation, so we really
+	 * want to allow quite a few messages in our set-aside list.
+	 */
+#if 0
+	int rv = kbus_push_synthetic_bind_message(priv, false,
+						  ptr->name_len,
+						  ptr->name);
+	if (rv < 0) {
+	}
+#endif
+}
+
+/*
  * Remove all bindings for a particular listener.
  *
  * Called from kbus_release, which will itself handle removing messages
  * (that *were* bound) from the message queue.
  */
-static void kbus_forget_my_bindings(struct kbus_dev	*dev,
-				   uint32_t		 bound_to_id)
+static void kbus_forget_my_bindings(struct kbus_private_data *priv)
 {
+	struct kbus_dev	*dev = priv->dev;
+	uint32_t	 bound_to_id = priv->id;
+
 	struct kbus_message_binding *ptr;
 	struct kbus_message_binding *next;
 
@@ -2556,50 +2633,10 @@ static void kbus_forget_my_bindings(struct kbus_dev	*dev,
 			}
 #endif
 
-#if 0
 			if (ptr->is_replier && dev->report_replier_binds) {
-
-				/*
-				 * What we want to do:
-				 *
-				 * 1. Send an UNBIND message to each listener
-				 * 2. Don't send them to ourselves!
-				 * 3. If we can't send the message to all the listeners
-				 *    (if we get -EAGAIN back) then add it to the stack
-				 *    of "we couldn't send these because someone wasn't
-				 *    ready" messages
-				 * 4. Unless said stack is full, in which case add a
-				 *    "we couldn't send the unbind message because
-				 *    the stack filled up" message to the stack
-				 * 5. And next time we try to add to the stack, if
-				 *    its got one of those on it, don't do so.
-				 *
-				 * So every so often (including before the list above)
-				 * if we have stuff on the put-aside list, try to send
-				 * stuff from it. 
-				 */
-
-				// Need to take care not to tell ourselves we're
-				// unbinding, since we know we don't care...
-
-				/*
-				 * We want to send a message indicating that we've unbound
-				 * the Replier for this message.
-				 */
-				int retval;
-
-				/*
-				 * If we can't tell all the Listeners who're listening for this
-				 * message, we want to give up, rather then tell some of them,
-				 * and then unbind anyway.
-				 */
-				retval = kbus_push_synthetic_bind_message(priv, false,
-									  name_len, name);
-				if (retval != 0) {	/* Hopefully, just -EBUSY */
-					return retval;	/* XXX Doesn't make sense? */
-				}
+				kbus_safe_report_unbinding(priv, ptr->name_len,
+							   ptr->name);
 			}
-#endif
 
 			list_del(&ptr->list);
 			if (ptr->name)
@@ -2853,7 +2890,7 @@ static int kbus_release(struct inode *inode, struct file *filp)
 	kbus_empty_msg_id_memory(priv);
 
 	kbus_empty_message_queue(priv);
-	kbus_forget_my_bindings(dev,priv->id);
+	kbus_forget_my_bindings(priv);
 	kbus_empty_replies_unsent(priv);
 	retval2 = kbus_forget_open_ksock(dev,priv->id);
 	kfree(priv);
@@ -3509,6 +3546,7 @@ static int kbus_bind(struct kbus_private_data	*priv,
 		goto done;
 	}
 
+
 	name = kmalloc(bind->name_len+1, GFP_KERNEL);
 	if (!name) {
 		retval = -ENOMEM;
@@ -3522,6 +3560,17 @@ static int kbus_bind(struct kbus_private_data	*priv,
 
 
 	if (kbus_bad_message_name(name,bind->name_len)) {
+		retval = -EBADMSG;
+		goto done;
+	}
+
+	if (bind->is_replier && !strcmp(bind->name, "$.KBUS.ReplierBindEvent")) {
+#if VERBOSE_DEBUG
+		if (priv->dev->verbose) {
+			printk(KERN_DEBUG "kbus: cannot bind %s as a Replier\n",
+			       "$.KBUS.ReplierBindEvent");
+		}
+#endif
 		retval = -EBADMSG;
 		goto done;
 	}
