@@ -2938,7 +2938,7 @@ class TestKernelModule:
 
                 # Try to bind as a Replier, with the Listener's queue full
                 # - this should fail because we can't send the ReplierBindEvent
-                check_IOError(errno.EBUSY, binder.bind, '$.Fred', True)
+                check_IOError(errno.EAGAIN, binder.bind, '$.Fred', True)
 
                 # There still shouldn't be any more messages
                 assert listener.num_messages() == 1
@@ -2962,7 +2962,7 @@ class TestKernelModule:
                 binder.unbind('$.Jim')
 
                 # Unbinding as a Replier can't send the ReplierBindEvent
-                check_IOError(errno.EBUSY, binder.unbind, '$.Fred', True)
+                check_IOError(errno.EAGAIN, binder.unbind, '$.Fred', True)
 
                 # So, there still shouldn't be any more messages
                 assert listener.num_messages() == 1
@@ -3015,7 +3015,7 @@ class TestKernelModule:
 
                     # Try to bind as a Replier for a different message name
                     # - this should fail because we can't send the ReplierBindEvent
-                    check_IOError(errno.EBUSY, binder.bind, '$.JimBob', True)
+                    check_IOError(errno.EAGAIN, binder.bind, '$.JimBob', True)
                     assert listener1.num_messages() == 1
                     assert listener2.num_messages() == 1
 
@@ -3043,7 +3043,7 @@ class TestKernelModule:
                     binder.unbind('$.Jim')
 
                     # Unbinding as a Replier can't send the ReplierBindEvent
-                    check_IOError(errno.EBUSY, binder.unbind, '$.Fred', True)
+                    check_IOError(errno.EAGAIN, binder.unbind, '$.Fred', True)
 
                     # So, there still shouldn't be any more messages
                     assert listener1.num_messages() == 1
@@ -3068,7 +3068,7 @@ class TestKernelModule:
                     # - but again, just once
                     binder.report_replier_binds(True)
                     binder.bind('$.Wibble', True)
-                    check_IOError(errno.EBUSY, binder.bind, '$.Fred', True)
+                    check_IOError(errno.EAGAIN, binder.bind, '$.Fred', True)
 
                     # Note that, of course, the message we did get is now seriously
                     # out of date - if a reporting is switched on and off, then
