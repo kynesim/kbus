@@ -81,6 +81,11 @@ RULES_FILE = "/etc/udev/rules.d/$(RULES_NAME)"
 RULES_LINE = "KERNEL==\"kbus[0-9]*\",  MODE=\"0666\", GROUP=\"admin\""
 # The mechanism is a bit hacky (!) - first we make sure we've got a local
 # copy of the file we want, then we copy it into place
+#
+# Just to make life more fun, in Ubuntu 9.10, the file has to be in
+# /lib/udev/rules.d - putting it in the previous location doesn't seem
+# to do anything (at least on a fresh install of 9.10). It *does*, however
+# appear to be enough to link one to the other...
 .PHONY: rules
 rules:
 	@ if [ ! -e $(RULES_NAME) ]; \
@@ -90,6 +95,10 @@ rules:
 	then echo $(RULES_FILE) already exists ; \
 	else sudo cp $(RULES_NAME) $(RULES_FILE) ; \
 	fi
+	@ if [ -d /lib/udev/rules.d ]; \
+	then sudo ln -sf /etc/udev/rules.d/45-kbus.rules /lib/udev/rules.d/; \
+	fi
+
 
 .PHONY: install
 install:
@@ -99,6 +108,8 @@ install:
 	install -m 0644 kbus_defns.h $(DESTDIR)/include/kbus/kbus_defns.h
 	-mkdir -p $(DESTDIR)/etc/udev/rules.d
 	echo $(RULES_LINE) >$(DESTDIR)/etc/udev/rules.d/$(RULES_NAME)
+	-mkdir -p $(DESTDIR)/lib/udev/rules.d
+	ln -sf /etc/udev/rules.d/45-kbus.rules /lib/udev/rules.d/
 
 # Only remove "modules" if we're doing a bigger clean, as there might
 # be subdirectories from previous builds that we don't want to lose on
