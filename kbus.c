@@ -205,6 +205,14 @@ struct kbus_read_msg {
 	uint32_t			  pos;	/* How far they've read in it */
 };
 
+/* The data for an unsent Replier Bind Event (in the unsent_unbind_msg_list) */
+struct kbus_unsent_message_item {
+	struct list_head list;
+	struct kbus_private_data   *send_to;	/* who we want to send it to */
+	uint32_t		    send_to_id;	/* but the id is often useful */
+	struct kbus_message_header *msg;	/* and the message itself */
+};
+
 /*
  * This is the data for an individual KSock
  *
@@ -370,18 +378,18 @@ struct kbus_private_data {
 	 * Event messages (kept on a list on our device). These must be read
 	 * before any "normal" messages (on our message_queue) get read.
 	 */
-	int			 maybe_got_unread_unbind_msgs;
+	int			 maybe_got_unsent_unbind_msgs;
 };
 
 /* What is a sensible number for the default maximum number of messages? */
 #define DEF_MAX_MESSAGES	100
 
 /*
- * What about the maximum number of unread unbind event messages?
+ * What about the maximum number of unsent unbind event messages?
  * This may want to be quite large, to allow for Limpets with momentary
  * network outages.
  */
-#define MAX_UNREAD_UNBIND_MESSAGES	1000	/* Probably too small... */
+#define MAX_UNSENT_UNBIND_MESSAGES	1000	/* Probably too small... */
 
 /* Information belonging to each /dev/kbus<N> device */
 struct kbus_dev
@@ -416,7 +424,7 @@ struct kbus_dev
 	struct list_head	open_ksock_list;
 
 	/* Has one of our KSocks made space available in its message queue? */
-	wait_queue_head_t	 write_wait;
+	wait_queue_head_t	write_wait;
 
 	/*
 	 * Each open file descriptor needs an internal id - this is used
@@ -463,9 +471,9 @@ struct kbus_dev
 	 * each KSock. We don't revert to remembering unbind events again until
 	 * the list has been emptied.
 	 */
-	struct list_head	unread_unbind_msg_list;
-	uint32_t		unread_unbind_msg_count;
-	int			unread_unbind_is_tragic;
+	struct list_head	unsent_unbind_msg_list;
+	uint32_t		unsent_unbind_msg_count;
+	int			unsent_unbind_is_tragic;
 };
 
 /* Our actual devices, 0 through kbus_num_devices-1 */
@@ -2586,37 +2594,144 @@ no_such_binding:
 }
 
 /*
- * Forget any outstanding unread Replier unbind event messages.
+ * Retrieve a message from the "unsent Replier Unbind Event" list.
+ *
+ * Returns the message if there is one for us, or None if there isn't.
+ */
+static struct kbus_message_header *kbus_pop_unsent_unbind_msg(struct kbus_private_data	*priv)
+{
+	struct kbus_dev	*dev = priv->dev;
+
+	struct kbus_unsent_message_item	*ptr;
+	struct kbus_unsent_message_item	*next;
+
+#if VERBOSE_DEBUG
+	if (dev->verbose) {
+		printk(KERN_DEBUG "kbus: %u/%u Loooking for an unsent unbind message\n",
+		       dev->index,priv->id);
+	}
+#endif
+
+	list_for_each_entry_safe(ptr, next, &dev->unsent_unbind_msg_list, list) {
+		if (ptr->send_to_id == priv->id) {
+			struct kbus_message_header *msg;
+#if VERBOSE_DEBUG
+			if (dev->verbose) {
+				kbus_report_message(KERN_DEBUG, ptr->msg);
+			}
+#endif
+			/* Remove it from the list */
+			list_del(&ptr->list);
+
+			msg = ptr->msg;
+			kfree(ptr);
+			dev->unsent_unbind_msg_count --;
+			return msg;
+		}
+	}
+	return NULL;
+}
+
+/*
+ * Add a message to the "unsent Replier Unbind Event" list
+ *
+ * 'priv' is who we are trying to send to, 'msg' is the message we were
+ * trying to send.
+ *
+ * Returns 0 if all went well, a negative value if it did not.
+ */
+static int kbus_remember_unsent_unbind_event(struct kbus_dev		*dev,
+					     struct kbus_private_data	*priv,
+					     struct kbus_message_header	*msg)
+
+{
+	struct kbus_unsent_message_item *new;
+
+	// XXX But only if we may, otherwise make sure "we" have a tragic world message
+	// 1. is list already "tragic"
+	// 2. is list already too long
+	// (if not using this message, remember to free it!)
+
+	new = kmalloc(sizeof(*new), GFP_KERNEL);
+	if (!new) return -ENOMEM;
+
+	new->send_to = priv;
+	new->send_to_id = priv->id;	/* Useful shorthand? */
+	new->msg = msg;
+
+	list_add(&new->list, &dev->bound_message_list);
+	dev->unsent_unbind_msg_count ++;
+	return 0;
+}
+
+/*
+ * Forget any outstanding unsent Replier unbind event messages for this Replier.
+ *
+ * Called from kbus_release.
+ */
+static void kbus_forget_my_unsent_unbind_msgs(struct kbus_private_data	*priv)
+{
+	struct kbus_dev	*dev = priv->dev;
+
+	struct kbus_unsent_message_item	*ptr;
+	struct kbus_unsent_message_item	*next;
+
+#if VERBOSE_DEBUG
+	if (dev->verbose) {
+		printk(KERN_DEBUG "kbus: %u/%u Forgetting unsent unbind messages\n",
+		       dev->index,priv->id);
+	}
+#endif
+
+	list_for_each_entry_safe(ptr, next, &dev->unsent_unbind_msg_list, list) {
+		if (ptr->send_to_id == priv->id) {
+#if VERBOSE_DEBUG
+			if (dev->verbose) {
+				kbus_report_message(KERN_DEBUG, ptr->msg);
+			}
+#endif
+			/* Remove it from the list */
+			list_del(&ptr->list);
+			/* And forget all about it... */
+			kbus_free_message(priv, dev, ptr->msg, true);
+			kfree(ptr);
+			dev->unsent_unbind_msg_count --;
+		}
+	}
+	return;
+}
+
+/*
+ * Forget any outstanding unsent Replier unbind event messages.
  *
  * Assumed to be called because the device is closing, and thus doesn't lock,
  * or worry about lost messages.
  */
-static void kbus_forget_unread_unbind_msgs(struct kbus_dev	*dev)
+static void kbus_forget_unsent_unbind_msgs(struct kbus_dev	*dev)
 {
-	struct kbus_message_queue_item	*ptr;
-	struct kbus_message_queue_item	*next;
+	struct kbus_unsent_message_item	*ptr;
+	struct kbus_unsent_message_item	*next;
 
 #if VERBOSE_DEBUG
 	if (dev->verbose) {
-		printk(KERN_DEBUG "kbus:   %u Emptying unread unbind event message list\n",
+		printk(KERN_DEBUG "kbus:   %u Emptying unsent unbind event message list\n",
 		       dev->index);
 	}
 #endif
 
-	list_for_each_entry_safe(ptr, next, &dev->unread_unbind_msg_list, list) {
-		struct kbus_message_header	*msg = ptr->msg;
+	list_for_each_entry_safe(ptr, next, &dev->unsent_unbind_msg_list, list) {
 
 #if VERBOSE_DEBUG
 		if (dev->verbose) {
-			kbus_report_message(KERN_DEBUG, msg);
+			kbus_report_message(KERN_DEBUG, ptr->msg);
 		}
 #endif
 		/* Remove it from the list */
 		list_del(&ptr->list);
 		/* And forget all about it... */
 		kbus_free_message(NULL, dev, ptr->msg, true);
-
-		dev->unread_unbind_msg_count --;
+		kfree(ptr);
+		dev->unsent_unbind_msg_count --;
 	}
 	return;
 }
@@ -4917,7 +5032,7 @@ static void kbus_setup_cdev(struct kbus_dev *dev, int devno)
 	 */
 	INIT_LIST_HEAD(&dev->bound_message_list);
 	INIT_LIST_HEAD(&dev->open_ksock_list);
-	INIT_LIST_HEAD(&dev->unread_unbind_msg_list);
+	INIT_LIST_HEAD(&dev->unsent_unbind_msg_list);
 
 	init_waitqueue_head(&dev->write_wait);
 
@@ -4938,7 +5053,7 @@ static void kbus_teardown_cdev(struct kbus_dev *dev)
 
 	kbus_forget_all_bindings(dev);
 	kbus_forget_all_open_ksocks(dev);
-	kbus_forget_unread_unbind_msgs(dev);
+	kbus_forget_unsent_unbind_msgs(dev);
 }
 
 /* ========================================================================= */
@@ -5030,9 +5145,11 @@ static int kbus_stats_seq_show(struct seq_file *s, void *v)
 		if (down_interruptible(&dev->sem))
 			return -ERESTARTSYS;
 
-		seq_printf(s, "dev %2u: next file %u next msg %u\n",
+		seq_printf(s, "dev %2u: next file %u next msg %u unsent unbindings %u%s\n",
 			   dev->index,
-			   dev->next_file_id,dev->next_msg_serial_num);
+			   dev->next_file_id,dev->next_msg_serial_num,
+			   dev->unsent_unbind_msg_count,
+			   (dev->unsent_unbind_is_tragic?"(gone tragic)":""));
 
 		list_for_each_entry_safe(ptr, next, &dev->open_ksock_list, list) {
 
