@@ -281,4 +281,11 @@ NB: Richard reckons that a network up/down event could cause lots
 of these events, temporarily, in a Limpet situation, so we really
 want to allow quite a few messages in our set-aside list.
 
+---------------------------------------------------
+
+Hmm. Rather than move a message from the unsent list to the normal message
+list at the start of a "next message", it probably makes more sense to do
+it just *after* a read. This means the message count (of normal unread
+messages) will still be set -- see the test_unsent_bind_event_1 test.
+
 .. vim: set filetype=rst tabstop=8 shiftwidth=2 expandtab:

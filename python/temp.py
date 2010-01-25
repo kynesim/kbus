@@ -14,23 +14,33 @@ time.sleep(0.5)
 
 try:
 
-        with KSock(0, 'rw') as sender:
-            with KSock(0, 'rw') as listener1:
-                with KSock(0, 'rw') as listener2:
+        with KSock(0, 'rw') as first:
+            first.kernel_module_verbose(True)
+            first.report_replier_binds(True)
+            first.set_max_messages(1)
+            first.bind('$.KBUS.ReplierBindEvent')
 
-                    sender.kernel_module_verbose(True)
+            second_id = 0
+            with KSock(0, 'rw') as second:
+                second_id = second.ksock_id()
+                second.bind('$.Question',True)
+                assert first.num_messages() == 1  # and thus our message queue is full
 
-                    listener1.bind('$.Fred')
-                    listener1.bind('$.Fred')
+            assert first.num_messages() == 1  # and our message queue is still full
+            msg = first.read_next_msg()
+            assert msg.name == '$.KBUS.ReplierBindEvent'
+            is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
+            assert is_bind
+            assert binder_id == second_id
 
-                    listener2.bind('$.Fred')
-                    listener2.bind('$.Fred')
-                    listener2.want_messages_once(True)
+            assert first.num_messages() == 1  # the deferred unbind message
+            msg = first.read_next_msg()
+            assert msg.name == '$.KBUS.ReplierBindEvent'
+            is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
+            assert not is_bind
+            assert binder_id == second_id
 
-                    sender.send_msg(Message('$.Fred'))
-
-                    assert listener1.num_messages() == 2
-                    assert listener2.num_messages() == 1
+            assert first.num_messages() == 0
 
 
 finally:

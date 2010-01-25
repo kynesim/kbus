@@ -3179,5 +3179,34 @@ class TestKernelModule:
         with KSock(0, 'rw') as replier:
             check_IOError(errno.EBADMSG, replier.bind, '$.KBUS.ReplierBindEvent', True)
 
+    def NOTtestYET_unsent_unbind_event_1(self):
+        """Test that we eventually get a message when a ReplierBindEvent can't be sent.
+        """
+        with KSock(0, 'rw') as first:
+            first.kernel_module_verbose(True)
+            first.report_replier_binds(True)
+            first.set_max_messages(1)
+
+            second_id = 0
+            with KSock(0, 'rw') as second:
+                second_id = second.ksock_id()
+                second.bind('$.Question',True)
+                assert first.num_messages() == 1  # and thus our message queue is full
+
+            assert first.num_messages() == 1  # and our message queue is still full
+            msg = first.read_next_msg()
+            assert msg.name == '$.KBUS.ReplierBindEvent'
+            is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
+            assert is_bind
+            assert binder_id == second_id
+
+            assert first.num_messages() == 1  # the deferred unbind message
+            msg = first.read_next_msg()
+            assert msg.name == '$.KBUS.ReplierBindEvent'
+            is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
+            assert not is_bind
+            assert binder_id == second_id
+
+            assert first.num_messages() == 0
 
 # vim: set tabstop=8 shiftwidth=4 softtabstop=4 expandtab:
