@@ -418,7 +418,52 @@ struct kbus_replier_bind_event_data {
 #define KBUS_BIT_ALL_OR_WAIT		BIT(8)
 #define KBUS_BIT_ALL_OR_FAIL		BIT(9)
 
+/*
+ * Standard message names
+ * ======================
+ * KBUS itself has some predefined message names.
+ *
+ * Synthetic Replies with no data. These are sent to the original Sender of a
+ * Request when KBUS knows that the Replier is not going to Reply. In all
+ * cases, you can identify which message they concern by looking at the
+ * "in_reply_to" field:
+ *
+ * * Replier.GoneAway - the Replier has gone away before reading the Request.
+ * * Replier.Ignored - the Replier has gone away after reading a Request, but
+ *   before replying to it.
+ * * Replier.Unbound - the Replier has unbound (as Replier) from the message
+ *   name, and is thus not going to reply to this Request in its unread message
+ *   queue.
+ * * Replier.Disappeared - the Replier has disappeared when an attempt is made
+ *   to send a Request whilst polling (i.e., after EAGAIN was returned from an
+ *   earlier attempt to send a message). This typically means that the KSock
+ *   bound as Replier closed.
+ * * ErrorSending - an unexpected error occurred when trying to send a Request
+ *   to its Replier whilst polling.
+ *
+ * Synthetic Messages with no data:
+ *
+ * * UnbindEventsLost - sent (instead of a Replier Bind Event) when the unbind
+ *   events "set aside" list has filled up, and thus unbind events have been
+ *   lost.
+ */
+#define KBUS_MSG_NAME_REPLIER_GONEAWAY		"$.KBUS.Replier.GoneAway"
+#define KBUS_MSG_NAME_REPLIER_IGNORED		"$.KBUS.Replier.Ignored"
+#define KBUS_MSG_NAME_REPLIER_UNBOUND		"$.KBUS.Replier.Unbound"
+#define KBUS_MSG_NAME_REPLIER_DISAPPEARED	"$.KBUS.Replier.Disappeared"
+#define KBUS_MSG_NAME_ERROR_SENDING		"$.KBUS.ErrorSending"
+#define KBUS_MSG_NAME_UNBIND_EVENTS_LOST	"$.KBUS.UnbindEventsLost"
 
+/*
+ * Replier Bind Event. This is the only message name for which KBUS generates
+ * data -- see kbus_replier_bind_event_data. It is also the only message name
+ * which KBUS does not allow binding to as a Replier.
+ *
+ * This is the message that is sent when a Replier binds or unbinds to another
+ * message name, if the KBUS_IOC_REPORTREPLIERBINDS ioctl has been used to
+ * request such notification.
+ */
+#define KBUS_MSG_NAME_REPLIER_BIND_EVENT	"$.KBUS.ReplierBindEvent"
 
 
 #define KBUS_IOC_MAGIC	'k'	/* 0x6b - which seems fair enough for now */
