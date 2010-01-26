@@ -1281,7 +1281,11 @@ static void kbus_empty_write_msg(struct kbus_private_data *priv)
  * message's replier's queue. Specifically, it's true if this is a Reply
  * to this KSock, or a Request aimed at this KSock (as Replier).
  *
- * Returns 0 if all goes well, or -EFAULT if we can't allocate datastructures.
+ * Returns 0 if all goes well, or -EFAULT/-ENOMEM if we can't allocate
+ * datastructures.
+ *
+ * May also return negative values if the message is mis-named or malformed,
+ * at least at the moment.
  */
 static int kbus_push_message(struct kbus_private_data	  *priv,
 			     struct kbus_message_header   *msg,
@@ -2594,45 +2598,6 @@ no_such_binding:
 }
 
 /*
- * Retrieve a message from the "unsent Replier Unbind Event" list.
- *
- * Returns the message if there is one for us, or None if there isn't.
- */
-static struct kbus_message_header *kbus_pop_unsent_unbind_msg(struct kbus_private_data	*priv)
-{
-	struct kbus_dev	*dev = priv->dev;
-
-	struct kbus_unsent_message_item	*ptr;
-	struct kbus_unsent_message_item	*next;
-
-#if VERBOSE_DEBUG
-	if (dev->verbose) {
-		printk(KERN_DEBUG "kbus: %u/%u Loooking for an unsent unbind message\n",
-		       dev->index,priv->id);
-	}
-#endif
-
-	list_for_each_entry_safe(ptr, next, &dev->unsent_unbind_msg_list, list) {
-		if (ptr->send_to_id == priv->id) {
-			struct kbus_message_header *msg;
-#if VERBOSE_DEBUG
-			if (dev->verbose) {
-				kbus_report_message(KERN_DEBUG, ptr->msg);
-			}
-#endif
-			/* Remove it from the list */
-			list_del(&ptr->list);
-
-			msg = ptr->msg;
-			kfree(ptr);
-			dev->unsent_unbind_msg_count --;
-			return msg;
-		}
-	}
-	return NULL;
-}
-
-/*
  * Add a message to the "unsent Replier Unbind Event" list
  *
  * 'priv' is who we are trying to send to, 'msg' is the message we were
@@ -2665,7 +2630,65 @@ static int kbus_remember_unsent_unbind_event(struct kbus_dev		*dev,
 }
 
 /*
- * Forget any outstanding unsent Replier unbind event messages for this Replier.
+ * Maybe move an unsent Replier Unbind Event message to the main message list.
+ *
+ * Check if we have an unsent event on the set-aside list. If we do, move the
+ * first one across to our normal message queue.
+ *
+ * Returns 0 if all goes well, or a negative value if something went wrong.
+ */
+static int kbus_maybe_move_unsent_unbind_msg(struct kbus_private_data *priv)
+{
+	struct kbus_dev	*dev = priv->dev;
+
+	struct kbus_unsent_message_item	*ptr;
+	struct kbus_unsent_message_item	*next;
+
+#if VERBOSE_DEBUG
+	if (dev->verbose) {
+		printk(KERN_DEBUG "kbus: %u/%u Looking for an unsent unbind message\n",
+		       dev->index,priv->id);
+	}
+#endif
+
+	list_for_each_entry_safe(ptr, next, &dev->unsent_unbind_msg_list, list) {
+		if (ptr->send_to_id == priv->id) {
+			int retval;
+#if VERBOSE_DEBUG
+			if (dev->verbose) {
+				kbus_report_message(KERN_DEBUG, ptr->msg);
+			}
+#endif
+			/*
+			 * Move the message into our normal message queue.
+			 *
+			 * We *must* use kbus_push_message() to do this, as
+			 * we wish to keep our promise that this shall be the
+			 * only way of adding a message to the queue.
+			 */
+			retval = kbus_push_message(priv, ptr->msg, false);
+			if (retval) return retval;	/* What else can we do? */
+
+			/* Remove it from the list */
+			list_del(&ptr->list);
+			/* Mustn't forget to free *our* copy of the message */
+			kbus_free_message(priv, dev, ptr->msg, true);
+			kfree(ptr);
+			dev->unsent_unbind_msg_count --;
+			return 0;
+		}
+	}
+
+	/*
+	 * Since we didn't find anything, we can safely unset the flag that
+	 * says there might be something to find...
+	 */
+	priv->maybe_got_unsent_unbind_msgs = false;
+	return 0;
+}
+
+/*
+ * Forget any outstanding unsent Replier Unbind Event messages for this Replier.
  *
  * Called from kbus_release.
  */
@@ -2702,7 +2725,7 @@ static void kbus_forget_my_unsent_unbind_msgs(struct kbus_private_data	*priv)
 }
 
 /*
- * Forget any outstanding unsent Replier unbind event messages.
+ * Forget any outstanding unsent Replier Unbind Event messages.
  *
  * Assumed to be called because the device is closing, and thus doesn't lock,
  * or worry about lost messages.
@@ -2745,63 +2768,6 @@ static void kbus_safe_report_unbinding(struct kbus_private_data *priv,
 				       uint32_t			 name_len,
 				       char			*name)
 {
-	/*
-	 * Here's the thing.
-	 *
-	 * First, try to send our message as normal. If that works, all and
-	 * good.
-	 *
-	 * If it doesn't work, add all the messages (which we would have sent)
-	 * to a set-aside list. Also set a flag on each recipient ksock to say
-	 * there may be messages for it on the set-aside list.
-	 *
-	 * When a ksock want to know if it has a next message, if the "maybe
-	 * something on the set-aside list" flag is set, first look through
-	 * that list to see if there is a message there (before doing the normal
-	 * "have I got a next message" check). If there isn't, unset the flag.
-	 *
-	 * When a ksock goes to read the next message, if the flag is set,
-	 * it first looks for a message from the set-aside list, and if it
-	 * finds one, it returns that instead. It does *not* unset the flag,
-	 * because it doesn't know if there is another message waiting for
-	 * it on the list. If it doesn't find a message on the set-aside
-	 * list, then it clears the flag, and returns the "normal" next
-	 * message.
-	 *
-	 * When a ksock releases, if the flag is set, it looks through the
-	 * set-aside list and removes any messages for it.
-	 *
-	 * When a ksock unbinds from $.KBUS.ReplierBindEvent, I suspect that
-	 * it should check the flag, and if it is set, remove any messages
-	 * for it from the set-aside list, and then clear the flag. This last
-	 * needs rethinking, because (a) it makes the replier bind event
-	 * message even more special, and (b) I'm not 100% sure yet that this
-	 * is the expected/correct behaviour from the user-space perspective.
-	 *
-	 *     NB: That message is getting very special. Put a prohibition
-	 *     in the "bind" code to forbid anyone from binding to it as a
-	 *     Replier.
-	 *
-	 * The set-aside list has a limit on how long it can get. When it
-	 * reaches that limit, instead of putting a copy of the UNBIND messages
-	 * on the list, a "tragic world" flag is set, and each recipient gets a
-	 * "the world has gone tragically wrong" message instead. This does
-	 * not attempt to have any data associated with it - the intent is that
-	 * the user space programm closes the relevant KSock and restarts.
-	 *
-	 * When the "tragic world" flag is set, an attempt to add a new unbind
-	 * message to the list will add a "world gone tragic" message instead,
-	 * if the recipient didn't already have one in the list. Note that
-	 * searching for these need not be too bad, as they are guaranteed to
-	 * be at the end of the list, and all together.
-	 *
-	 * Once the list is empty again (because people have read the messages
-	 * off it), the "tragic world" flag gets unset.
-	 *
-	 * NB: Richard reckons that a network up/down event could cause lots
-	 * of these events, temporarily, in a Limpet situation, so we really
-	 * want to allow quite a few messages in our set-aside list.
-	 */
 #if 0
 	int rv = kbus_push_synthetic_bind_message(priv, false,
 						  ptr->name_len,
@@ -3095,6 +3061,8 @@ static int kbus_release(struct inode *inode, struct file *filp)
 
 	kbus_empty_message_queue(priv);
 	kbus_forget_my_bindings(priv);
+	if (priv->maybe_got_unsent_unbind_msgs)
+		kbus_forget_my_unsent_unbind_msgs(priv);
 	kbus_empty_replies_unsent(priv);
 	retval2 = kbus_forget_open_ksock(dev,priv->id);
 	kfree(priv);
@@ -3810,6 +3778,7 @@ static int kbus_unbind(struct kbus_private_data	*priv,
 	int		retval = 0;
 	struct kbus_bind_request *bind;
 	char		*name = NULL;
+	uint32_t	 old_message_count = priv->message_count;
 
 	bind = kmalloc(sizeof(*bind), GFP_KERNEL);
 	if (!bind) return -ENOMEM;
@@ -3867,6 +3836,33 @@ static int kbus_unbind(struct kbus_private_data	*priv,
 				     bind->is_replier,
 				     bind->name_len,
 				     name);
+
+	/*
+	 * If we're unbinding from $.KBUS.ReplierBindEvent, and there
+	 * are (or maybe) any such kept for us on the unread Replier
+	 * Unbind Event list, then we need to remove them as well...
+	 *
+	 * XXX NOTE that the following only detects an exact match to
+	 * XXX $.KBUS.ReplierBindEvent, which is probably not sufficient...
+	 */
+	if (priv->maybe_got_unsent_unbind_msgs &&
+	    !strcmp(name, KBUS_MSG_NAME_REPLIER_BIND_EVENT)) {
+		kbus_forget_my_unsent_unbind_msgs(priv);
+	}
+
+
+	/*
+	 * If that removed any messages from the message queue, then we have
+	 * room to consider moving a message across from the unread Replier
+	 * Unbind Event list
+	 */
+	if (priv->message_count < old_message_count &&
+	    priv->maybe_got_unsent_unbind_msgs) {
+		int rv = kbus_maybe_move_unsent_unbind_msg(priv);
+		/* If this fails, we're probably stumped */
+		if (rv) /* XXX what to do? XXX */;
+	}
+
 done:
 	if (name) kfree(name);
 	kfree(bind);
@@ -4062,6 +4058,16 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 	if (msg->flags & KBUS_BIT_WANT_YOU_TO_REPLY) {
 		retval = kbus_reply_needed(priv, msg);
 		/* If it couldn't malloc, there's not much we can do, it's fairly fatal */
+		if (retval) return retval;
+	}
+
+	/*
+	 * If we (maybe) have any unread Replier Unbind Event messages,
+	 * we now have room to copy one across to the message list
+	 */
+	if (priv->maybe_got_unsent_unbind_msgs) {
+		retval = kbus_maybe_move_unsent_unbind_msg(priv);
+		/* If this fails, we're probably stumped */
 		if (retval) return retval;
 	}
 
