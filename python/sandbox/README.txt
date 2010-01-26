@@ -283,9 +283,137 @@ want to allow quite a few messages in our set-aside list.
 
 ---------------------------------------------------
 
+From notes in the code::
+
+	 * Here's the thing.
+	 *
+	 * First, try to send our message as normal. If that works, all and
+	 * good.
+	 *
+	 * If it doesn't work, add all the messages (which we would have sent)
+	 * to a set-aside list. Also set a flag on each recipient ksock to say
+	 * there may be messages for it on the set-aside list.
+	 *
+	 * When a ksock want to know if it has a next message, if the "maybe
+	 * something on the set-aside list" flag is set, first look through
+	 * that list to see if there is a message there (before doing the normal
+	 * "have I got a next message" check). If there isn't, unset the flag.
+	 *
+	 * When a ksock goes to read the next message, if the flag is set,
+	 * it first looks for a message from the set-aside list, and if it
+	 * finds one, it returns that instead. It does *not* unset the flag,
+	 * because it doesn't know if there is another message waiting for
+	 * it on the list. If it doesn't find a message on the set-aside
+	 * list, then it clears the flag, and returns the "normal" next
+	 * message.
+	 *
+	 * When a ksock releases, if the flag is set, it looks through the
+	 * set-aside list and removes any messages for it.
+	 *
+	 * When a ksock unbinds from $.KBUS.ReplierBindEvent, I suspect that
+	 * it should check the flag, and if it is set, remove any messages
+	 * for it from the set-aside list, and then clear the flag. This last
+	 * needs rethinking, because (a) it makes the replier bind event
+	 * message even more special, and (b) I'm not 100% sure yet that this
+	 * is the expected/correct behaviour from the user-space perspective.
+	 *
+	 *     NB: That message is getting very special. Put a prohibition
+	 *     in the "bind" code to forbid anyone from binding to it as a
+	 *     Replier.
+	 *
+	 * The set-aside list has a limit on how long it can get. When it
+	 * reaches that limit, instead of putting a copy of the UNBIND messages
+	 * on the list, a "tragic world" flag is set, and each recipient gets a
+	 * "the world has gone tragically wrong" message instead. This does
+	 * not attempt to have any data associated with it - the intent is that
+	 * the user space programm closes the relevant KSock and restarts.
+	 *
+	 * When the "tragic world" flag is set, an attempt to add a new unbind
+	 * message to the list will add a "world gone tragic" message instead,
+	 * if the recipient didn't already have one in the list. Note that
+	 * searching for these need not be too bad, as they are guaranteed to
+	 * be at the end of the list, and all together.
+	 *
+	 * Once the list is empty again (because people have read the messages
+	 * off it), the "tragic world" flag gets unset.
+	 *
+	 * NB: Richard reckons that a network up/down event could cause lots
+	 * of these events, temporarily, in a Limpet situation, so we really
+	 * want to allow quite a few messages in our set-aside list.
+
+
+---------------------------------------------------
+
 Hmm. Rather than move a message from the unsent list to the normal message
 list at the start of a "next message", it probably makes more sense to do
 it just *after* a read. This means the message count (of normal unread
 messages) will still be set -- see the test_unsent_bind_event_1 test.
+
+So, reworking the above:
+
+  First, try to send our message as normal. If that works, all and good.
+
+  If it doesn't work, add all the messages (which we would have sent) to a
+  set-aside list. Also set a flag on each recipient ksock to say there may be
+  messages for it on the set-aside list.
+
+  When a ksock want to know if it has a next message, if the "maybe something
+  on the set-aside list" flag is set, first look through that list to see if
+  there is a message there (before doing the normal "have I got a next
+  message" check). If there isn't, unset the flag.
+
+  When a ksock goes to read the next message, it returns the next message from
+  the normal queue (as normal), and then  if the flag is set, it looks to see
+  if there is a message for it in the set-aside list, and if there is, it
+  moves that across into the normal message queue (which now has room for it).
+  It does *not* unset the flag, because it doesn't know if there is another
+  message waiting for it on the list. If it doesn't find a message on the
+  set-aside list, then it just clears the flag.
+
+  When a ksock releases, if the flag is set, it looks through the set-aside
+  list and removes any messages for it.
+
+  When a ksock unbinds from $.KBUS.ReplierBindEvent, it should check the flag,
+  and if it is set, remove any messages for it from the set-aside list, and
+  then clear the flag. Yes, that makes $.KBUS.ReplierBindEvent even more
+  special. So it goes.
+
+  Polling should work as normal, because we're pulling across the set-aside
+  messages into the normal queue each time a read is done.
+
+  Asking how many messages are outstanding will give a wrong result, but at
+  least it will be the maximum number of messages that may be queued that is
+  being returned (and it can only be wrong in this manner if the ksock has
+  bound to receive Replier Bind Events).
+
+  The set-aside list has a limit on how long it can get. When it reaches that
+  limit, a "gone tragic" flag is set on the list.
+
+  When the "tragic world" flag is set, any attempt to add a new unbind message
+  to the list (including the attempt that caused the flag to be set) will add
+  a "world gone tragic" message instead, but only if the recipient didn't
+  already have one in the list. Note that searching for these need not be too
+  bad, as they are guaranteed to be at the end of the list, and all together.
+
+  Note that the "gone tragically wrong" message does not have any data
+  associated with it - the intent is that the user space program closes the
+  relevant KSock and restarts.
+
+  Once the list is empty again (because people have read the messages off it),
+  the "tragic world" flag gets unset.
+
+
+.. note:: When issue 23 gets fixed, we will also have to remember the "bound by"
+   information for each message in the set-aside list, as (a) the user might
+   have bound to $.KBUS.ReplierBindEvent more than once, (b) we'll need to
+   set the "bound_by" field in the main message queue anyway, and (c) if
+   they have bound to it more than once, when they unbind from one of those
+   bindings, we only want to remove the appropriate messages from the
+   set-aside list (ick).
+
+   (We can't just forbid people from binding more than once to
+   $.KBUS.ReplierBindEvent, because they *are* allowed to bind to (for
+   instance) $.KBUS.*, and we don't want to stop that...)
+
 
 .. vim: set filetype=rst tabstop=8 shiftwidth=2 expandtab:
