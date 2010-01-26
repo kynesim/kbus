@@ -1320,8 +1320,6 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 	}
 
 
-	// --------------------------------------------------------------------
-	// XXX NEW CODE
 	/*
 	 * 1. Check to see if this KSock has the "only one copy
 	 *    of a message" flag set.
@@ -1356,8 +1354,6 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 			return 0;
 		}
 	}
-	// --------------------------------------------------------------------
-
 
 	new_msg = kbus_copy_message(priv,msg);
 	if (!new_msg) return -EFAULT;
@@ -1598,10 +1594,99 @@ static int kbus_add_bind_message_data(struct kbus_private_data	 *priv,
 }
 
 /*
+ * Create a new Replier Bind Event synthetic message.
+ *
+ * Returns the new message, or NULL.
+ */
+struct kbus_message_header
+	*kbus_new_synthetic_bind_message(struct kbus_private_data	*priv,
+					 uint32_t		  	 is_bind,
+					 uint32_t		  	 name_len,
+					 char				*name)
+{
+	ssize_t				 retval = 0;
+	struct kbus_message_header	*new_msg;
+	struct kbus_msg_id		 in_reply_to = {0,0};	/* no-one */
+	char  *msg_name_copy;
+
+	static char *msg_name = KBUS_MSG_NAME_REPLIER_BIND_EVENT;
+	size_t msg_name_len = strlen(msg_name);
+
+#if VERBOSE_DEBUG
+	if (priv->dev->verbose) {
+		printk(KERN_DEBUG "kbus:   %u Creating synthetic bind message for '%s'"
+		       " (%s)\n",priv->dev->index,name,is_bind?"bind":"unbind");
+	}
+#endif
+
+	/*
+	 * We are building a new message with (reference counted) data.
+	 * Thus we'd like to be able to use the normal mechanisms to
+	 * free that message when we've finished with it. Which includes
+	 * freeing the message name (in the message). So when we create
+	 * the message, we need to use a "freeable" message name. That
+	 * costs us another string copy, but is worth it for the simpler
+	 * handling of the actual message.
+	 */
+
+	msg_name_copy = kmalloc(msg_name_len+1, GFP_KERNEL);
+	if (!msg_name_copy) return NULL;
+
+	strncpy(msg_name_copy, msg_name, msg_name_len);
+	msg_name_copy[msg_name_len] = '\0';
+
+	new_msg = kbus_build_kbus_message(msg_name_copy, 0, 0, in_reply_to);
+	if (!new_msg) {
+		kfree(msg_name_copy);
+	       	return NULL;
+	}
+
+	/*
+	 * What happens if any one of the listeners can't receive the message
+	 * because they don't have room in their queues?
+	 *
+	 * If we flag the message as ALL_OR_FAIL, then if we can't deliver
+	 * to all of the listeners who care, we will get -EBUSY returned to
+	 * us, which we shall then return as -EAGAIN (people expect to check
+	 * for -EAGAIN to find out if they should, well, try again).
+	 *
+	 * In this scenario, the user needs to catch a "bind"/"unbind" return
+	 * of -EAGAIN and realise that it needs to try again.
+	 *
+	 * XXX Ideally, we should be able to use select to wait until that's
+	 * XXX sensible - does that work out of the box???
+	 */
+	new_msg->flags |= KBUS_BIT_ALL_OR_FAIL;
+
+	/*
+	 * That gave us the basis of the message, but now we need to add in
+	 * its meaning.
+	 */
+	retval = kbus_add_bind_message_data(priv, new_msg, is_bind,
+					    name_len, name);
+	if (retval < 0) {
+		kbus_free_message(priv, priv->dev, new_msg, true);
+		return NULL;
+	}
+
+	/* Although this is a synthetic message, we want it to have a proper
+	 * message id (not least because we might be delivering it to multiple
+	 * listeners). Note that if we *didn't* give it a proper message id,
+	 * it would be "invisible" to the "send a message only once" mechanism,
+	 * which would be a Bad Thing.
+	 */
+	new_msg->id.serial_num = kbus_next_serial_num(priv->dev);
+
+	return new_msg;
+}
+
+/*
  * Generate a bind/unbind synthetic message, and broadcast it.
  *
  * This is for use when we have been asked to announce when a Replier binds or
  * unbinds.
+ *
+ * 'priv' is the sender - the entity that is doing the actual bind/unbind.
  *
  * 'is_bind' is true if this was a "bind" event, false if it was an "unbind".
  *
@@ -1629,11 +1714,6 @@ static int kbus_push_synthetic_bind_message(struct kbus_private_data	*priv,
 
 	ssize_t				 retval = 0;
 	struct kbus_message_header	*new_msg;
-	struct kbus_msg_id		 in_reply_to = {0,0};	/* no-one */
-	char  *msg_name_copy;
-
-	static char *msg_name = KBUS_MSG_NAME_REPLIER_BIND_EVENT;
-	size_t msg_name_len = strlen(msg_name);
 
 #if VERBOSE_DEBUG
 	if (priv->dev->verbose) {
@@ -1643,63 +1723,8 @@ static int kbus_push_synthetic_bind_message(struct kbus_private_data	*priv,
 	}
 #endif
 
-	/*
-	 * We are building a new message with (reference counted) data.
-	 * Thus we'd like to be able to use the normal mechanisms to
-	 * free that message when we've finished with it. Which includes
-	 * freeing the message name (in the message). So when we create
-	 * the message, we need to use a "freeable" message name. That
-	 * costs us another string copy, but is worth it for the simpler
-	 * handling of the actual message.
-	 */
-
-	msg_name_copy = kmalloc(msg_name_len+1, GFP_KERNEL);
-	if (!msg_name_copy) return -ENOMEM;
-
-	strncpy(msg_name_copy, msg_name, msg_name_len);
-	msg_name_copy[msg_name_len] = '\0';
-
-	new_msg = kbus_build_kbus_message(msg_name_copy, 0, 0, in_reply_to);
-	if (!new_msg) {
-		kfree(msg_name_copy);
-	       	return -ENOMEM;
-	}
-
-	/*
-	 * What happens if any one of the listeners can't receive the message
-	 * because they don't have room in their queues?
-	 *
-	 * If we flag the message as ALL_OR_FAIL, then if we can't deliver
-	 * to all of the listeners who care, we will get -EBUSY returned to
-	 * us, which we shall then return as -EAGAIN (people expect to check
-	 * for -EAGAIN to find out if they should, well, try again).
-	 *
-	 * In this scenario, the user needs to catch a "bind"/"unbind" return
-	 * of -EAGAIN and realise that it needs to try again.
-	 *
-	 * XXX Ideally, we should be able to use select to wait until that's
-	 * XXX sensible - does that work !out of the box???
-	 */
-	new_msg->flags |= KBUS_BIT_ALL_OR_FAIL;
-
-	/*
-	 * That gave us the basis of the message, but now we need to add in
-	 * its meaning.
-	 */
-	retval = kbus_add_bind_message_data(priv, new_msg, is_bind,
-					    name_len, name);
-	if (retval < 0) {
-		kbus_free_message(priv, priv->dev, new_msg, true);
-		return retval;
-	}
-
-	/* Although this is a synthetic message, we want it to have a proper
-	 * message id (not least because we might be delivering it to multiple
-	 * listeners). Note that if we *didn't* give it a proper message id,
-	 * it would be "invisible" to the "send a message only once" mechanism,
-	 * which would be a Bad Thing.
-	 */
-	new_msg->id.serial_num = kbus_next_serial_num(priv->dev);
+	new_msg = kbus_new_synthetic_bind_message(priv, is_bind, name_len, name);
+	if (new_msg == NULL) return -ENOMEM;
 
 #if VERBOSE_DEBUG
 	if (priv->dev->verbose) {
@@ -1911,7 +1936,7 @@ static int kbus_reply_now_sent(struct kbus_private_data  *priv,
 
 #if VERBOSE_DEBUG
 		if (priv->dev->verbose) {
-			printk(KERN_DEBUG "kbus:   %u/%u Reply to %u:%u %*s now sent\n",
+			printk(KERN_DEBUG "kbus:   %u/%u Reply to %u:%u %.*s now sent\n",
 			       priv->dev->index,priv->id,
 			       msg_id->network_id, msg_id->serial_num,
 			       ptr->name_len, ptr->name);
@@ -2214,7 +2239,7 @@ static int kbus_remember_binding(struct kbus_dev	  *dev,
 		struct kbus_private_data *reply_to;
 		retval = kbus_find_replier(dev, &reply_to, name_len, name);
 		/*
-		 * "Address in use" isn't quite right, but let's the caller
+		 * "Address in use" isn't quite right, but lets the caller
 		 * have some hope of telling what went wrong, and this is a
 		 * useful case to distinguish.
 		 */
@@ -2598,7 +2623,7 @@ no_such_binding:
 }
 
 /*
- * Add a message to the "unsent Replier Unbind Event" list
+ * Add a (copy of a) message to the "unsent Replier Unbind Event" list
  *
  * 'priv' is who we are trying to send to, 'msg' is the message we were
  * trying to send.
@@ -2611,6 +2636,15 @@ static int kbus_remember_unsent_unbind_event(struct kbus_dev		*dev,
 
 {
 	struct kbus_unsent_message_item *new;
+	struct kbus_message_header	*new_msg = NULL;
+
+#if VERBOSE_DEBUG
+	if (priv->dev->verbose) {
+		printk(KERN_DEBUG "kbus:   %u Remembering unsent unbind event %u '%.*s' to %u\n",
+		       dev->index, dev->unsent_unbind_msg_count,
+		       msg->name_len, msg->name, priv->id);
+	}
+#endif
 
 	// XXX But only if we may, otherwise make sure "we" have a tragic world message
 	// 1. is list already "tragic"
@@ -2620,13 +2654,153 @@ static int kbus_remember_unsent_unbind_event(struct kbus_dev		*dev,
 	new = kmalloc(sizeof(*new), GFP_KERNEL);
 	if (!new) return -ENOMEM;
 
+	new_msg = kbus_copy_message(priv,msg);
+	if (!new_msg) {
+		kfree(new);
+	       	return -EFAULT;
+	}
+
 	new->send_to = priv;
 	new->send_to_id = priv->id;	/* Useful shorthand? */
-	new->msg = msg;
+	new->msg = new_msg;
 
-	list_add(&new->list, &dev->bound_message_list);
+	list_add(&new->list, &dev->unsent_unbind_msg_list);
 	dev->unsent_unbind_msg_count ++;
 	return 0;
+}
+
+/*
+ * Report a Replier Bind Event for unbinding from the given message name,
+ * in such a way that we do not lose the message even if we can't send it
+ * right away.
+ */
+static void kbus_safe_report_unbinding(struct kbus_private_data *priv,
+				       uint32_t			 name_len,
+				       char			*name)
+{
+	// 1. Generate a new unbinding event message
+	// 2. Try sending it to everyone who cares
+	// 3. If that failed, then find out who *does* care
+	// 4. Is there room for that many messages on the set-aside list?
+	// 5. If there is, add (a copy of) the message for each
+	// 6. If there is not, set the "tragic" flag, and add (a copy of)
+	//    the "world gone tragic" message for each
+	// 7. If we've added something to the set-aside list, then set
+	//    the "maybe got something on the set-aside list" flag for
+	//    each recipient
+	
+	struct kbus_message_header 	 *msg;
+	struct kbus_message_binding	**listeners = NULL;
+	struct kbus_message_binding	 *replier = NULL;
+	int	retval = 0;
+	int	num_listeners;
+	int	ii;
+
+#if VERBOSE_DEBUG
+	if (priv->dev->verbose) {
+		printk(KERN_DEBUG "kbus:   %u/%u Safe report unbinding of '%.*s'\n",
+		       priv->dev->index,priv->id,name_len,name);
+	}
+#endif
+
+	/* Generate the message we'd *like* to send */
+	msg = kbus_new_synthetic_bind_message(priv, false, name_len, name);
+	if (msg == NULL) {
+		// XXX What can we do?
+		return;
+	}
+
+	/* If we're lucky, we can just send it */
+	retval = kbus_write_to_recipients(priv, priv->dev, msg);
+	if (retval != -EBUSY) goto done_sending;
+
+	/*
+	 * So at least one of the people we were trying to send to was not able
+	 * to take the message, presumably because their message queue is full.
+	 * Thus we need to put aside one copy of the message for each
+	 * recipient, to be delivered when it *can* be received.
+	 *
+	 * So before we do anything else, we need to know who those recipients
+	 * are.
+	 */
+
+#if VERBOSE_DEBUG
+	if (priv->dev->verbose) {
+		printk(KERN_DEBUG "kbus:   %u/%u Need to add messages to set-aside list\n",
+		       priv->dev->index, priv->id);
+	}
+#endif
+
+	/*
+	 * We're expecting some listeners, but no replier.
+	 * Since this is a duplicate of what we did in kbus_write_to_recipients,
+	 * and since our ksock is locked whilst we're working, we can assume
+	 * that we should get the same result. For the sake of completeness,
+	 * check the error return anyway, but I'm not going to worry about
+	 * whether we suddenly have a replier popping up unexpectedly...
+	 */
+	num_listeners = kbus_find_listeners(priv->dev, &listeners, &replier,
+					    msg->name_len, msg->name);
+	if (num_listeners < 0) {
+#if VERBOSE_DEBUG
+		if (priv->dev->verbose) {
+			printk(KERN_DEBUG "kbus:   Error %d finding listeners\n",
+			       num_listeners);
+		}
+#endif
+		retval = num_listeners;
+		goto done_sending;
+	}
+
+	if (num_listeners + priv->dev->unsent_unbind_msg_count <
+	    MAX_UNSENT_UNBIND_MESSAGES) {
+		/* There's room to add these messages as-is */
+		for (ii=0; ii<num_listeners; ii++) {
+			retval = kbus_remember_unsent_unbind_event(priv->dev,
+								   listeners[ii]->bound_to,
+								   msg);
+			if (retval) break;	/* No good choice here */
+		}
+	} else {
+		struct kbus_msg_id in_reply_to = {0,0};	/* no-one */
+		/* There is too little room left for "normal" messages */
+		priv->dev->unsent_unbind_is_tragic = true;
+
+		/* In which case we need a different message */
+		kbus_free_message(priv, priv->dev, msg, true);
+		msg = kbus_build_kbus_message(KBUS_MSG_NAME_UNBIND_EVENTS_LOST,
+					      0, 0, in_reply_to);
+		if (msg == NULL) goto done_sending;
+		/* We definitely want a proper message id for it */
+		msg->id.serial_num = kbus_next_serial_num(priv->dev);
+
+		for (ii=0; ii<num_listeners; ii++) {
+			retval = kbus_remember_unsent_unbind_event(priv->dev,
+								   listeners[ii]->bound_to,
+								   msg);
+			if (retval) break;	/* No good choice here */
+		}
+	}
+	/* And remember that we've got something on the set-aside list */
+	priv->maybe_got_unsent_unbind_msgs = true;
+
+done_sending:
+	if (listeners)
+		kfree(listeners);
+	/* Don't forget to free our copy of the message */
+	if (msg)
+		kbus_free_message(priv, priv->dev, msg, true);
+	/* We aren't returning any status code. Oh well. */
+	return;
+
+
+#if 0
+	int rv = kbus_push_synthetic_bind_message(priv, false,
+						  ptr->name_len,
+						  ptr->name);
+	if (rv < 0) {
+	}
+#endif
 }
 
 /*
@@ -2737,7 +2911,7 @@ static void kbus_forget_unsent_unbind_msgs(struct kbus_dev	*dev)
 
 #if VERBOSE_DEBUG
 	if (dev->verbose) {
-		printk(KERN_DEBUG "kbus:   %u Emptying unsent unbind event message list\n",
+		printk(KERN_DEBUG "kbus:   %u Forgetting unsent unbind event messages\n",
 		       dev->index);
 	}
 #endif
@@ -2760,24 +2934,6 @@ static void kbus_forget_unsent_unbind_msgs(struct kbus_dev	*dev)
 }
 
 /*
- * Report a Replier Bind Event for unbinding from the given message name,
- * in such a way that we do not lose the message even if we can't send it
- * right away.
- */
-static void kbus_safe_report_unbinding(struct kbus_private_data *priv,
-				       uint32_t			 name_len,
-				       char			*name)
-{
-#if 0
-	int rv = kbus_push_synthetic_bind_message(priv, false,
-						  ptr->name_len,
-						  ptr->name);
-	if (rv < 0) {
-	}
-#endif
-}
-
-/*
  * Remove all bindings for a particular listener.
  *
  * Called from kbus_release, which will itself handle removing messages
@@ -2790,6 +2946,13 @@ static void kbus_forget_my_bindings(struct kbus_private_data *priv)
 
 	struct kbus_message_binding *ptr;
 	struct kbus_message_binding *next;
+
+#if VERBOSE_DEBUG
+	if (dev->verbose) {
+		printk(KERN_DEBUG "kbus: %u/%u Forgetting bindings\n",
+		       dev->index,priv->id);
+	}
+#endif
 
 	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
 		if (bound_to_id == ptr->bound_to_id) {
@@ -2828,6 +2991,13 @@ static void kbus_forget_all_bindings(struct kbus_dev	*dev)
 {
 	struct kbus_message_binding *ptr;
 	struct kbus_message_binding *next;
+
+#if VERBOSE_DEBUG
+	if (dev->verbose) {
+		printk(KERN_DEBUG "kbus: %u Forgetting bindings\n",
+		       dev->index);
+	}
+#endif
 
 	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
 #if VERBOSE_DEBUG
@@ -3737,7 +3907,7 @@ static int kbus_bind(struct kbus_private_data	*priv,
 	}
 
 	if (bind->is_replier &&
-	    !strcmp(bind->name, KBUS_MSG_NAME_REPLIER_BIND_EVENT)) {
+	    !strcmp(name, KBUS_MSG_NAME_REPLIER_BIND_EVENT)) {
 #if VERBOSE_DEBUG
 		if (priv->dev->verbose) {
 			printk(KERN_DEBUG "kbus: cannot bind %s as a Replier\n",
