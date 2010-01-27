@@ -135,11 +135,11 @@ struct kbus_msg_id_mem {
 	struct kbus_msg_id	*ids;
 };
 
-/* An item in the list of requests that a KSock has not yet replied to */
+/* An item in the list of requests that a Ksock has not yet replied to */
 struct kbus_unreplied_item {
 	struct list_head 	 list;
 	struct kbus_msg_id	 id;		/* the request's id */
-	uint32_t		 from;		/* the sender's id */
+	struct kbus_ksock_id	 from;		/* the sender's id */
 	uint32_t		 name_len;	/* and its name... */
 	char			*name;
 };
@@ -211,14 +211,14 @@ struct kbus_read_msg {
 struct kbus_unsent_message_item {
 	struct list_head list;
 	struct kbus_private_data   *send_to;	/* who we want to send it to */
-	uint32_t		    send_to_id;	/* but the id is often useful */
+	struct kbus_ksock_id	    send_to_id;	/* but the id is often useful */
 	struct kbus_message_header *msg;	/* and the message itself */
 };
 
 /*
- * This is the data for an individual KSock
+ * This is the data for an individual Ksock
  *
- * Each time we open /dev/kbus0, we need to remember a unique id for
+ * Each time we open /dev/kbus<n>, we need to remember a unique id for
  * our file-instance. Using 'filp' might work, but it's not something
  * we have control over, and in particular, if the file is closed and
  * then reopened, there's no guarantee that a particular value of 'filp'
@@ -246,7 +246,7 @@ struct kbus_unsent_message_item {
 struct kbus_private_data {
 	struct list_head	 list;
 	struct kbus_dev		*dev;		 /* Which device we are on */
-	uint32_t	 	 id;		 /* Our own id */
+	uint32_t	 	 id;		 /* Our own (local) id */
 	struct kbus_msg_id	 last_msg_id_sent;  /* As it says - see above */
 	uint32_t		 message_count;	 /* How many messages for us */
 	uint32_t		 max_messages;	 /* How many messages allowed */
@@ -325,14 +325,14 @@ struct kbus_private_data {
 	 * Discussion: We need to police replying, such that a replier
 	 * may only reply to requests that it has received (where "received"
 	 * means "had placed into its message queue", because KBUS must reply
-	 * for us if the particular KSock is not going to).
+	 * for us if the particular Ksock is not going to).
 	 *
 	 * It is possible to do this using either the 'outstanding_requests'
 	 * or the 'replies_unsent' list.
 	 *
 	 * Using the 'outstanding_requests' list means that when a replier
 	 * wants to send a reply, it needs to look up who the original-sender
-	 * is (from its KSock id, in the "from" field of the message), and
+	 * is (from its Ksock id, in the "from" field of the message), and
 	 * check against that. This is a bit inefficient.
 	 *
 	 * Using the 'replies_unsent' list means that when a replier wants
@@ -346,17 +346,17 @@ struct kbus_private_data {
 	 */
 
 	/*
-	 * By default, if a KSock binds to a message name as both Replier and
+	 * By default, if a Ksock binds to a message name as both Replier and
 	 * Listener (typically by binding to a specific message name as Replier
 	 * and to a wildcard including it as Listener), and a Reqest of that
-	 * name is sent to that KSock, it will get the message once as Replier
+	 * name is sent to that Ksock, it will get the message once as Replier
 	 * (marked "WANT_YOU_TO_REPLY"), and once as listener.
 	 * 
 	 * This is technically sensible, but can be irritating to the end user
 	 * who really often only wants to receive the message once.
 	 *
 	 * If "messages_only_once" is set, then when a message is about to be
-	 * put onto a KSocks message queue, it will only be added if it (i.e.,
+	 * put onto a Ksocks message queue, it will only be added if it (i.e.,
 	 * a message with the same id) has not already just been added. This
 	 * is safe because Requests to the specific Replier are always dealt
 	 * with first.
@@ -418,14 +418,14 @@ struct kbus_dev
 	struct list_head	bound_message_list;
 
 	/*
-	 * The actual KSock entries (one per 'open("/dev/kbus0")') 
+	 * The actual Ksock entries (one per 'open("/dev/kbus0")') 
 	 * This is to allow us to find the 'kbus_private_data' instances,
 	 * so that we can get at all the message queues. The details of
 	 * how we do this are *definitely* going to change...
 	 */
 	struct list_head	open_ksock_list;
 
-	/* Has one of our KSocks made space available in its message queue? */
+	/* Has one of our Ksocks made space available in its message queue? */
 	wait_queue_head_t	write_wait;
 
 	/*
@@ -433,7 +433,7 @@ struct kbus_dev
 	 * when binding messages to listeners, but is also needed when we
 	 * want to reply. We reserve the id 0 as a special value ("none").
 	 */
-	uint32_t		next_file_id;
+	uint32_t		next_local_id;
 
 	/*
 	 * Every message sent has a unique id (again, unique per device).
@@ -451,7 +451,7 @@ struct kbus_dev
 	/*
 	 * If Replier (un)bind events have been requested, then when
 	 * kbus_release is called, a message must be sent for each Replier that
-	 * is (of necessity) unbound from the KSock being released. For a
+	 * is (of necessity) unbound from the Ksock being released. For a
 	 * normal unbound, if any of the Repliers doesn't have room in its
 	 * message queue for such an event, then the unbind fails with -EAGAIN.
 	 * This isn't acceptable for kbus_release (apart from anything else,
@@ -461,7 +461,7 @@ struct kbus_dev
 	 *
 	 * The only sensible solution seems to be to put the messages we'd
 	 * like to have sent onto a set-aside list, and mark each recipient
-	 * as having messages thereon. Then, each time a KSock looks for a
+	 * as having messages thereon. Then, each time a Ksock looks for a
 	 * new message, it should first check to see if it might have one
 	 * on the set-aside list, and if it does, read that instead.
 	 *
@@ -470,7 +470,7 @@ struct kbus_dev
 	 * binding and falling over!). When the list gets "too long", we set a
 	 * "gone tragically wrong" flag, and instead of adding more unbind
 	 * events, we instead add a single "gone tragically wrong" message for
-	 * each KSock. We don't revert to remembering unbind events again until
+	 * each Ksock. We don't revert to remembering unbind events again until
 	 * the list has been emptied.
 	 */
 	struct list_head	unsent_unbind_msg_list;
@@ -517,7 +517,7 @@ struct kbus_data_ptr {
 
 /* As few foreshadowings as I can get away with */
 static struct kbus_private_data *kbus_find_open_ksock(struct kbus_dev	*dev,
-						     uint32_t		 id);
+						      uint32_t		 id);
 
 static void kbus_discard(struct kbus_private_data	*priv);
 
@@ -863,9 +863,10 @@ static struct kbus_message_header
 	msg_name_copy[msg_name_len] = '\0';
 
 	memset(new_msg, 0, sizeof(*new_msg));
+
 	new_msg->start_guard = KBUS_MSG_START_GUARD;
-	new_msg->from = from;
-	new_msg->to = to;
+	new_msg->from.local_id = from;
+	new_msg->to.local_id = to;
 	new_msg->in_reply_to = in_reply_to;
 	new_msg->flags = KBUS_BIT_SYNTHETIC;
 	new_msg->name_len = msg_name_len;
@@ -1089,21 +1090,25 @@ static void kbus_report_message(char				*kern_prefix,
 	if (msg->data_len) {
 		uint32_t	*udata_p = (uint32_t *)data_p;
 		printk("%skbus:   =%s= %u:%u '%.*s'"
-		       " to %u from %u flags %08x data/%u %08x\n",
+		       " to %u,%u from %u,%u flags %08x data/%u %08x\n",
 		       kern_prefix,
 		       msg->name==NULL?"E":"=",
 		       msg->id.network_id,msg->id.serial_num,
 		       msg->name_len,name_p,
-		       msg->to,msg->from,msg->flags,
+		       msg->to.network_id, msg->to.local_id,
+		       msg->from.network_id, msg->from.local_id,
+		       msg->flags,
 		       msg->data_len,udata_p[0]);
 	} else {
 		printk("%skbus:   =%s= %u:%u '%.*s'"
-		       " to %u from %u flags %08x\n",
+		       " to %u,%u from %u,%u flags %08x\n",
 		       kern_prefix,
 		       msg->name==NULL?"E":"=",
 		       msg->id.network_id,msg->id.serial_num,
 		       msg->name_len,name_p,
-		       msg->to,msg->from,msg->flags);
+		       msg->to.network_id, msg->to.local_id,
+		       msg->from.network_id, msg->from.local_id,
+		       msg->flags);
 	}
 }
 
@@ -1289,7 +1294,7 @@ static void kbus_empty_write_msg(struct kbus_private_data *priv)
  *
  * 'for_replier' is true if this particular message is being pushed to the
  * message's replier's queue. Specifically, it's true if this is a Reply
- * to this KSock, or a Request aimed at this KSock (as Replier).
+ * to this Ksock, or a Request aimed at this Ksock (as Replier).
  *
  * Returns 0 if all goes well, or -EFAULT/-ENOMEM if we can't allocate
  * datastructures.
@@ -1331,12 +1336,12 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 
 
 	/*
-	 * 1. Check to see if this KSock has the "only one copy
+	 * 1. Check to see if this Ksock has the "only one copy
 	 *    of a message" flag set.
 	 * 2. If it does, check if our message (id) is already on
 	 *    the queue, and if it is, just skip adding it.
 	 *
-	 * (this means if the KSock was destined to get the message
+	 * (this means if the Ksock was destined to get the message
 	 * several times, either as Replier and Listener, or as
 	 * multiple Listeners to the same message name, it will only
 	 * get it once, for this "push")
@@ -1345,9 +1350,9 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 	if (priv->messages_only_once && !for_replier) {
 		/*
 		 * 1. We've been asked to only send one copy of a message
-		 *    to each KSock that should receive it.
-		 * 2. This is not a Reply (to our KSock) or a Request (to
-		 *    our KSock as Replier)
+		 *    to each Ksock that should receive it.
+		 * 2. This is not a Reply (to our Ksock) or a Request (to
+		 *    our Ksock as Replier)
 		 *
 		 * So, given that, has a message with that id already been
 		 * added to the message queue?
@@ -1467,7 +1472,9 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
  * 'from' is the id of the recipient who has gone away, not received the
  * message, or whatever.
  *
- * 'to' is the 'from' for the message we're bouncing (or whatever).
+ * 'to' is the 'from' for the message we're bouncing (or whatever). This
+ * needs to be local (it cannot be on another network), so we don't specify
+ * the network id.
  *
  * 'in_reply_to' should be the message id of that same message.
  *
@@ -1497,7 +1504,8 @@ static void kbus_push_synthetic_message(struct kbus_dev		  *dev,
 #if VERBOSE_DEBUG
 	if (priv->dev->verbose) {
 		printk(KERN_DEBUG "kbus:   %u Pushing synthetic message '%s'"
-		       " onto queue for %u\n",dev->index,name,to);
+		       " onto queue for %u\n",dev->index,name,
+		       to);
 	}
 #endif
 
@@ -1506,9 +1514,6 @@ static void kbus_push_synthetic_message(struct kbus_dev		  *dev,
 	 * - we're going to trust that the "keep enough room in the
 	 * message queue for a reply to each request" mechanism does
 	 * it's job properly.
-	 *
-	 * XXX Think on this a little harder...
-	 * XXX ...although I think it *is* OK
 	 */
 
 	new_msg = kbus_build_kbus_message(dev, name, from, to, in_reply_to);
@@ -1834,9 +1839,9 @@ static void kbus_empty_message_queue(struct kbus_private_data  *priv)
 		 * going away (but take care not to send a message to
 		 * ourselves, by accident!)
 		 */
-		if (is_OUR_request && msg->to != priv->id ) {
+		if (is_OUR_request && msg->to.local_id != priv->id ) {
 			kbus_push_synthetic_message(priv->dev,priv->id,
-						    msg->from,msg->id,
+						    msg->from.local_id, msg->id,
 						    KBUS_MSG_NAME_REPLIER_GONEAWAY);
 		}
 
@@ -2463,9 +2468,9 @@ static int kbus_forget_matching_messages(struct kbus_private_data  *priv,
 		 * going away (but take care not to send a message to
 		 * ourselves, by accident!)
 		 */
-		if (is_OUR_request && msg->to != priv->id ) {
+		if (is_OUR_request && msg->to.local_id != priv->id ) {
 			kbus_push_synthetic_message(priv->dev,priv->id,
-						    msg->from,msg->id,
+						    msg->from.local_id, msg->id,
 						    KBUS_MSG_NAME_REPLIER_UNBOUND);
 		}
 
@@ -3156,7 +3161,7 @@ static struct kbus_private_data *kbus_find_open_ksock(struct kbus_dev	*dev,
 		if (id == ptr->id) {
 #if VERBOSE_DEBUG
 			if (dev->verbose) {
-				printk(KERN_DEBUG "kbus:   %u Found open KSock %u\n",
+				printk(KERN_DEBUG "kbus:   %u Found open Ksock %u\n",
 				       dev->index,id);
 			}
 #endif
@@ -3165,7 +3170,7 @@ static struct kbus_private_data *kbus_find_open_ksock(struct kbus_dev	*dev,
 	}
 #if VERBOSE_DEBUG
 	if (dev->verbose) {
-		printk(KERN_DEBUG "kbus:   %u Could not find open KSock %u\n",dev->index,id);
+		printk(KERN_DEBUG "kbus:   %u Could not find open Ksock %u\n",dev->index,id);
 	}
 #endif
 
@@ -3175,7 +3180,7 @@ static struct kbus_private_data *kbus_find_open_ksock(struct kbus_dev	*dev,
 /*
  * Remove an open file remembrance.
  *
- * Returns 0 if all went well, -EINVAL if we couldn't find the open KSock
+ * Returns 0 if all went well, -EINVAL if we couldn't find the open Ksock
  */
 static int kbus_forget_open_ksock(struct kbus_dev	*dev,
 				  uint32_t		 id)
@@ -3201,7 +3206,7 @@ static int kbus_forget_open_ksock(struct kbus_dev	*dev,
 	}
 #if VERBOSE_DEBUG
 	if (dev->verbose) {
-		printk(KERN_DEBUG "kbus:   %u Could not forget open KSock %u\n",
+		printk(KERN_DEBUG "kbus:   %u Could not forget open Ksock %u\n",
 		       dev->index,id);
 	}
 #endif
@@ -3222,7 +3227,7 @@ static void kbus_forget_all_open_ksocks(struct kbus_dev	*dev)
 	list_for_each_entry_safe(ptr, next, &dev->open_ksock_list, list) {
 #if VERBOSE_DEBUG
 		if (dev->verbose) {
-			printk(KERN_DEBUG "kbus:   %u Forgetting open KSock %u\n",
+			printk(KERN_DEBUG "kbus:   %u Forgetting open Ksock %u\n",
 			       dev->index,ptr->id);
 		}
 #endif
@@ -3264,12 +3269,12 @@ static int kbus_open(struct inode *inode, struct file *filp)
 	 * Listener id 0 is reserved, and we'll use that (on occasion) to mean
 	 * kbus itself.
 	 */
-	if (dev->next_file_id == 0)
-		dev->next_file_id ++;
+	if (dev->next_local_id == 0)
+		dev->next_local_id ++;
 
 	memset(priv, 0, sizeof(*priv));
 	priv->dev = dev;
-	priv->id  = dev->next_file_id ++;
+	priv->id  = dev->next_local_id ++;
 	priv->pid = current->pid;
 	priv->max_messages = DEF_MAX_MESSAGES;
 	priv->sending = false;
@@ -3446,7 +3451,7 @@ static int kbus_queue_is_full(struct kbus_private_data	*priv,
  * -EADDRNOTAVAIL.
  *
  * If the message is a Reply, and the is sender is no longer connected (it has
- * released its KSock), then we return -EADDRNOTAVAIL.
+ * released its Ksock), then we return -EADDRNOTAVAIL.
  *
  * If the message couldn't be sent because some of the targets (those that we
  * *have* to deliver to) had full queues, then it will return -EAGAIN or
@@ -3537,16 +3542,16 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 #if VERBOSE_DEBUG
 		if (priv->dev->verbose) {
 			printk(KERN_DEBUG "kbus:   Considering sender-of-request %u\n",
-			       msg->to);
+			       msg->to.local_id);
 		}
 #endif
 
 
-		reply_to = kbus_find_private_data(priv,dev,msg->to);
+		reply_to = kbus_find_private_data(priv,dev,msg->to.local_id);
 		if (reply_to == NULL) {
 #if VERBOSE_DEBUG
 			if (priv->dev->verbose) {
-				printk(KERN_DEBUG "kbus:   Can't find sender-of-request %u\n",msg->to);
+				printk(KERN_DEBUG "kbus:   Can't find sender-of-request %u\n",msg->to.local_id);
 			}
 #endif
 
@@ -3594,11 +3599,12 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 		 * it is *that* specific replier (and otherwise we want to fail
 		 * with "that's the wrong person for this (stateful) request").
 		 */
-		if (msg->to && (replier->bound_to_id != msg->to)) {
+		if (msg->to.local_id && (replier->bound_to_id != msg->to.local_id)) {
 #if VERBOSE_DEBUG
 			if (priv->dev->verbose) {
 				printk(KERN_DEBUG "kbus:   ..Request to %u,"
-				       " but replier is %u\n",msg->to,replier->bound_to_id);
+				       " but replier is %u\n",msg->to.local_id,
+				       replier->bound_to_id);
 			}
 #endif
 
@@ -4630,7 +4636,7 @@ static int kbus_make_message_pointy(struct kbus_private_data	  *priv,
 
 /*
  * Return: negative for bad message, etc., 0 for "general success",
- * and 1 for "we happen to know it got added to the target KSock queues"
+ * and 1 for "we happen to know it got added to the target Ksock queues"
  */
 static int kbus_send(struct kbus_private_data	*priv,
 		     struct kbus_dev		*dev,
@@ -4724,7 +4730,7 @@ static int kbus_send(struct kbus_private_data	*priv,
 	 *
 	 * b) If the check fails, we do not want to consider ourselves in
 	 *    "sending" state, since we can't afford to block, because it's
-	 *    *this KSock* that needs to do some reading to clear the relevant
+	 *    *this Ksock* that needs to do some reading to clear the relevant
 	 *    queue, and it can't do that if it's blocking. So we'd either
 	 *    need to handle that (somehow), or just do the check here.
 	 *
@@ -4743,7 +4749,7 @@ static int kbus_send(struct kbus_private_data	*priv,
 	/* So, we're actually ready to SEND! */
 
 	/* The message needs to say it is from us */
-	msg->from = priv->id;
+	msg->from.local_id = priv->id;
 
 	/*
 	 * If we've already tried to send this message earlier (and
@@ -5012,7 +5018,7 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 
 	case KBUS_IOC_KSOCKID:
 		/*
-		 * What is the "KSock id" for this file descriptor
+		 * What is the "Ksock id" for this file descriptor
 		 */
 #if VERBOSE_DEBUG
 		if (priv->dev->verbose) {
@@ -5238,7 +5244,7 @@ static int kbus_poll_try_send_again(struct kbus_private_data	*priv,
 		 * A Request *needs* a Reply...
 		 */
 		kbus_push_synthetic_message(dev, 0,
-					    msg->from, msg->id,
+					    msg->from.local_id, msg->id,
 					    KBUS_MSG_NAME_REPLIER_DISAPPEARED);
 		retval = 0;
 		break;
@@ -5250,7 +5256,7 @@ static int kbus_poll_try_send_again(struct kbus_private_data	*priv,
 		 */
 		if (msg->flags & KBUS_BIT_WANT_A_REPLY) {
 			kbus_push_synthetic_message(dev, 0,
-						    msg->from, msg->id,
+						    msg->from.local_id, msg->id,
 						    KBUS_MSG_NAME_ERROR_SENDING);
 		}
 		retval = 0;
@@ -5345,7 +5351,7 @@ static void kbus_setup_cdev(struct kbus_dev *dev, int devno)
 
 	init_waitqueue_head(&dev->write_wait);
 
-	dev->next_file_id = 0;
+	dev->next_local_id = 0;
 	dev->next_msg_serial_num = 0;
 
 	cdev_init(&dev->cdev, &kbus_fops);
@@ -5393,7 +5399,7 @@ static int kbus_binding_seq_show(struct seq_file *s, void *v)
 			return -ERESTARTSYS;
 
 		seq_printf(s,
-			   "# <device> is bound to <KSock-ID> in <process-PID>"
+			   "# <device> is bound to <Ksock-ID> in <process-PID>"
 			   " as <Replier|Listener> for <message-name>\n");
 
 		list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
@@ -5456,7 +5462,7 @@ static int kbus_stats_seq_show(struct seq_file *s, void *v)
 
 		seq_printf(s, "dev %2u: next file %u next msg %u unsent unbindings %u%s\n",
 			   dev->index,
-			   dev->next_file_id,dev->next_msg_serial_num,
+			   dev->next_local_id,dev->next_msg_serial_num,
 			   dev->unsent_unbind_msg_count,
 			   (dev->unsent_unbind_is_tragic?"(gone tragic)":""));
 

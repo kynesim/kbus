@@ -57,7 +57,8 @@ extern "C" {
 #include <sys/ioctl.h>
 #endif
 
-/* A message id is made up of two fields.
+/*
+ * A message id is made up of two fields.
  *
  * If the network id is 0, then it is up to us (KBUS) to assign the
  * serial number. In other words, this is a local message.
@@ -71,6 +72,29 @@ extern "C" {
 struct kbus_msg_id {
 	uint32_t		network_id;
 	uint32_t		serial_num;
+};
+
+/*
+ * A ksock id is made up of two fields.
+ *
+ * If the network id is 0, then it is up to us (KBUS) to assign the
+ * local id. In other words, this is a local listener/sender id.
+ *
+ * If the network id is non-zero, then this message is presumed to
+ * have originated from another "network", and we preserve both the
+ * network id and the local id.
+ *
+ * But note that this usage is very limited - when writing a message
+ * to KBUS:
+ *
+ * 1. Only a Reply may have a non-zero network_id in its 'from' field.
+ * 2. Only a Request may have a non-zero network_id in its 'to' field.
+ *
+ * The ksock id {0,0} is special and reserved (for use by KBUS).
+ */
+struct kbus_ksock_id {
+	uint32_t		network_id;
+	uint32_t		local_id;
 };
 
 /* When the user asks to bind a message name to an interface, they use: */
@@ -93,9 +117,9 @@ struct kbus_message_header {
 	 * The guards
 	 * ----------
 	 *
-	 * * 'start_guard' is notionally "kbus", and 'end_guard' (the 32 bit
+	 * * 'start_guard' is notionally "Kbus", and 'end_guard' (the 32 bit
 	 *   word after the rest of the message datastructure) is notionally
-	 *   "subk". Obviously that depends on how one looks at the 32-bit
+	 *   "subK". Obviously that depends on how one looks at the 32-bit
 	 *   word. Every message datastructure shall start with a start guard
 	 *   and end with an end guard.
 	 *
@@ -105,8 +129,8 @@ struct kbus_message_header {
 	 *
 	 * - 'id' identifies this particular message.
 	 *
-	 *   When writing a new message, set this to 0 (actually, KBUS will
-	 *   entirely ignore this field, as it set it itself).
+	 *   When writing a new message, set this to {0,0}. KBUS will then
+	 *   set a new message id for the message.
 	 *
 	 *   When reading a message, this will have been set by KBUS.
 	 *
@@ -116,13 +140,13 @@ struct kbus_message_header {
 	 *
 	 * - 'in_reply_to' identifies the message this is a reply to.
 	 *
-	 *   This shall be set to 0 unless this message *is* a reply to a
+	 *   This shall be set to {0,0} unless this message *is* a reply to a
 	 *   previous message. In other words, if this value is non-0, then
 	 *   the message *is* a reply.
 	 *
 	 * - 'to' is who the message is to be sent to.
 	 *
-	 *   When writing a new message, this should normally be set to 0,
+	 *   When writing a new message, this should normally be set to {0,0},
 	 *   meaning "anyone listening" (but see below if "state" is being
 	 *   maintained).
 	 *
@@ -136,15 +160,13 @@ struct kbus_message_header {
 	 *
 	 * - 'from' indicates who sent the message.
 	 *
-	 *   When writing a new message, set this to 0.
+	 *   When writing a new message, set this to {0,0}.
 	 *
 	 *   When reading a message, this will have been set by KBUS.
 	 *
 	 *   When replying to a message, put the value read into 'to',
-	 *   and set 'from' to 0 (see the "hmm" caveat under 'to' above,
+	 *   and set 'from' to {0,0} (see the "hmm" caveat under 'to' above,
 	 *   though).
-	 *
-	 *       Question: if a reply is not wanted, should this be 0?
 	 *
 	 * - 'flags' indicates the type of message.
 	 *
@@ -158,7 +180,10 @@ struct kbus_message_header {
 	 *   * the message is URGENT
 	 *   * a reply is wanted
 	 *
-	 *   When writing a reply, set this field to 0 (I think).
+	 *   When writing a reply, set this field to 0.
+	 *
+	 *   The top half of the 'flags' is not touched by KBUS, and may
+	 *   be used for any purpose the user wishes.
 	 *
 	 * - 'name_len' is the length of the message name in bytes.
 	 *
@@ -188,8 +213,8 @@ struct kbus_message_header {
 	uint32_t		 start_guard;
 	struct kbus_msg_id	 id;	      /* Unique to this message */
 	struct kbus_msg_id	 in_reply_to; /* Which message this is a reply to */
-	uint32_t		 to;	      /* 0 (normally) or a replier id */
-	uint32_t		 from;	      /* 0 (KBUS) or the sender's id */
+	struct kbus_ksock_id	 to;	      /* (empty) or a replier id */
+	struct kbus_ksock_id	 from;	      /* {0,0} (KBUS) or the sender's id */
 	uint32_t		 flags;	      /* Message type/flags */
 	uint32_t		 name_len;    /* Message name's length, in bytes */
 	uint32_t		 data_len;    /* Message length, also in bytes */
@@ -198,7 +223,7 @@ struct kbus_message_header {
 	uint32_t		 end_guard;
 };
 
-#define KBUS_MSG_START_GUARD	0x7375626B
+#define KBUS_MSG_START_GUARD	0x7375624B
 #define KBUS_MSG_END_GUARD	0x6B627573
 
 /*
@@ -323,8 +348,10 @@ static inline uint32_t *kbus_end_ptr(struct kbus_entire_message  *entire)
  * In general, KBUS leaves the content of a message alone. However, it does
  * change:
  *
- * - the message id (if id.network_id is unset)
- * - the from id (to indicate the KSock this message was sent from)
+ * - the message id (if id.network_id is unset - it assigns a new serial
+ *   number unique to this message)
+ * - the from id (if from.network_id is unset - it sets the local_id to
+ *   indicate the Ksock this message was sent from)
  * - the KBUS_BIT_WANT_YOU_TO_REPLY bit in the flags (set or cleared
  *   as appropriate)
  * - the SYNTHETIC bit, which KBUS will always unset in a user message
@@ -401,7 +428,7 @@ static inline uint32_t *kbus_end_ptr(struct kbus_entire_message  *entire)
  */
 struct kbus_replier_bind_event_data {
 	uint32_t			is_bind;    /* 1=bind, 0=unbind */
-	uint32_t			binder;     /* KSock id of binder */
+	struct kbus_ksock_id		binder;     /* Ksock id of binder */
 	uint32_t			name_len;   /* Length of name */
 	uint32_t			rest[];     /* Message name */
 };
@@ -423,10 +450,11 @@ struct kbus_replier_bind_event_data {
  * ======================
  * KBUS itself has some predefined message names.
  *
- * Synthetic Replies with no data. These are sent to the original Sender of a
- * Request when KBUS knows that the Replier is not going to Reply. In all
- * cases, you can identify which message they concern by looking at the
- * "in_reply_to" field:
+ * Synthetic Replies with no data
+ * ------------------------------
+ * These are sent to the original Sender of a Request when KBUS knows that the
+ * Replier is not going to Reply. In all cases, you can identify which message
+ * they concern by looking at the "in_reply_to" field:
  *
  * * Replier.GoneAway - the Replier has gone away before reading the Request.
  * * Replier.Ignored - the Replier has gone away after reading a Request, but
@@ -436,13 +464,13 @@ struct kbus_replier_bind_event_data {
  *   queue.
  * * Replier.Disappeared - the Replier has disappeared when an attempt is made
  *   to send a Request whilst polling (i.e., after EAGAIN was returned from an
- *   earlier attempt to send a message). This typically means that the KSock
+ *   earlier attempt to send a message). This typically means that the Ksock
  *   bound as Replier closed.
  * * ErrorSending - an unexpected error occurred when trying to send a Request
  *   to its Replier whilst polling.
  *
- * Synthetic Messages with no data:
- *
+ * Synthetic Announcements with no data
+ * ------------------------------------
  * * UnbindEventsLost - sent (instead of a Replier Bind Event) when the unbind
  *   events "set aside" list has filled up, and thus unbind events have been
  *   lost.
@@ -455,9 +483,11 @@ struct kbus_replier_bind_event_data {
 #define KBUS_MSG_NAME_UNBIND_EVENTS_LOST	"$.KBUS.UnbindEventsLost"
 
 /*
- * Replier Bind Event. This is the only message name for which KBUS generates
- * data -- see kbus_replier_bind_event_data. It is also the only message name
- * which KBUS does not allow binding to as a Replier.
+ * Replier Bind Event
+ * ------------------
+ * This is the only message name for which KBUS generates data -- see
+ * kbus_replier_bind_event_data. It is also the only message name which KBUS
+ * does not allow binding to as a Replier.
  *
  * This is the message that is sent when a Replier binds or unbinds to another
  * message name, if the KBUS_IOC_REPORTREPLIERBINDS ioctl has been used to
@@ -472,29 +502,33 @@ struct kbus_replier_bind_event_data {
  */
 #define KBUS_IOC_RESET	  _IO(  KBUS_IOC_MAGIC,  1)
 /*
- * BIND - bind a KSock to a message name
+ * BIND - bind a Ksock to a message name
  * arg: struct kbus_bind_request, indicating what to bind to
  * retval: 0 for success, negative for failure
  */
 #define KBUS_IOC_BIND	  _IOW( KBUS_IOC_MAGIC,  2, char *)
 /*
- * UNBIND - unbind a KSock from a message id
+ * UNBIND - unbind a Ksock from a message id
  * arg: struct kbus_bind_request, indicating what to unbind from
  * retval: 0 for success, negative for failure
  */
 #define KBUS_IOC_UNBIND	  _IOW( KBUS_IOC_MAGIC,  3, char *)
 /*
- * KSOCKID - determine a KSock's KSock id
- * arg (out): uint32_t, indicating this KSock's internal id
+ * KSOCKID - determine a Ksock's Ksock id
+ *
+ * The network_id for the current Ksock is, by definition, 0, so we don't need
+ * to return it.
+ *
+ * arg (out): uint32_t, indicating this Ksock's local_id
  * retval: 0 for success, negative for failure
  */
 #define KBUS_IOC_KSOCKID  _IOR( KBUS_IOC_MAGIC,  4, char *)
 /*
- * REPLIER - determine the KSock id of the replier for a message name
+ * REPLIER - determine the Ksock id of the replier for a message name
  * arg: struct kbus_bind_query
  *
  *    - on input, specify the message name and replier flag to ask about
- *    - on output, KBUS fills in the relevant KSock id in the return_value,
+ *    - on output, KBUS fills in the relevant Ksock id in the return_value,
  *      or 0 if there is no bound replier
  *
  * retval: 0 for success, negative for failure
@@ -533,7 +567,7 @@ struct kbus_replier_bind_event_data {
  */
 #define KBUS_IOC_LASTSENT _IOR( KBUS_IOC_MAGIC, 10, char *)
 /*
- * MAXMSGS - set the maximum number of messages on a KSock read queue
+ * MAXMSGS - set the maximum number of messages on a Ksock read queue
  * arg (in): uint32_t, the requested length of the read queue, or 0 to just
  *           request how many there are
  * arg (out): uint32_t, the length of the read queue after this call has
@@ -542,7 +576,7 @@ struct kbus_replier_bind_event_data {
  */
 #define KBUS_IOC_MAXMSGS  _IOWR(KBUS_IOC_MAGIC, 11, char *)
 /*
- * NUMMSGS - determine how many messages are in the read queue for this KSock
+ * NUMMSGS - determine how many messages are in the read queue for this Ksock
  * arg (out): uint32_t, the number of messages in the read queue.
  * retval: 0 for success, negative for failure
  */
@@ -557,7 +591,7 @@ struct kbus_replier_bind_event_data {
 /*
  * MSGONLYONCE - should we receive a message only once?
  *
- * This IOCTL tells a KSock whether it should only receive a particular message
+ * This IOCTL tells a Ksock whether it should only receive a particular message
  * once, even if it is both a Replier and Listener for the message (in which
  * case it will always get the message as Replier, if appropriate), or if it is
  * registered as multiple Listeners for the message.
@@ -572,7 +606,7 @@ struct kbus_replier_bind_event_data {
 /*
  * VERBOSE - should KBUS output verbose "printk" messages (for this device)?
  *
- * This IOCTL tells a KSock whether it should output debugging messages. It is
+ * This IOCTL tells a Ksock whether it should output debugging messages. It is
  * only effective if the kernel module has been built with the VERBOSE_DEBUGGING
  * flag set.
  *
