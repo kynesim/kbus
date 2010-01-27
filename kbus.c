@@ -2797,6 +2797,33 @@ done_sending:
 }
 
 /*
+ * Return how many messages we have in the unsent Replier Unbind Event list.
+ */
+static uint32_t kbus_count_unsent_unbind_msgs(struct kbus_private_data *priv)
+{
+	struct kbus_dev	*dev = priv->dev;
+
+	struct kbus_unsent_message_item	*ptr;
+	struct kbus_unsent_message_item	*next;
+
+	uint32_t count = 0;
+
+#if VERBOSE_DEBUG
+	if (dev->verbose) {
+		printk(KERN_DEBUG "kbus: %u/%u Counting unsent unbind messages\n",
+		       dev->index,priv->id);
+	}
+#endif
+
+	list_for_each_entry_safe(ptr, next, &dev->unsent_unbind_msg_list, list) {
+		if (ptr->send_to_id == priv->id) {
+			count ++;
+		}
+	}
+	return count;
+}
+
+/*
  * Maybe move an unsent Replier Unbind Event message to the main message list.
  *
  * Check if we have an unsent event on the set-aside list. If we do, move the
@@ -4717,6 +4744,32 @@ static int kbus_maxmsgs(struct kbus_private_data	*priv,
 	return __put_user(priv->max_messages, (uint32_t __user *)arg);
 }
 
+static int kbus_nummsgs(struct kbus_private_data	*priv,
+			struct kbus_dev			*dev,
+			unsigned long			 arg)
+{
+	uint32_t	count = priv->message_count;
+
+	if (priv->maybe_got_unsent_unbind_msgs) {
+#if VERBOSE_DEBUG
+		if (dev->verbose) {
+			printk(KERN_DEBUG "kbus: %u/%u NUMMSGS 'main' count %u\n",
+			       dev->index, priv->id, count);
+		}
+#endif
+		count += kbus_count_unsent_unbind_msgs(priv);
+	}
+
+#if VERBOSE_DEBUG
+	if (priv->dev->verbose) {
+		printk(KERN_DEBUG "kbus: %u/%u NUMMSGS %u\n",
+		       dev->index, priv->id, count);
+	}
+#endif
+
+	return __put_user(count, (uint32_t __user *)arg);
+}
+
 static int kbus_onlyonce(struct kbus_private_data	*priv,
 			 struct kbus_dev		*dev,
 			 unsigned long			 arg)
@@ -4989,14 +5042,12 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 		break;
 
 	case KBUS_IOC_NUMMSGS:
-		/* How many messages are in our queue? */
-#if VERBOSE_DEBUG
-		if (priv->dev->verbose) {
-			printk(KERN_DEBUG "kbus: %u/%u NUMMSGS %d\n",
-			       dev->index,id,priv->message_count);
-		}
-#endif
-		retval = __put_user(priv->message_count, (uint32_t __user *)arg);
+		/* How many messages are in our queue?
+		 *
+		 * arg out: maximum number allowed
+		 * return: 0 means OK, otherwise not OK
+		 */
+		retval = kbus_nummsgs(priv, dev, arg);
 		break;
 
 	case KBUS_IOC_UNREPLIEDTO:
