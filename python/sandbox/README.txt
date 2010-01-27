@@ -357,7 +357,7 @@ So, reworking the above:
   set-aside list. Also set a flag on each recipient ksock to say there may be
   messages for it on the set-aside list.
 
-        DONE.
+        TODO
 
   When a ksock asks for the next message (with the NEXTMSG ioctl), then
   retrieve the next message (from the message queue into the "current message
@@ -388,7 +388,7 @@ So, reworking the above:
   then clear the flag. Yes, that makes $.KBUS.ReplierBindEvent even more
   special. So it goes.
 
-        DONE.
+        DONE, sort of
 
   Polling should work as normal, because we're pulling across the set-aside
   messages into the normal queue each time a read is done.
@@ -414,7 +414,7 @@ So, reworking the above:
   Once the list is empty again (because people have read the messages off it),
   the "tragic world" flag gets unset.
 
-        TODO
+        DONE
 
 .. note:: Look at error returns and usage of
    kbus_maybe_move_unsent_unbind_msg() and its friends.
@@ -438,14 +438,5 @@ So, reworking the above:
    check if these checks are redundant (since if they can be removed, the
    function gets to have much simpler error returns). So actually check if
    the extra checks *are* redundant...
-
-.. note:: I'm really not terribly keen on the NUMMSGS ioctl giving a wrong
-   answer when there are messages in the set-aside list. I think it should
-   actually go away and count them. If this doesn't get done in the first
-   pass implementation, add it as an issue and remember to do it soon.
-
-   (It shouldn't be hard - the count only needs doing if
-   maybe_got_unsent_unbnd_msgs is true, and it shouldn't be a time critical
-   ioctl anyway.)
 
 .. vim: set filetype=rst tabstop=8 shiftwidth=2 expandtab:

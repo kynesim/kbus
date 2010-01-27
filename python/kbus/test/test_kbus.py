@@ -3210,4 +3210,48 @@ class TestKernelModule:
 
             assert first.num_messages() == 0
 
+    def test_too_many_unsent_unbind_events(self):
+        """Test having too many unsent unbind events.
+        """
+        # We need to have a bigger number than the kernel will be using
+        TOO_MANY_MESSAGES = 2000
+
+        with KSock(0, 'rw') as first:
+            first.kernel_module_verbose(True)
+            first.report_replier_binds(True)
+            first.set_max_messages(1)
+            first.bind('$.KBUS.ReplierBindEvent')
+
+            with KSock(0, 'rw') as second:
+                second_id = second.ksock_id()
+                for ii in xrange(TOO_MANY_MESSAGES):
+                    # Of course, each message name needs to be unique 
+                    second.bind('$.Question%d'%ii,True)
+                    # Read the bind message, so it doesn't stack up
+                    msg = first.read_next_msg()
+                    is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
+                    assert is_bind
+                    assert binder_id ==second_id 
+
+            # If this is a good test, then we won't have remembered all
+            # of the messages we're "meant" to have stacked up
+            num_msgs = first.num_messages()
+            assert num_msgs < TOO_MANY_MESSAGES
+
+            # All but the last message should be unbind events
+            for ii in xrange(num_msgs-1):
+                msg = first.read_next_msg()
+                assert msg.name == '$.KBUS.ReplierBindEvent'
+                is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
+                assert not is_bind
+                assert binder_id == second_id
+
+            # The last message should be different
+            assert first.num_messages() == 1
+            msg = first.read_next_msg()
+            assert msg.name == '$.KBUS.UnbindEventsLost'
+            assert msg.data == None
+
+            assert first.num_messages() == 0
+
 # vim: set tabstop=8 shiftwidth=4 softtabstop=4 expandtab:
