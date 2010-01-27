@@ -3194,7 +3194,7 @@ class TestKernelModule:
                 second.bind('$.Question',True)
                 assert first.num_messages() == 1  # and thus our message queue is full
 
-            assert first.num_messages() == 1  # and our message queue is still full
+            assert first.num_messages() == 2  # and we now have a message set-aside
             msg = first.read_next_msg()
             assert msg.name == '$.KBUS.ReplierBindEvent'
             is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
