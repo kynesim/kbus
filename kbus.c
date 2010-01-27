@@ -2760,6 +2760,8 @@ static void kbus_safe_report_unbinding(struct kbus_private_data *priv,
 								   listeners[ii]->bound_to,
 								   msg);
 			if (retval) break;	/* No good choice here */
+			/* And remember that we've got something on the set-aside list */
+			listeners[ii]->bound_to->maybe_got_unsent_unbind_msgs = true;
 		}
 	} else {
 		struct kbus_msg_id in_reply_to = {0,0};	/* no-one */
@@ -2779,10 +2781,10 @@ static void kbus_safe_report_unbinding(struct kbus_private_data *priv,
 								   listeners[ii]->bound_to,
 								   msg);
 			if (retval) break;	/* No good choice here */
+			/* And remember that we've got something on the set-aside list */
+			listeners[ii]->bound_to->maybe_got_unsent_unbind_msgs = true;
 		}
 	}
-	/* And remember that we've got something on the set-aside list */
-	priv->maybe_got_unsent_unbind_msgs = true;
 
 done_sending:
 	if (listeners)
@@ -2792,15 +2794,6 @@ done_sending:
 		kbus_free_message(priv, priv->dev, msg, true);
 	/* We aren't returning any status code. Oh well. */
 	return;
-
-
-#if 0
-	int rv = kbus_push_synthetic_bind_message(priv, false,
-						  ptr->name_len,
-						  ptr->name);
-	if (rv < 0) {
-	}
-#endif
 }
 
 /*
@@ -2875,7 +2868,7 @@ static void kbus_forget_my_unsent_unbind_msgs(struct kbus_private_data	*priv)
 
 #if VERBOSE_DEBUG
 	if (dev->verbose) {
-		printk(KERN_DEBUG "kbus: %u/%u Forgetting unsent unbind messages\n",
+		printk(KERN_DEBUG "kbus: %u/%u Forgetting my unsent unbind messages\n",
 		       dev->index,priv->id);
 	}
 #endif
@@ -2949,7 +2942,7 @@ static void kbus_forget_my_bindings(struct kbus_private_data *priv)
 
 #if VERBOSE_DEBUG
 	if (dev->verbose) {
-		printk(KERN_DEBUG "kbus: %u/%u Forgetting bindings\n",
+		printk(KERN_DEBUG "kbus: %u/%u Forgetting my bindings\n",
 		       dev->index,priv->id);
 	}
 #endif
@@ -4235,6 +4228,12 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 	 * If we (maybe) have any unread Replier Unbind Event messages,
 	 * we now have room to copy one across to the message list
 	 */
+#if VERBOSE_DEBUG	// XXX
+	if (priv->dev->verbose) {
+		printk(KERN_DEBUG "kbus:   ++ maybe_got_unsent_unbind_msgs %d\n",
+		       priv->maybe_got_unsent_unbind_msgs);
+	}
+#endif			// XXX
 	if (priv->maybe_got_unsent_unbind_msgs) {
 		retval = kbus_maybe_move_unsent_unbind_msg(priv);
 		/* If this fails, we're probably stumped */
@@ -5576,7 +5575,7 @@ MODULE_AUTHOR("tibs@tibsnjoan.co.uk, tony.ibbs@gmail.com");
  *
  * (According to the comments in <linux/module.h>, the "v2" is implicit here)
  *
- * We also license under the MPL, to allow free use outwith Linux is anyone
+ * We also license under the MPL, to allow free use outwith Linux if anyone
  * wishes.
  */
 MODULE_LICENSE("Dual MPL/GPL");
