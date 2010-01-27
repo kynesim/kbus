@@ -99,6 +99,13 @@ Complexities may arise for three reasons:
    to limit them? If we can limit them, what happens if we accidentally end
    up asking them to listen to the same message more than once?
 
+The Golden Rule of Limpet communication
+---------------------------------------
+If your KSocks are communicating via Limpets, then you must remember to use
+``ksock.wait_for_msg()``, instead of ``ksock.read_next_msg()``, because you
+don't know how long it will take for a message to work its way through the
+"network".
+
 Looking at 1: A Limpet does not have to forward all messages
 ------------------------------------------------------------
 The possibilities are broadly:
@@ -835,10 +842,6 @@ class Limpet(object):
                 # Note that $.KBUS.ReplierBindEvent is not a Status message in
                 # this sense, since it is not a Reply. So that's good, because
                 # it means we can treat a Status Reply just like any other Reply.
-
-                # XXX Caveat: *Should* Status messages have a "proper" message
-                # XXX         id? Since they don't, they don't participate in
-                # XXX         the message ordering that message ids give us...
 
                 # So, we want to send the Reply on to our KBUS
                 # The simplest thing to do really is creating a whole new message

@@ -286,6 +286,78 @@ class TestLimpets(object):
                     # replier as well
                     assert replier.next_msg() == 0
 
+    def test_simple_listening(self):
+        """Test simple listening.
+        """
+        with KSock(KBUS_LISTENER, 'rw') as this:
+            with KSock(KBUS_SENDER, 'rw') as that:
+
+                print 'this',str(this)
+                print 'that',str(that)
+
+                # that is listening for someone to say 'Hello'
+                that.bind('$.Hello')
+
+                # this says 'Hello' to anyone listening
+                m = Message('$.Hello', 'dada')
+                this.send_msg(m)
+
+                # We read the next message - it's a 'Hello'
+                r = that.wait_for_msg()
+                assert r.name == '$.Hello'
+                print r
+
+    def test_reply_to_specific_id(self):
+        """Test replying to a specific id.
+        """
+        with KSock(KBUS_LISTENER, 'rw') as this_1:
+            with KSock(KBUS_SENDER, 'rw') as that:
+                with KSock(KBUS_LISTENER, 'rw') as this_2:
+
+                    print 'this_1',str(this_1)
+                    print 'this_2',str(this_2)
+                    print 'that  ',str(that)
+
+                    # that is listening for someone to say 'Hello'
+                    that.bind('$.Hello')
+
+                    # this_1 says 'Hello' to anyone listening
+                    m = Message('$.Hello', 'dada')
+                    this_1.send_msg(m)
+
+                    # We read the next message - it's a 'Hello'
+                    r = that.wait_for_msg()
+                    assert r.name == '$.Hello'
+                    print r
+
+                    # Two interfaces decide to listen to '$.Reponse'
+                    this_1.bind('$.Response', True)
+                    this_2.bind('$.Response')
+                    # However, that *cares* that this_1 should receive its
+                    # response, and is not worried about anyone else
+                    # doing so
+                    target_id = r.from_
+                    print 'Hello from %d'%target_id
+                    m2 = Request('$.Response', data='fead', to=target_id)
+                    that.send_msg(m2)   # XXX MAKE THIS WORK XXX
+
+                    # So, both recipients should "see" it
+                    r = this_1.wait_for_msg()
+                    assert r.equivalent(m2)
+                    r = this_2.wait_for_msg()
+                    assert r.equivalent(m2)
+
+                    # But if this_1 should stop listening to the responses
+                    # (either because it "goes away", or because it unbinds)
+                    # then we want to know about this...
+                    this_1.unbind('$.Response', True)
+                    check_IOError(errno.EADDRNOTAVAIL, that.send_msg, m2)
+
+                    # And if someone different starts to reply, we want to
+                    # know about that as well
+                    this_2.bind('$.Response', True)
+                    check_IOError(errno.EPIPE, that.send_msg, m2)
+
 import traceback
     
 if __name__ == '__main__':
