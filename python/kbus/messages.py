@@ -778,8 +778,8 @@ class Message(object):
     - 'msg', which is the actual message datastructure
     """
 
-    START_GUARD = 0x7375626B
-    END_GUARD   = 0x6B627573
+    START_GUARD = 0x7375624B
+    END_GUARD   = 0x4B627573
 
     WANT_A_REPLY        = _BIT(0)
     WANT_YOU_TO_REPLY   = _BIT(1)
