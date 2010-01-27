@@ -2989,6 +2989,12 @@ static void kbus_forget_my_unsent_unbind_msgs(struct kbus_private_data	*priv)
 		       dev->index,priv->id, count);
 	}
 #endif
+	/*
+	 * And if we've succeeded in emptying the list, we can unset the
+	 * "gone tragic" flag for it, too, if it was set.
+	 */
+	if (list_empty(&dev->unsent_unbind_msg_list))
+		dev->unsent_unbind_is_tragic = false;
 	return;
 }
 
