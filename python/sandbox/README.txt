@@ -357,7 +357,7 @@ So, reworking the above:
   set-aside list. Also set a flag on each recipient ksock to say there may be
   messages for it on the set-aside list.
 
-        TODO
+        DONE
 
   When a ksock asks for the next message (with the NEXTMSG ioctl), then
   retrieve the next message (from the message queue into the "current message
