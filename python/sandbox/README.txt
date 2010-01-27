@@ -357,26 +357,38 @@ So, reworking the above:
   set-aside list. Also set a flag on each recipient ksock to say there may be
   messages for it on the set-aside list.
 
-  When a ksock want to know if it has a next message, if the "maybe something
-  on the set-aside list" flag is set, first look through that list to see if
-  there is a message there (before doing the normal "have I got a next
-  message" check). If there isn't, unset the flag.
+        TODO
 
-  When a ksock goes to read the next message, it returns the next message from
-  the normal queue (as normal), and then  if the flag is set, it looks to see
-  if there is a message for it in the set-aside list, and if there is, it
-  moves that across into the normal message queue (which now has room for it).
-  It does *not* unset the flag, because it doesn't know if there is another
-  message waiting for it on the list. If it doesn't find a message on the
-  set-aside list, then it just clears the flag.
+  When a ksock asks for the next message (with the NEXTMSG ioctl), then
+  retrieve the next message (from the message queue into the "current message
+  being read" slot) as usual. After that, however, if the "maybe something in
+  the set-aside list" flag is set, look through that list to see if there *is*
+  a message there for this ksock. If there is not, clear the flag. If there
+  is, move it across into the normal message queue (which now has room for
+  it), but don't unset the "maybe something in the set-aside list" flag,
+  because it doesn't know if there is another message waiting for it on the
+  list.
+        
+        DONE.
+
+  when kbus_unbind() is called, we may remove some messages from the message
+  queue. If we do, then we have room to copy over (at least one) message from
+  the set-aside list (if necessary). This will stop the message count
+  accidentally dropping to 0 when it shouldn't.
+
+        DONE.
 
   When a ksock releases, if the flag is set, it looks through the set-aside
   list and removes any messages for it.
+
+        DONE
 
   When a ksock unbinds from $.KBUS.ReplierBindEvent, it should check the flag,
   and if it is set, remove any messages for it from the set-aside list, and
   then clear the flag. Yes, that makes $.KBUS.ReplierBindEvent even more
   special. So it goes.
+
+        TODO
 
   Polling should work as normal, because we're pulling across the set-aside
   messages into the normal queue each time a read is done.
@@ -402,6 +414,10 @@ So, reworking the above:
   Once the list is empty again (because people have read the messages off it),
   the "tragic world" flag gets unset.
 
+        TODO
+
+.. note:: Look at error returns and usage of
+   kbus_maybe_move_unsent_unbind_msg() and its friends.
 
 .. note:: When issue 23 gets fixed, we will also have to remember the "bound by"
    information for each message in the set-aside list, as (a) the user might
@@ -415,5 +431,12 @@ So, reworking the above:
    $.KBUS.ReplierBindEvent, because they *are* allowed to bind to (for
    instance) $.KBUS.*, and we don't want to stop that...)
 
+.. note:: In kbus_push_message(), we note that (a) this is the only way to add
+   a messsage to the ksock's message queue, (b) the message should already
+   have been checked for "sanity", but (c) within the function we check the
+   message structure and name again. There's already a comment to remind me to
+   check if these checks are redundant (since if they can be removed, the
+   function gets to have much simpler error returns). So actually check if
+   the extra checks *are* redundant...
 
 .. vim: set filetype=rst tabstop=8 shiftwidth=2 expandtab:
