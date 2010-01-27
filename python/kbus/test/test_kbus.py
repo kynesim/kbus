@@ -3179,13 +3179,14 @@ class TestKernelModule:
         with KSock(0, 'rw') as replier:
             check_IOError(errno.EBADMSG, replier.bind, '$.KBUS.ReplierBindEvent', True)
 
-    def NOTtestYET_unsent_unbind_event_1(self):
-        """Test that we eventually get a message when a ReplierBindEvent can't be sent.
+    def test_unsent_unbind_event_1(self):
+        """Test eventual message when a ReplierBindEvent can't be sent (1).
         """
         with KSock(0, 'rw') as first:
             first.kernel_module_verbose(True)
             first.report_replier_binds(True)
             first.set_max_messages(1)
+            first.bind('$.KBUS.ReplierBindEvent')
 
             second_id = 0
             with KSock(0, 'rw') as second:
