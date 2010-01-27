@@ -326,6 +326,14 @@ if __name__ == '__main__':
     announce(None, 'TEARDOWN')
     teardown_module()
 
-    print 'Passed %d out of %d tests'%(passed, num_tests)
+    if passed == num_tests:
+        delim = '='*60
+        colour = 'GREEN'
+    else:
+        delim = '!'
+        colour = 'RED'
+    print delim
+    print '%s: Passed %d out of %d tests'%(colour, passed, num_tests)
+    print delim
 
 # vim: set tabstop=8 softtabstop=4 shiftwidth=4 expandtab:

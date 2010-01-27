@@ -3311,7 +3311,7 @@ class TestKernelModule:
                 assert first.num_messages() == 0
                 assert other.num_messages() == 0
 
-    def tXest_too_many_unsent_unbind_events_half(self):
+    def test_too_many_unsent_unbind_events_half(self):
         """Test having too many unsent unbind events and reading.
         """
         # We need to have a bigger number than the kernel will be using
