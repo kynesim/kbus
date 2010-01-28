@@ -75,24 +75,31 @@ struct kbus_msg_id {
 };
 
 /*
- * A ksock id is made up of two fields.
+ * The "originally from" id allows stateful requests to be done over a
+ * Limpet-mediated system.
  *
- * If the network id is 0, then it is up to us (KBUS) to assign the
- * local id. In other words, this is a local listener/sender id.
+ * Basically, it uniquely identifies the location of the Replier with
+ * whom one wishes to communicate.
  *
- * If the network id is non-zero, then this message is presumed to
- * have originated from another "network", and we preserve both the
- * network id and the local id.
+ * An "originally from" id is made up of two fields, the network id
+ * (which indicates the Limpet, if any, that originally gated the
+ * Reply message), and a local id, which is the Ksock id of the original
+ * sender of the Reply message, on its local KBUS.
  *
- * But note that this usage is very limited - when writing a message
- * to KBUS:
+ * If the network id is 0, then the "originally from" id is not being used.
  *
- * 1. Only a Reply may have a non-zero network_id in its 'from' field.
- * 2. Only a Request may have a non-zero network_id in its 'to' field.
+ * When a Reply is proxied through a Limpet, then the Limpet reading from
+ * the Replier's KBUS sets the "originally from" field on the Reply message.
  *
- * The ksock id {0,0} is special and reserved (for use by KBUS).
+ * When a Stateful Request message is composed (i.e., a Request message
+ * whose "to" field is set) the the "to" is set to the Reply's "from"
+ * field (as normal), but the Request's "originally from" field should
+ * be set to a copy of the Reply's "originally from" field as well.
+ *
+ * Note that (apart from knowing how to report it) KBUS itself does not
+ * touch this field, it just transmits it.
  */
-struct kbus_ksock_id {
+struct kbus_orig_from {
 	uint32_t		network_id;
 	uint32_t		local_id;
 };
@@ -154,9 +161,13 @@ struct kbus_message_header {
 	 *   of the orginal message.
 	 *
 	 *   When constructing a request message (a message wanting a reply),
-	 *   then it can be set to a specific listener id. When such a message
-	 *   is sent, if the replier bound (at that time) does not have that
-	 *   specific listener id, then the send will fail.
+	 *   then it can be set to a specific replier id, to produce a stateful
+	 *   request. This is normally done by copying the 'from' of a previous
+	 *   Reply from the appropriate replier. When such a message is sent,
+	 *   if the replier bound (at that time) does not have that specific
+	 *   id, then the send will fail.
+	 *
+	 *   Note that if 'to' is set, then 'orig_from' should also be set.
 	 *
 	 * - 'from' indicates who sent the message.
 	 *
@@ -167,6 +178,15 @@ struct kbus_message_header {
 	 *   When replying to a message, put the value read into 'to',
 	 *   and set 'from' to {0,0} (see the "hmm" caveat under 'to' above,
 	 *   though).
+	 *
+	 * - 'orig_from' is used when Limpets are mediating KBUS messages
+	 *   between KBUS devices (possibly on different machines). See
+	 *   the description by the datastructure definition above. When
+	 *   creating a stateful request, copy the 'orig_from' field from
+	 *   the previous Reply from the required replier.
+	 *
+	 * - 'extra' is currently unused. KBUS will currently set it to zero,
+	 *   but future versions of the software may use it.
 	 *
 	 * - 'flags' indicates the type of message.
 	 *
@@ -213,8 +233,10 @@ struct kbus_message_header {
 	uint32_t		 start_guard;
 	struct kbus_msg_id	 id;	      /* Unique to this message */
 	struct kbus_msg_id	 in_reply_to; /* Which message this is a reply to */
-	struct kbus_ksock_id	 to;	      /* (empty) or a replier id */
-	struct kbus_ksock_id	 from;	      /* {0,0} (KBUS) or the sender's id */
+	uint32_t		 to;	      /* 0 (empty) or a replier id */
+	uint32_t		 from;	      /* 0 (KBUS) or the sender's id */
+	struct kbus_orig_from	 orig_from;   /* Cross-network linkage */
+	uint32_t		 extra;       /* ignored field - future proofing */
 	uint32_t		 flags;	      /* Message type/flags */
 	uint32_t		 name_len;    /* Message name's length, in bytes */
 	uint32_t		 data_len;    /* Message length, also in bytes */
@@ -224,7 +246,7 @@ struct kbus_message_header {
 };
 
 #define KBUS_MSG_START_GUARD	0x7375624B
-#define KBUS_MSG_END_GUARD	0x6B627573
+#define KBUS_MSG_END_GUARD	0x4B627573
 
 /*
  * When a message is returned by 'read', it is actually returned using the
@@ -428,7 +450,7 @@ static inline uint32_t *kbus_end_ptr(struct kbus_entire_message  *entire)
  */
 struct kbus_replier_bind_event_data {
 	uint32_t			is_bind;    /* 1=bind, 0=unbind */
-	struct kbus_ksock_id		binder;     /* Ksock id of binder */
+	uint32_t			binder;     /* Ksock id of binder */
 	uint32_t			name_len;   /* Length of name */
 	uint32_t			rest[];     /* Message name */
 };

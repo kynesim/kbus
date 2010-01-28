@@ -139,7 +139,7 @@ struct kbus_msg_id_mem {
 struct kbus_unreplied_item {
 	struct list_head 	 list;
 	struct kbus_msg_id	 id;		/* the request's id */
-	struct kbus_ksock_id	 from;		/* the sender's id */
+	uint32_t		 from;		/* the sender's id */
 	uint32_t		 name_len;	/* and its name... */
 	char			*name;
 };
@@ -211,7 +211,7 @@ struct kbus_read_msg {
 struct kbus_unsent_message_item {
 	struct list_head list;
 	struct kbus_private_data   *send_to;	/* who we want to send it to */
-	struct kbus_ksock_id	    send_to_id;	/* but the id is often useful */
+	uint32_t		    send_to_id;	/* but the id is often useful */
 	struct kbus_message_header *msg;	/* and the message itself */
 };
 
@@ -246,7 +246,7 @@ struct kbus_unsent_message_item {
 struct kbus_private_data {
 	struct list_head	 list;
 	struct kbus_dev		*dev;		 /* Which device we are on */
-	uint32_t	 	 id;		 /* Our own (local) id */
+	uint32_t	 	 id;		 /* Our own id */
 	struct kbus_msg_id	 last_msg_id_sent;  /* As it says - see above */
 	uint32_t		 message_count;	 /* How many messages for us */
 	uint32_t		 max_messages;	 /* How many messages allowed */
@@ -433,7 +433,7 @@ struct kbus_dev
 	 * when binding messages to listeners, but is also needed when we
 	 * want to reply. We reserve the id 0 as a special value ("none").
 	 */
-	uint32_t		next_local_id;
+	uint32_t		next_ksock_id;
 
 	/*
 	 * Every message sent has a unique id (again, unique per device).
@@ -865,8 +865,8 @@ static struct kbus_message_header
 	memset(new_msg, 0, sizeof(*new_msg));
 
 	new_msg->start_guard = KBUS_MSG_START_GUARD;
-	new_msg->from.local_id = from;
-	new_msg->to.local_id = to;
+	new_msg->from = from;
+	new_msg->to = to;
 	new_msg->in_reply_to = in_reply_to;
 	new_msg->flags = KBUS_BIT_SYNTHETIC;
 	new_msg->name_len = msg_name_len;
@@ -1090,25 +1090,25 @@ static void kbus_report_message(char				*kern_prefix,
 	if (msg->data_len) {
 		uint32_t	*udata_p = (uint32_t *)data_p;
 		printk("%skbus:   =%s= %u:%u '%.*s'"
-		       " to %u,%u from %u,%u flags %08x data/%u %08x\n",
+		       " to %u from %u orig %u,%u flags %04x:%04x data/%u %08x\n",
 		       kern_prefix,
 		       msg->name==NULL?"E":"=",
 		       msg->id.network_id,msg->id.serial_num,
 		       msg->name_len,name_p,
-		       msg->to.network_id, msg->to.local_id,
-		       msg->from.network_id, msg->from.local_id,
-		       msg->flags,
+		       msg->to, msg->from,
+		       msg->orig_from.network_id, msg->orig_from.local_id,
+		       (msg->flags & 0xFFFF0000)>>4, (msg->flags & 0x0000FFFF),
 		       msg->data_len,udata_p[0]);
 	} else {
 		printk("%skbus:   =%s= %u:%u '%.*s'"
-		       " to %u,%u from %u,%u flags %08x\n",
+		       " to %u from %u orig %u,%u flags %04x:%04x\n",
 		       kern_prefix,
 		       msg->name==NULL?"E":"=",
 		       msg->id.network_id,msg->id.serial_num,
 		       msg->name_len,name_p,
-		       msg->to.network_id, msg->to.local_id,
-		       msg->from.network_id, msg->from.local_id,
-		       msg->flags);
+		       msg->to, msg->from,
+		       msg->orig_from.network_id, msg->orig_from.local_id,
+		       (msg->flags & 0xFFFF0000)>>4, (msg->flags & 0x0000FFFF));
 	}
 }
 
@@ -1839,9 +1839,9 @@ static void kbus_empty_message_queue(struct kbus_private_data  *priv)
 		 * going away (but take care not to send a message to
 		 * ourselves, by accident!)
 		 */
-		if (is_OUR_request && msg->to.local_id != priv->id ) {
+		if (is_OUR_request && msg->to != priv->id ) {
 			kbus_push_synthetic_message(priv->dev,priv->id,
-						    msg->from.local_id, msg->id,
+						    msg->from, msg->id,
 						    KBUS_MSG_NAME_REPLIER_GONEAWAY);
 		}
 
@@ -2468,9 +2468,9 @@ static int kbus_forget_matching_messages(struct kbus_private_data  *priv,
 		 * going away (but take care not to send a message to
 		 * ourselves, by accident!)
 		 */
-		if (is_OUR_request && msg->to.local_id != priv->id ) {
+		if (is_OUR_request && msg->to != priv->id ) {
 			kbus_push_synthetic_message(priv->dev,priv->id,
-						    msg->from.local_id, msg->id,
+						    msg->from, msg->id,
 						    KBUS_MSG_NAME_REPLIER_UNBOUND);
 		}
 
@@ -3269,12 +3269,12 @@ static int kbus_open(struct inode *inode, struct file *filp)
 	 * Listener id 0 is reserved, and we'll use that (on occasion) to mean
 	 * kbus itself.
 	 */
-	if (dev->next_local_id == 0)
-		dev->next_local_id ++;
+	if (dev->next_ksock_id == 0)
+		dev->next_ksock_id ++;
 
 	memset(priv, 0, sizeof(*priv));
 	priv->dev = dev;
-	priv->id  = dev->next_local_id ++;
+	priv->id  = dev->next_ksock_id ++;
 	priv->pid = current->pid;
 	priv->max_messages = DEF_MAX_MESSAGES;
 	priv->sending = false;
@@ -3542,16 +3542,16 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 #if VERBOSE_DEBUG
 		if (priv->dev->verbose) {
 			printk(KERN_DEBUG "kbus:   Considering sender-of-request %u\n",
-			       msg->to.local_id);
+			       msg->to);
 		}
 #endif
 
 
-		reply_to = kbus_find_private_data(priv,dev,msg->to.local_id);
+		reply_to = kbus_find_private_data(priv,dev,msg->to);
 		if (reply_to == NULL) {
 #if VERBOSE_DEBUG
 			if (priv->dev->verbose) {
-				printk(KERN_DEBUG "kbus:   Can't find sender-of-request %u\n",msg->to.local_id);
+				printk(KERN_DEBUG "kbus:   Can't find sender-of-request %u\n",msg->to);
 			}
 #endif
 
@@ -3599,11 +3599,11 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 		 * it is *that* specific replier (and otherwise we want to fail
 		 * with "that's the wrong person for this (stateful) request").
 		 */
-		if (msg->to.local_id && (replier->bound_to_id != msg->to.local_id)) {
+		if (msg->to && (replier->bound_to_id != msg->to)) {
 #if VERBOSE_DEBUG
 			if (priv->dev->verbose) {
 				printk(KERN_DEBUG "kbus:   ..Request to %u,"
-				       " but replier is %u\n",msg->to.local_id,
+				       " but replier is %u\n",msg->to,
 				       replier->bound_to_id);
 			}
 #endif
@@ -4697,6 +4697,13 @@ static int kbus_send(struct kbus_private_data	*priv,
 	}
 
 	/*
+	 * The "extra" field is reserved for future expansion, so for the
+	 * moment we always zero it (this stops anyone from trying to take
+	 * advantage of it, and getting caught out when we decide WE want it)
+	 */
+	msg->extra = 0;
+
+	/*
 	 * The message header is already in kernel space (thanks to kbus_write),
 	 * but any name and data may not be, and the data definitely won't be
 	 * in the right "shape". So let's fix that.
@@ -4749,7 +4756,7 @@ static int kbus_send(struct kbus_private_data	*priv,
 	/* So, we're actually ready to SEND! */
 
 	/* The message needs to say it is from us */
-	msg->from.local_id = priv->id;
+	msg->from = priv->id;
 
 	/*
 	 * If we've already tried to send this message earlier (and
@@ -5244,7 +5251,7 @@ static int kbus_poll_try_send_again(struct kbus_private_data	*priv,
 		 * A Request *needs* a Reply...
 		 */
 		kbus_push_synthetic_message(dev, 0,
-					    msg->from.local_id, msg->id,
+					    msg->from, msg->id,
 					    KBUS_MSG_NAME_REPLIER_DISAPPEARED);
 		retval = 0;
 		break;
@@ -5256,7 +5263,7 @@ static int kbus_poll_try_send_again(struct kbus_private_data	*priv,
 		 */
 		if (msg->flags & KBUS_BIT_WANT_A_REPLY) {
 			kbus_push_synthetic_message(dev, 0,
-						    msg->from.local_id, msg->id,
+						    msg->from, msg->id,
 						    KBUS_MSG_NAME_ERROR_SENDING);
 		}
 		retval = 0;
@@ -5351,7 +5358,7 @@ static void kbus_setup_cdev(struct kbus_dev *dev, int devno)
 
 	init_waitqueue_head(&dev->write_wait);
 
-	dev->next_local_id = 0;
+	dev->next_ksock_id = 0;
 	dev->next_msg_serial_num = 0;
 
 	cdev_init(&dev->cdev, &kbus_fops);
@@ -5460,9 +5467,9 @@ static int kbus_stats_seq_show(struct seq_file *s, void *v)
 		if (down_interruptible(&dev->sem))
 			return -ERESTARTSYS;
 
-		seq_printf(s, "dev %2u: next file %u next msg %u unsent unbindings %u%s\n",
+		seq_printf(s, "dev %2u: next ksock %u next msg %u unsent unbindings %u%s\n",
 			   dev->index,
-			   dev->next_local_id,dev->next_msg_serial_num,
+			   dev->next_ksock_id,dev->next_msg_serial_num,
 			   dev->unsent_unbind_msg_count,
 			   (dev->unsent_unbind_is_tragic?"(gone tragic)":""));
 
