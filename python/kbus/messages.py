@@ -118,6 +118,48 @@ class MessageId(ctypes.Structure):
         else:
             return MessageId(self.network_id, self.serial_num+other)
 
+class OrigFrom(ctypes.Structure):
+    """A wrapper around a message's "struct kbus_orig_from" field.
+
+        >>> a = OrigFrom(1, 2)
+        >>> a
+        OrigFrom(1, 2)
+        >>> a < OrigFrom(2, 2) and a < OrigFrom(1, 3)
+        True
+        >>> a == OrigFrom(1, 2)
+        True
+        >>> a > OrigFrom(0, 2) and a > OrigFrom(1, 1)
+        True
+    """
+    _fields_ = [('network_id', ctypes.c_uint32),
+                ('local_id',   ctypes.c_uint32)]
+
+    def __repr__(self):
+        return 'OrigFrom(%u, %u)'%(self.network_id, self.local_id)
+
+    def _short_str(self):
+        """For use in message structure reporting
+        """
+        return '%u,%u'%(self.network_id, self.local_id)
+
+    def __str__(self):
+        return '(%u,%u)'%(self.network_id, self.local_id)
+
+    def __cmp__(self, other):
+        if not isinstance(other, OrigFrom):
+            return NotImplemented
+        if self.network_id == other.network_id:
+            if self.local_id == other.local_id:
+                return 0
+            elif self.local_id < other.local_id:
+                return -1
+            else:
+                return 1
+        elif self.network_id < other.network_id:
+            return -1
+        else:
+            return 1
+
 def _same_message_struct(this, that):
     """Returns true if the two message structures are the same.
 
@@ -138,6 +180,7 @@ def _same_message_struct(this, that):
         this.in_reply_to != that.in_reply_to or
         this.to != that.to or
         this.from_ != that.from_ or
+        this.orig_from != that.orig_from or
         this.flags != that.flags or
         this.name_len != that.name_len or
         this.data_len != that.data_len or
@@ -145,8 +188,8 @@ def _same_message_struct(this, that):
         return False
 
     if this.data_len:
-        this_data = c_data_as_string(this.is_pointy, this.data, this.data_len)
-        that_data = c_data_as_string(this.is_pointy, that.data, that.data_len)
+        this_data = c_data_as_string(this.data, this.data_len)
+        that_data = c_data_as_string(that.data, that.data_len)
         return this_data == that_data
     return True
 
@@ -157,13 +200,16 @@ def _equivalent_message_struct(this, that):
 
     * 'id',
     * 'flags',
-    * 'in_reply_to' and
-    * 'from'
+    * 'in_reply_to',
+    * 'from' and
+    * 'orig_from'
 
-    Copes with both "plain" and "entire" messages (i.e., those
-    which are a _MessageHeaderStruct with pointers to name and data,
-    and also those which are an 'EntireMessageStruct', with the
-    name and (any) data concatenated after the header).
+    and, of course 'extra'.
+
+    Copes with both "plain" and "entire" messages (i.e., those which are a
+    _MessageHeaderStruct with pointers to name and data, and also those which
+    are an 'EntireMessageStruct', with the name and (any) data concatenated
+    after the header).
     """
     if not isinstance(this, _MessageHeaderStruct) and \
        not isinstance(this, _EntireMessageStructBaseclass):
@@ -180,27 +226,12 @@ def _equivalent_message_struct(this, that):
         return False
 
     if this.data_len:
-        this_data = c_data_as_string(this.is_pointy, this.data, this.data_len)
-        that_data = c_data_as_string(this.is_pointy, that.data, that.data_len)
+        this_data = c_data_as_string(this.data, this.data_len)
+        that_data = c_data_as_string(that.data, that.data_len)
         return this_data == that_data
     return True
 
-    #if this.data_len:
-    #    if isinstance(this.data, int):
-    #        this_array = ctypes.cast(this.data, ctypes.POINTER(ctypes.c_uint8))
-    #    else:
-    #        this_array = this.data
-    #    if isinstance(that.data, int):
-    #        that_array = ctypes.cast(that.data, ctypes.POINTER(ctypes.c_uint8))
-    #    else:
-    #        that_array = that.data
-    #
-    #    for ii in range(this.data_len):
-    #        if this_array[ii] != that_array[ii]:
-    #            return False
-    #return True
-
-def c_data_as_string(is_pointy, data, data_len):
+def c_data_as_string(data, data_len):
     """Return the message data as a string.
     """
     # And, somewhat inefficiently, convert it to a (byte) string
@@ -280,6 +311,8 @@ class _MessageHeaderStruct(ctypes.Structure):
                 ('in_reply_to', MessageId),
                 ('to',          ctypes.c_uint32),
                 ('from_',       ctypes.c_uint32), # named consistently with elsewhere
+                ('orig_from',   OrigFrom),
+                ('extra',       ctypes.c_uint32),
                 ('flags',       ctypes.c_uint32),
                 ('name_len',    ctypes.c_uint32),
                 ('data_len',    ctypes.c_uint32),
@@ -299,20 +332,17 @@ class _MessageHeaderStruct(ctypes.Structure):
         if self.data == None:
             dd = 'None'
         else:
-            # We need to retrieve our array from the pointer - ick
-            array = ctypes.cast(self.data, ctypes.POINTER(ctypes.c_uint8))
-            # And, somewhat inefficiently, convert it to something printable
-            w = []
-            for ii in range(self.data_len):
-                w.append(chr(array[ii]))
-            s = ''.join(w)
+            # We need to retrieve our data from the pointer - ick
+            p = ctypes.cast(self.data, ctypes.POINTER(ctypes.c_uint8*self.data_len))
+            s = ctypes.string_at(p, self.data_len)
             dd = repr(hexdata(s))
-        return "<%08x] %s %s %u %u %08x %u %u %s %s [%08x>"%(
+        return "<%08x] %s %s %u %u %s %08x %u %u %s %s [%08x>"%(
                 self.start_guard,
                 self.id._short_str(),
                 self.in_reply_to._short_str(),
                 self.to,
                 self.from_,
+                self.orig_from._short_str(),
                 self.flags,
                 self.name_len,
                 self.data_len,
@@ -351,14 +381,18 @@ def _struct_from_string(struct_class, data):
     ctypes.memmove(ctypes.addressof(thing), data, ctypes.sizeof(thing))
     return thing
 
-def message_from_parts(id, in_reply_to, to, from_, flags, name, data):
+def message_from_parts(id, in_reply_to, to, from_, orig_from, flags, name, data):
     """Return a new Message header structure, with name and data attached.
 
     - 'id' and 'in_reply_to' are (network_id, serial_num) tuples
-    - 'to', 'in_reply_to' and 'from_' are 0 or a KSock id
+    - 'to', 'in_reply_to' and 'from_' are 0 or a Ksock id
+    - 'orig_from' is None or a (network_id, local_id) tuple
     - 'name' is a string
     - 'data' is a string or None
     """
+    if orig_from is None:
+        orig_from = (0,0)
+
     name_len = len(name)
 
     if data:
@@ -395,7 +429,8 @@ def message_from_parts(id, in_reply_to, to, from_, flags, name, data):
 
     return _MessageHeaderStruct(Message.START_GUARD,
                                 id, in_reply_to,
-                                to, from_, flags, name_len, data_len,
+                                to, from_, orig_from, 0, flags,
+                                name_len, data_len,
                                 name_ptr, data_ptr, Message.END_GUARD)
 
 def message_from_string(msg_data):
@@ -411,9 +446,11 @@ def message_from_string(msg_data):
     # But not so the data
     padded_data_len = 4*((h.data_len + 3) / 4)
 
-    h.name = msg_data[52:52+h.name_len]
+    name_offset = 64
 
-    data_offset = 52+padded_name_len
+    h.name = msg_data[name_offset:name_offset+h.name_len]
+
+    data_offset = name_offset+padded_name_len
 
     if h.data_len == 0:
         h.data = None
@@ -447,7 +484,7 @@ class _EntireMessageStructBaseclass(ctypes.Structure):
         else:
             name_repr = 'None'
         if self.data_len:
-            data_repr = repr(hexdata(self.rest_data[:self.data_len]))
+            data_repr = repr(hexdata(c_data_as_string(self.rest_data,self.data_len)))
         else:
             data_repr = None
         return "%s %s %s [%08x>"%(
@@ -488,6 +525,15 @@ class _EntireMessageStructBaseclass(ctypes.Structure):
     @property
     def from_(self):
         return self.header.from_
+
+    # Announcement and Status would quite like to be able to overwrite orig_from
+    def get_orig_from(self):
+        return self.header.orig_from
+
+    def set_orig_from(self, value):
+        self.header.orig_from = value
+
+    orig_from = property(get_orig_from, set_orig_from)
 
     # It's useful to be able to set flags
     def get_flags(self):
@@ -549,16 +595,18 @@ def _specific_entire_message_struct(padded_name_len, padded_data_len):
             _fields_ = [('header',     _MessageHeaderStruct),
                         ('rest_name',  ctypes.c_char  * padded_name_len),
                         ('rest_data',  ctypes.c_uint8 * padded_data_len),
-                        #('rest_data',  ctypes.c_char * padded_data_len),
                         ('rest_end_guard',  ctypes.c_uint32)]
         _specific_entire_message_struct_dict[key] = localEntireMessageStruct
         return localEntireMessageStruct
 
-def entire_message_from_parts(id, in_reply_to, to, from_, flags, name, data):
+def entire_message_from_parts(id, in_reply_to, to, from_, orig_from,
+                              flags, name, data):
     """Return a new message structure of the correct shape.
 
-    - 'id' and 'in_reply_to' are None or (network_id, serial_num) tuples
-    - 'to', 'in_reply_to' and 'from_' are 0 or a KSock id
+    - 'id' and 'in_reply_to' are None or MessageId instance or (network_id,
+      serial_num) tuples
+    - 'to', 'in_reply_to' and 'from_' are 0 or a Ksock id
+    - 'orig_from' is None or OrigFrom instance or (network_id, local_id) tuple
     - 'name' is a string
     - 'data' is a string or None
     """
@@ -568,6 +616,9 @@ def entire_message_from_parts(id, in_reply_to, to, from_, flags, name, data):
 
     if in_reply_to is None:
         in_reply_to = MessageId(0,0)
+
+    if orig_from is None:
+        orig_from = OrigFrom(0,0)
 
     name_len = len(name)
 
@@ -593,7 +644,8 @@ def entire_message_from_parts(id, in_reply_to, to, from_, flags, name, data):
 
     header = _MessageHeaderStruct(Message.START_GUARD,
                                   id, in_reply_to,
-                                  to, from_, flags, name_len, data_len,
+                                  to, from_, orig_from, 0, flags,
+                                  name_len, data_len,
                                   None, None, Message.END_GUARD)
 
     DataArray = ctypes.c_uint8 * padded_data_len
@@ -650,19 +702,19 @@ class Message(object):
 
         >>> msg = Message('$.Fred')
         >>> msg
-        Message('$.Fred', data=None, to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
+        Message('$.Fred')
 
         >>> msg = Message('$.Fred', '1234')
         >>> msg
-        Message('$.Fred', data='1234', to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
+        Message('$.Fred', data='1234')
 
         >>> msg = Message('$.Fred', '12345678')
         >>> msg
-        Message('$.Fred', data='12345678', to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
+        Message('$.Fred', data='12345678')
 
         >>> msg1 = Message('$.Fred', data='1234')
         >>> msg1
-        Message('$.Fred', data='1234', to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
+        Message('$.Fred', data='1234')
 
     A Message can be constructed from another message directly:
 
@@ -682,7 +734,7 @@ class Message(object):
         >>> msg3 == msg1
         True
 
-    or one can use a "string" -- for instance, as returned by the KSock 'read'
+    or one can use a "string" -- for instance, as returned by the Ksock 'read'
     method:
 
         >>> msg_as_string = msg1.to_string()
@@ -695,7 +747,7 @@ class Message(object):
 
         >>> msg5 = Message(msg1, to=9, in_reply_to=MessageId(0, 3))
         >>> msg5
-        Message('$.Fred', data='1234', to=9L, from_=0L, in_reply_to=MessageId(0, 3), flags=0x00000000, id=None)
+        Message('$.Fred', data='1234', to=9L, in_reply_to=MessageId(0, 3))
 
         >>> msg5a = Message(msg1, to=9, in_reply_to=MessageId(0, 3))
         >>> msg5a == msg5
@@ -705,21 +757,21 @@ class Message(object):
 
         >>> msg6 = Message(msg5, to=0)
         >>> msg6
-        Message('$.Fred', data='1234', to=0L, from_=0L, in_reply_to=MessageId(0, 3), flags=0x00000000, id=None)
+        Message('$.Fred', data='1234', in_reply_to=MessageId(0, 3))
 
     (and the same for any of the integer fields), it is not possible to set any
     of the message id fields to None:
 
         >>> msg6 = Message(msg5, in_reply_to=None)
         >>> msg6
-        Message('$.Fred', data='1234', to=9L, from_=0L, in_reply_to=MessageId(0, 3), flags=0x00000000, id=None)
+        Message('$.Fred', data='1234', to=9L, in_reply_to=MessageId(0, 3))
 
     If you need to do that, go via the 'extract()' method:
 
-        >>> (id, in_reply_to, to, from_, flags, name, data) = msg5.extract()
-        >>> msg6 = Message(name, data, to, from_, None, flags, id)
+        >>> (id, in_reply_to, to, from_, orig_from, flags, name, data) = msg5.extract()
+        >>> msg6 = Message(name, data, to, from_, None, None, flags, id)
         >>> msg6
-        Message('$.Fred', data='1234', to=9L, from_=0L, in_reply_to=None, flags=0x00000000, id=None)
+        Message('$.Fred', data='1234', to=9L)
 
     For convenience, the parts of a Message may be retrieved as properties:
 
@@ -742,7 +794,7 @@ class Message(object):
 
         >>> msg1 = Message('$.Fred', data='1234', id=MessageId(0, 33))
         >>> msg1
-        Message('$.Fred', data='1234', to=0L, from_=0L, in_reply_to=None, flags=0x00000000, id=MessageId(0, 33))
+        Message('$.Fred', data='1234', id=MessageId(0, 33))
         >>> msg1.id
         MessageId(0, 33)
 
@@ -757,11 +809,11 @@ class Message(object):
     if 'arg' is a message-as-a-string, they will be ignored):
 
     - 'data' is data for the Message, either None or a Python string.
-    - 'to' is the KSock id for the destination, for use in replies or in
+    - 'to' is the Ksock id for the destination, for use in replies or in
       stateful messaging. Normally it should be left 0.
-    - 'from_' is the KSock id of the sender. Normally this should be left
+    - 'from_' is the Ksock id of the sender. Normally this should be left
       0, as it is assigned by KBUS.
-    - if 'in_reply_to' is non-zero, then it is the KSock id to which the
+    - if 'in_reply_to' is non-zero, then it is the Ksock id to which the
       reply shall go (taken from the 'from_' field in the original message).
       Setting 'in_reply_to' non-zero indicates that the Message *is* a reply.
       See also the Reply class, and especially the 'reply_to' function, which
@@ -789,28 +841,33 @@ class Message(object):
     ALL_OR_WAIT         = _BIT(8)
     ALL_OR_FAIL         = _BIT(9)
 
-    def __init__(self, arg, data=None, to=None, from_=None, in_reply_to=None, flags=None, id=None):
+    def __init__(self, arg, data=None, to=None, from_=None, orig_from=None,
+                 in_reply_to=None, flags=None, id=None):
         """Initialise a Message.
 
         All named arguments are meant to be "unset" by default.
         """
 
         if isinstance(arg, Message):
-            self._merge_args(arg.extract(), data, to, from_, in_reply_to, flags, id)
+            self._merge_args(arg.extract(), data, to, from_, orig_from,
+                             in_reply_to, flags, id)
         elif isinstance(arg, tuple) or isinstance(arg, list):
             # A tuple from .extract(), or an equivalent tuple/list
-            if len(arg) != 7:
+            if len(arg) != 8:
                 raise ValueError("Tuple arg to Message() must have"
-                        " 7 values, not %d"%len(arg))
+                        " 8 values, not %d"%len(arg))
             else:
-                self._merge_args(arg, data, to, from_, in_reply_to, flags, id)
+                self._merge_args(arg, data, to, from_, orig_from,
+                                 in_reply_to, flags, id)
         elif isinstance(arg, str):
             if arg.startswith('$.'):
                 # It looks like a message name
                 name = arg
-                self._from_data(name, data, to, from_, in_reply_to, flags, id)
+                self._from_data(name, data, to, from_, orig_from,
+                                in_reply_to, flags, id)
             elif data is None and to is None and from_ is None and \
-                    in_reply_to is None and flags is None and id is None:
+                 orig_from is None and in_reply_to is None and \
+                 flags is None and id is None:
                 # Assume it's sensible data...
                 self.msg = entire_message_from_string(arg)
             else:
@@ -823,7 +880,7 @@ class Message(object):
         self._check()
 
     def _merge_args(self, extracted, this_data, this_to, this_from_,
-                    this_in_reply_to, this_flags, this_id):
+                    this_orig_from, this_in_reply_to, this_flags, this_id):
         """Set our data from a msg.extract() tuple and optional arguments.
 
         Note that, if given, 'id' and 'in_reply_to' must be MessageId
@@ -834,20 +891,21 @@ class Message(object):
         1. a string, or something else compatible.
         2. None.
         """
-        (id, in_reply_to, to, from_, flags, name, data) = extracted
+        (id, in_reply_to, to, from_, orig_from, flags, name, data) = extracted
         if this_data        is not None: data        = this_data
         if this_to          is not None: to          = this_to
         if this_from_       is not None: from_       = this_from_
+        if this_orig_from   is not None: orig_from   = this_orig_from
         if this_in_reply_to is not None: in_reply_to = this_in_reply_to
         if this_flags       is not None: flags       = this_flags
         if this_id          is not None: id          = this_id
-        self._from_data(name, data, to, from_, in_reply_to, flags, id)
+        self._from_data(name, data, to, from_, orig_from, in_reply_to, flags, id)
 
-    def _from_data(self, name, data, to, from_, in_reply_to, flags, id):
+    def _from_data(self, name, data, to, from_, orig_from, in_reply_to, flags, id):
         """Set our data from individual arguments.
 
         Note that, if given, 'id' and 'in_reply_to' must be MessageId
-        instances.
+        instances, and 'orig_from' an OrigFrom instance.
         """
 
         if id:
@@ -866,39 +924,52 @@ class Message(object):
         if not from_:
             from_ = 0
 
+        if orig_from:
+            orig_from_tuple = (orig_from.network_id, orig_from.local_id)
+        else:
+            orig_from_tuple = (0, 0)
+
         if not flags:
             flags = 0
 
         self.msg = message_from_parts(id_tuple, in_reply_to_tuple,
-                                      to, from_, flags, name, data)
+                                      to, from_, orig_from_tuple,
+                                      flags, name, data)
 
     def _check(self):
         """Perform some basic sanity checks on our data.
         """
-        # XXX Make the reporting of problems nicer for the user!
-        assert self.msg.start_guard == self.START_GUARD
-        assert self.msg.end_guard == self.END_GUARD
+        if self.msg.start_guard != self.START_GUARD:
+            raise ValueError("Message start guard is '%08x', not '%08x'"%\
+                    (self.msg.start_guard, self.START_GUARD))
+        if self.msg.end_guard != self.END_GUARD:
+            raise ValueError("Message end guard is '%08x', not '%08x'"%\
+                    (self.msg.end_guard, self.END_GUARD))
         if self.msg.name_len < 3:
             raise ValueError("Message name is %d long, minimum is 3"
                              " (e.g., '$.*')"%self.msg.name_len)
 
     def __repr__(self):
-        (id, in_reply_to, to, from_, flags, name, data) = self.extract()
-        if data is None:
-            data_repr = 'None'
-        else:
-            data_repr = repr(hexdata(data))
-        args = [repr(name),
-                'data=%s'%data_repr,
-                'to='+repr(to),
-                'from_='+repr(from_),
-                'in_reply_to='+repr(in_reply_to),
-                'flags=0x%08x'%flags,
-                'id='+repr(id)]
+        (id, in_reply_to, to, from_, orig_from, flags, name, data) = self.extract()
+        args = [repr(name)]
+        if data is not None:
+            args.append('data=%s'%repr(hexdata(data)))
+        if to:
+            args.append('to=%s'%repr(to))
+        if from_:
+            args.append('from_=%s'%repr(from_))
+        if orig_from:
+            args.append('orig_from=%s'%repr(orig_from))
+        if in_reply_to:
+            args.append('in_reply_to=%s'%repr(in_reply_to))
+        if flags:
+            args.append('flags=0x%08x'%flags)
+        if id:
+            args.append('id=%s'%repr(id))
         return 'Message(%s)'%(', '.join(args))
 
     def __str__(self):
-        (id, in_reply_to, to, from_, flags, name, data) = self.extract()
+        (id, in_reply_to, to, from_, orig_from, flags, name, data) = self.extract()
         # Try to be a bit friendly about what type of message this is
         if in_reply_to:
             if name.startswith('$.KBUS.'):
@@ -916,6 +987,8 @@ class Message(object):
             parts.append('to=%d'%to)
         if from_:
             parts.append('from=%d'%from_)
+        if orig_from:
+            parts.append('orig_from=%s'%str(orig_from))
         if in_reply_to:
             parts.append('in_reply_to=%s'%str(in_reply_to))
         if flags:
@@ -969,7 +1042,7 @@ class Message(object):
 
         Message construction may produce either of these (although
         construction of a message from a string will always produce
-        an "entire" message). Reading a message from a KSock returns
+        an "entire" message). Reading a message from a Ksock returns
         an "entire" message string.
 
         The actual "pointy" or "entire" message data is held in the
@@ -996,7 +1069,6 @@ class Message(object):
         * 'from'
         """
         return self.msg.equivalent(other.msg)
-        #return _equivalent_message_struct(self, other)
 
     def set_want_reply(self, value=True):
         """Set or unset the 'we want a reply' flag.
@@ -1067,6 +1139,15 @@ class Message(object):
         return self.msg.from_
 
     @property
+    def orig_from(self):
+        network_id = self.msg.orig_from.network_id
+        local_id   = self.msg.orig_from.local_id
+        if network_id == 0 and local_id == 0:
+            return None
+        else:
+            return self.msg.orig_from
+
+    @property
     def flags(self):
         return self.msg.flags
 
@@ -1082,7 +1163,7 @@ class Message(object):
         if self.msg.data_len == 0:
             return None
         # To be friendly, return data as a Python (byte) string
-        return c_data_as_string(self.msg.is_pointy, self.msg.data, self.msg.data_len)
+        return c_data_as_string(self.msg.data, self.msg.data_len)
 
     def extract(self):
         """Return our parts as a tuple.
@@ -1090,11 +1171,11 @@ class Message(object):
         The values are returned in something approximating the order
         within the message itself:
 
-            (id, in_reply_to, to, from_, flags, name, data)
+            (id, in_reply_to, to, from_, orig_from, flags, name, data)
 
         This is not the same order as the keyword arguments to Message().
         """
-        return (self.id, self.in_reply_to, self.to, self.from_,
+        return (self.id, self.in_reply_to, self.to, self.from_, self.orig_from,
                 self.flags, self.name, self.data)
 
     def to_string(self):
@@ -1106,15 +1187,15 @@ class Message(object):
         message (so that we don't have any dangling "pointers" to the
         name or data).
         """
-        (id, in_reply_to, to, from_, flags, name, data) = self.extract()
-        tmp = entire_message_from_parts(id, in_reply_to, to, from_, flags,
-                                        name, data)
+        (id, in_reply_to, to, from_, orig_from, flags, name, data) = self.extract()
+        tmp = entire_message_from_parts(id, in_reply_to, to, from_, orig_from,
+                                        flags, name, data)
         return _struct_to_string(tmp)
 
     def cast(self):
         """Return (a copy of) ourselves as an appropriate subclass of Message
 
-        Reading from a KSock returns a Message, whatever the actual message
+        Reading from a Ksock returns a Message, whatever the actual message
         type. Normally, this is OK, but sometimes it would be nice to have
         an actual message of the correct class.
         """
@@ -1148,7 +1229,7 @@ class Announcement(Message):
 
         >>> ann1 = Announcement('$.Fred', data='1234')
         >>> ann1
-        Announcement('$.Fred', data='1234', to=0L, from_=0L, flags=0x00000000, id=None)
+        Announcement('$.Fred', data='1234')
 
     Since Announcement is a "plain" Message, we expect to be able to use the
     normal ways of instantiating a Message for an Announcement.
@@ -1176,7 +1257,7 @@ class Announcement(Message):
         >>> msg = Message('$.Fred', data='1234', in_reply_to=MessageId(1, 2))
         >>> ann = Announcement(msg)
         >>> ann
-        Announcement('$.Fred', data='1234', to=0L, from_=0L, flags=0x00000000, id=None)
+        Announcement('$.Fred', data='1234')
         >>> print ann.in_reply_to
         None
 
@@ -1244,6 +1325,8 @@ class Announcement(Message):
                                            from_=from_, flags=flags, id=id)
         # And, in case 'in_reply_to' got set by that
         self.msg.in_reply_to = MessageId(0, 0)
+        # Or 'orig_from'
+        self.msg.orig_from = OrigFrom(0,0)
 
     def set_want_reply(self, value=True):
         """Announcements are not Requests.
@@ -1251,17 +1334,18 @@ class Announcement(Message):
         raise TypeError("Announcements are not Requests")
 
     def __repr__(self):
-        (id, in_reply_to, to, from_, flags, name, data) = self.extract()
-        if data is None:
-            data_repr = 'None'
-        else:
-            data_repr = repr(hexdata(data))
-        args = [repr(name),
-                'data=%s'%data_repr,
-                'to='+repr(to),
-                'from_='+repr(from_),
-                'flags=0x%08x'%flags,
-                'id='+repr(id)]
+        (id, in_reply_to, to, from_, orig_from, flags, name, data) = self.extract()
+        args = [repr(name)]
+        if data is not None:
+            args.append('data=%s'%repr(hexdata(data)))
+        if to:
+            args.append('to=%s'%repr(to))
+        if from_:
+            args.append('from_=%s'%repr(from_))
+        if flags:
+            args.append('flags=0x%08x'%flags)
+        if id:
+            args.append('id=%s'%repr(id))
         return 'Announcement(%s)'%(', '.join(args))
 
 class Request(Message):
@@ -1284,17 +1368,36 @@ class Request(Message):
 
         >>> msg = Message('$.Fred', data='1234', flags=Message.WANT_A_REPLY)
         >>> msg
-        Message('$.Fred', data='1234', to=0L, from_=0L, in_reply_to=None, flags=0x00000001, id=None)
+        Message('$.Fred', data='1234', flags=0x00000001)
         >>> req = Request('$.Fred', data='1234')
         >>> req
-        Request('$.Fred', data='1234', to=0L, from_=0L, flags=0x00000001, id=None)
+        Request('$.Fred', data='1234', flags=0x00000001)
         >>> req == msg
         True
+
+    If it is given a 'to' argument, then it is a Stateful Request - it will be
+    an error if it cannot be delivered to that particular Replier (for
+    instance, if the Replier had unbound and someone else had bound as Replier
+    for this message name).
+
+        >>> req = Request('$.Fred', data='1234', to=1234)
+        >>> req
+        Request('$.Fred', data='1234', to=1234L, flags=0x00000001)
+
+    A Stateful Request may also need to supply an 'orig_from' argument, if the
+    original Replier is over a (Limpet) network. This should be taken from an
+    earlier Reply from that Replier -- see the convenience function
+    stateful_request(). However, it can be done by hand:
+
+        >>> req = Request('$.Fred', data='1234', to=1234, orig_from=OrigFrom(12, 23), flags=0x00000001)
+        >>> req
+        Request('$.Fred', data='1234', to=1234L, orig_from=OrigFrom(12, 23), flags=0x00000001)
 
     Note that:
 
     1. A request message is a request just because it has the
        Message.WANT_A_REPLY flag set. There is nothing else special about it.
+    2. A stateful request message is then a request that has its 'to' flag set.
     """
 
     # I would quite like to do::
@@ -1311,27 +1414,31 @@ class Request(Message):
     #
     # which I *can* do (and want to be able to do) with Message
 
-    def __init__(self, arg, data=None, to=None, from_=None, flags=None, id=None):
+    def __init__(self, arg, data=None, to=None, from_=None, orig_from=None,
+                 flags=None, id=None):
         """Arguments are exactly the same as for Message itself.
         """
         # First, just do what the caller asked for directly
         # but with 'in_reply_to' as 0
-        super(Request, self).__init__(arg, data, to, from_, 0, flags, id)
+        super(Request, self).__init__(arg, data, to, from_, orig_from, 0, flags, id)
         # But then make sure that the "wants a reply" flag is set
         super(Request, self).set_want_reply(True)
 
     def __repr__(self):
-        (id, in_reply_to, to, from_, flags, name, data) = self.extract()
-        if data is None:
-            data_repr = 'None'
-        else:
-            data_repr = repr(hexdata(data))
-        args = [repr(name),
-                'data=%s'%data_repr,
-                'to='+repr(to),
-                'from_='+repr(from_),
-                'flags=0x%08x'%flags,
-                'id='+repr(id)]
+        (id, in_reply_to, to, from_, orig_from, flags, name, data) = self.extract()
+        args = [repr(name)]
+        if data is not None:
+            args.append('data=%s'%repr(hexdata(data)))
+        if to:
+            args.append('to=%s'%repr(to))
+        if from_:
+            args.append('from_=%s'%repr(from_))
+        if orig_from:
+            args.append('orig_from=%s'%repr(orig_from))
+        if flags:
+            args.append('flags=0x%08x'%flags)
+        if id:
+            args.append('id=%s'%repr(id))
         return 'Request(%s)'%(', '.join(args))
 
     def set_want_reply(self):
@@ -1349,7 +1456,7 @@ class Reply(Message):
 
         >>> direct = Reply('$.Fred', to=27, in_reply_to=MessageId(0, 132))
         >>> direct
-        Reply('$.Fred', data=None, to=27L, from_=0L, in_reply_to=MessageId(0, 132), flags=0x00000000, id=None)
+        Reply('$.Fred', to=27L, in_reply_to=MessageId(0, 132))
         >>> reply = Reply(direct)
         >>> direct == reply
         True
@@ -1358,7 +1465,7 @@ class Reply(Message):
 
         >>> msg = Message('$.Fred', data='1234', from_=27, to=99, id=MessageId(0, 132), flags=Message.WANT_A_REPLY)
         >>> msg
-        Message('$.Fred', data='1234', to=99L, from_=27L, in_reply_to=None, flags=0x00000001, id=MessageId(0, 132))
+        Message('$.Fred', data='1234', to=99L, from_=27L, flags=0x00000001, id=MessageId(0, 132))
         >>> reply = Reply(msg)
         Traceback (most recent call last):
         ...
@@ -1367,6 +1474,14 @@ class Reply(Message):
         >>> reply = Reply(msg, in_reply_to=MessageId(0, 5))
         >>> reply
         Reply('$.Fred', data='1234', to=99L, from_=27L, in_reply_to=MessageId(0, 5), flags=0x00000001, id=MessageId(0, 132))
+
+    When Limpet networks are in use, it may be necessary to construct a Reply
+    with its 'orig_from' field set (this should only really be done by a Limpet
+    itself, though):
+
+        >>> reply = Reply(msg, in_reply_to=MessageId(0, 5), orig_from=OrigFrom(23, 92))
+        >>> reply
+        Reply('$.Fred', data='1234', to=99L, from_=27L, orig_from=OrigFrom(23, 92), in_reply_to=MessageId(0, 5), flags=0x00000001, id=MessageId(0, 132))
 
     It's also possible to construct a Reply in most of the other ways a Message
     can be constructed. For instance:
@@ -1379,28 +1494,34 @@ class Reply(Message):
         True
     """
 
-    def __init__(self, arg, data=None, to=None, from_=None, in_reply_to=None, flags=None, id=None):
+    def __init__(self, arg, data=None, to=None, from_=None, orig_from=None, in_reply_to=None, flags=None, id=None):
         """Just do what the user asked, but they must give 'in_reply_to'.
         """
         
         super(Reply, self).__init__(arg, data=data, to=to, from_=from_,
-                                   in_reply_to=in_reply_to, flags=flags, id=id)
+                                    orig_from=orig_from,
+                                    in_reply_to=in_reply_to, flags=flags,
+                                    id=id)
         if self.in_reply_to is None:
             raise ValueError("A Reply must specify in_reply_to")
 
     def __repr__(self):
-        (id, in_reply_to, to, from_, flags, name, data) = self.extract()
-        if data is None:
-            data_repr = 'None'
-        else:
-            data_repr = repr(hexdata(data))
-        args = [repr(name),
-                'data=%s'%data_repr,
-                'to='+repr(to),
-                'from_='+repr(from_),
-                'in_reply_to='+repr(in_reply_to),
-                'flags=0x%08x'%flags,
-                'id='+repr(id)]
+        (id, in_reply_to, to, from_, orig_from, flags, name, data) = self.extract()
+        args = [repr(name)]
+        if data is not None:
+            args.append('data=%s'%repr(hexdata(data)))
+        if to:
+            args.append('to=%s'%repr(to))
+        if from_:
+            args.append('from_=%s'%repr(from_))
+        if orig_from:
+            args.append('orig_from=%s'%repr(orig_from))
+        if in_reply_to:
+            args.append('in_reply_to=%s'%repr(in_reply_to))
+        if flags:
+            args.append('flags=0x%08x'%flags)
+        if id:
+            args.append('id=%s'%repr(id))
         return 'Reply(%s)'%(', '.join(args))
 
 class Status(Message):
@@ -1414,10 +1535,10 @@ class Status(Message):
 
         >>> msg = Message('$.KBUS.Dummy', from_=27, to=99, in_reply_to=MessageId(0, 132))
         >>> msg
-        Message('$.KBUS.Dummy', data=None, to=99L, from_=27L, in_reply_to=MessageId(0, 132), flags=0x00000000, id=None)
+        Message('$.KBUS.Dummy', to=99L, from_=27L, in_reply_to=MessageId(0, 132))
         >>> status = Status(msg.to_string())
         >>> status
-        Status('$.KBUS.Dummy', data=None, to=99L, from_=27L, in_reply_to=MessageId(0, 132), flags=0x00000000, id=None)
+        Status('$.KBUS.Dummy', to=99L, from_=27L, in_reply_to=MessageId(0, 132))
 
     Note that:
 
@@ -1430,20 +1551,24 @@ class Status(Message):
         # suggests, but conversely I'm not going to hold the user's hand
         # if they do something that's not supported...
         super(Status, self).__init__(original)
+        # And, in case 'orig_from' got set by that
+        self.msg.orig_from = OrigFrom(0,0)
 
     def __repr__(self):
-        (id, in_reply_to, to, from_, flags, name, data) = self.extract()
-        if data is None:
-            data_repr = 'None'
-        else:
-            data_repr = repr(hexdata(data))
-        args = [repr(name),
-                'data=%s'%data_repr,
-                'to='+repr(to),
-                'from_='+repr(from_),
-                'in_reply_to='+repr(in_reply_to),
-                'flags=0x%08x'%flags,
-                'id='+repr(id)]
+        (id, in_reply_to, to, from_, orig_from, flags, name, data) = self.extract()
+        args = [repr(name)]
+        if data is not None:
+            args.append('data=%s'%repr(hexdata(data)))
+        if to:
+            args.append('to=%s'%repr(to))
+        if from_:
+            args.append('from_=%s'%repr(from_))
+        if in_reply_to:
+            args.append('in_reply_to=%s'%repr(in_reply_to))
+        if flags:
+            args.append('flags=0x%08x'%flags)
+        if id:
+            args.append('id=%s'%repr(id))
         return 'Status(%s)'%(', '.join(args))
 
 def reply_to(original, data=None, flags=0):
@@ -1455,10 +1580,10 @@ def reply_to(original, data=None, flags=0):
 
         >>> msg = Message('$.Fred', data='1234', from_=27, to=99, id=MessageId(0, 132), flags=Message.WANT_A_REPLY|Message.WANT_YOU_TO_REPLY)
         >>> msg
-        Message('$.Fred', data='1234', to=99L, from_=27L, in_reply_to=None, flags=0x00000003, id=MessageId(0, 132))
+        Message('$.Fred', data='1234', to=99L, from_=27L, flags=0x00000003, id=MessageId(0, 132))
         >>> reply = reply_to(msg)
         >>> reply
-        Reply('$.Fred', data=None, to=27L, from_=0L, in_reply_to=MessageId(0, 132), flags=0x00000000, id=None)
+        Reply('$.Fred', to=27L, in_reply_to=MessageId(0, 132))
 
     Note that:
 
@@ -1473,7 +1598,7 @@ def reply_to(original, data=None, flags=0):
        replying to.
     3. As normal, the Reply's own message id is unset - KBUS will set this, as
        for any message.
-    4. We give a specific 'to' value, the id of the KSock that sent the
+    4. We give a specific 'to' value, the id of the Ksock that sent the
        original message, and thus the 'from' value in the original message.
     5. We keep the same message name, but don't copy the original message's
        data. If we want to send data in a reply message, it will be our own
@@ -1485,7 +1610,7 @@ def reply_to(original, data=None, flags=0):
 
         >>> rep4 = reply_to(msg, flags=Message.ALL_OR_WAIT, data='1234')
         >>> rep4
-        Reply('$.Fred', data='1234', to=27L, from_=0L, in_reply_to=MessageId(0, 132), flags=0x00000100, id=None)
+        Reply('$.Fred', data='1234', to=27L, in_reply_to=MessageId(0, 132), flags=0x00000100)
     """
 
     # Check we're allowed to reply to this
@@ -1494,7 +1619,8 @@ def reply_to(original, data=None, flags=0):
         raise ValueError("Cannot form a reply to a message that does not have"
                 " WANT_A_REPLY and WANT_YOU_TO_REPLY set: %s"%original)
 
-    (id, in_reply_to, to, from_, original_flags, name, data_tuple) = original.extract()
+    (id, in_reply_to, to, from_, orig_from, original_flags,
+            name, data_tuple) = original.extract()
     # We reply to the original sender (to), indicating which message we're
     # responding to (in_reply_to).
     #
@@ -1504,7 +1630,34 @@ def reply_to(original, data=None, flags=0):
     # any flags from the original message.
     return Reply(name, data=data, in_reply_to=id, to=from_, flags=flags)
 
+def stateful_request(earlier_reply, arg, data=None, from_=None,
+                     flags=None, id=None):
+    """Construct a stateful Request, based on an earlier Reply.
 
+    'earlier_reply' is an earlier Reply, whose 'from_' field will be used as
+    the new Request's 'to' field, and whose 'orig_from' field will be copied.
+
+    The rest of the arguments are the same as for Request, except that the
+    'to' and 'orig_from' initialiser arguments are missing.
+
+    For instance:
+
+        >>> reply = Reply('$.Fred', to=27, from_=39, in_reply_to=MessageId(0, 132))
+        >>> reply
+        Reply('$.Fred', to=27L, from_=39L, in_reply_to=MessageId(0, 132))
+        >>> request = stateful_request(reply, '$.SomethingElse')
+        >>> request
+        Request('$.SomethingElse', to=39L, flags=0x00000001)
+    """
+    if not earlier_reply.in_reply_to:
+        raise ValueError("The first argument of stateful_request() must be a"
+                         " Reply (i.e., have an 'in_reply_to' field)")
+
+    orig_from = earlier_reply.orig_from
+    to = earlier_reply.from_
+
+    return Request(arg, data=data, to=to, from_=from_, orig_from=orig_from,
+                   flags=flags, id=id)
 
 
 class _ReplierBindEventHeader(ctypes.Structure):
@@ -1526,4 +1679,8 @@ def split_replier_bind_event_data(data):
 
     return (hdr.is_bind, hdr.binder, name)
 
-# vim: set tabstop=8 shiftwidth=4 expandtab:
+if __name__ == "__main__":
+    import doctest
+    doctest.testmod()
+
+# vim: set tabstop=8 softtabstop=4 shiftwidth=4 expandtab:

@@ -1,4 +1,4 @@
-"""The definition of a KBUS KSock.
+"""The definition of a KBUS Ksock.
 
 On Ubuntu, if I want ordinary users (in the admin group) to be able to
 read/write '/dev/kbus0' then I need to have a file
@@ -96,7 +96,7 @@ class SendResultStruct(ctypes.Structure):
                 ('msg_id',  MessageId)]
 
 
-class KSock(object):
+class Ksock(object):
     """A wrapper around a KBUS device, for purposes of message sending.
 
     'which' is which KBUS device to open -- so if 'which' is 3, we open
@@ -105,7 +105,7 @@ class KSock(object):
     'mode' should be 'r' or 'rw' -- i.e., whether to open the device for read or
     write (opening for write also allows reading, of course).
 
-    I'm not really very keen on the name KSock, but it's better than the
+    I'm not really very keen on the name Ksock, but it's better than the
     original "File", which I think was actively misleading.
     """
 
@@ -130,7 +130,7 @@ class KSock(object):
 
     def __init__(self, which=0, mode='r'):
         if mode not in ('r', 'rw'):
-            raise ValueError("KSock mode should be 'r' or 'rw', not '%s'"%mode)
+            raise ValueError("Ksock mode should be 'r' or 'rw', not '%s'"%mode)
         self.which = which
         self.name = '/dev/kbus%d'%which
         if mode == 'r':
@@ -144,16 +144,16 @@ class KSock(object):
 
     def __str__(self):
         if self.fd:
-            return 'KSock device %d, id %d, mode %s'%(self.which,
+            return 'Ksock device %d, id %d, mode %s'%(self.which,
                     self.ksock_id(), self.mode)
         else:
-            return 'KSock device %d (closed)'%(self.which)
+            return 'Ksock device %d (closed)'%(self.which)
 
     def __repr__(self):
         if self.fd:
-            return '<KSock %s open for %s>'%(self.name, self.mode)
+            return '<Ksock %s open for %s>'%(self.name, self.mode)
         else:
-            return '<KSock %s closed>'%(self.name)
+            return '<Ksock %s closed>'%(self.name)
 
     def close(self):
         ret = self.fd.close()
@@ -168,7 +168,7 @@ class KSock(object):
         message name.
         """
         arg = BindStruct(replier, len(name), name)
-        fcntl.ioctl(self.fd, KSock.IOC_BIND, arg)
+        fcntl.ioctl(self.fd, Ksock.IOC_BIND, arg)
 
     def unbind(self, name, replier=False):
         """Unbind the given name from the file descriptor.
@@ -176,15 +176,15 @@ class KSock(object):
         The arguments need to match the binding that we want to unbind.
         """
         arg = BindStruct(replier, len(name), name)
-        fcntl.ioctl(self.fd, KSock.IOC_UNBIND, arg)
+        fcntl.ioctl(self.fd, Ksock.IOC_UNBIND, arg)
 
     def ksock_id(self):
-        """Return the internal 'KSock id' for this file descriptor.
+        """Return the internal 'Ksock id' for this file descriptor.
         """
         # Instead of using a ctypes.Structure, we can retrieve homogenious
         # arrays of data using, well, arrays. This one is a bit minimalist.
         id = array.array('L', [0])
-        fcntl.ioctl(self.fd, KSock.IOC_KSOCKID, id, True)
+        fcntl.ioctl(self.fd, Ksock.IOC_KSOCKID, id, True)
         return id[0]
 
     def next_msg(self):
@@ -193,7 +193,7 @@ class KSock(object):
         Returns the length of said message, or 0 if there is no next message.
         """
         id = array.array('L', [0])
-        fcntl.ioctl(self.fd, KSock.IOC_NEXTMSG, id, True)
+        fcntl.ioctl(self.fd, Ksock.IOC_NEXTMSG, id, True)
         return id[0]
 
     def len_left(self):
@@ -203,7 +203,7 @@ class KSock(object):
         been called), or if there are no bytes left.
         """
         id = array.array('L', [0])
-        fcntl.ioctl(self.fd, KSock.IOC_LENLEFT, id, True)
+        fcntl.ioctl(self.fd, Ksock.IOC_LENLEFT, id, True)
         return id[0]
 
     def send(self):
@@ -217,7 +217,7 @@ class KSock(object):
         Raises IOError with errno ENOMSG if there was no message to send.
         """
         arg = array.array('L', [0, 0])
-        fcntl.ioctl(self.fd, KSock.IOC_SEND, arg);
+        fcntl.ioctl(self.fd, Ksock.IOC_SEND, arg);
         return MessageId(arg[0], arg[1])
 
     def discard(self):
@@ -228,7 +228,7 @@ class KSock(object):
         written (for instance, because 'send' has already been called).
         be sent.
         """
-        fcntl.ioctl(self.fd, KSock.IOC_DISCARD, 0);
+        fcntl.ioctl(self.fd, Ksock.IOC_DISCARD, 0);
 
     def last_msg_id(self):
         """Return the id of the last message written on this file descriptor.
@@ -236,7 +236,7 @@ class KSock(object):
         Returns 0 before any messages have been sent.
         """
         id = array.array('L', [0, 0])
-        fcntl.ioctl(self.fd, KSock.IOC_LASTSENT, id, True)
+        fcntl.ioctl(self.fd, Ksock.IOC_LASTSENT, id, True)
         return MessageId(id[0], id[1])
 
     def find_replier(self, name):
@@ -245,40 +245,40 @@ class KSock(object):
         Returns None if there was no replier, otherwise the replier's id.
         """
         arg = ReplierStruct(0, len(name), name)
-        retval = fcntl.ioctl(self.fd, KSock.IOC_REPLIER, arg);
+        retval = fcntl.ioctl(self.fd, Ksock.IOC_REPLIER, arg);
         if retval:
             return arg.return_id
         else:
             return None
 
     def max_messages(self):
-        """Return the number of messages that can be queued on this KSock.
+        """Return the number of messages that can be queued on this Ksock.
         """
         id = array.array('L', [0])
-        fcntl.ioctl(self.fd, KSock.IOC_MAXMSGS, id, True)
+        fcntl.ioctl(self.fd, Ksock.IOC_MAXMSGS, id, True)
         return id[0]
 
     def set_max_messages(self, count):
-        """Set the number of messages that can be queued on this KSock.
+        """Set the number of messages that can be queued on this Ksock.
 
         A 'count' of 0 does not actually change the value - this may thus be
-        used to query the KSock for the current value of the maximum.
+        used to query the Ksock for the current value of the maximum.
         However, the "more Pythonic" 'max_messages()' method is provided for
         use when such a query is wanted, which is just syntactic sugar around
         such a call.
 
         Returns the number of messages that are allowed to be queued on this
-        KSock.
+        Ksock.
         """
         id = array.array('L', [count])
-        fcntl.ioctl(self.fd, KSock.IOC_MAXMSGS, id, True)
+        fcntl.ioctl(self.fd, Ksock.IOC_MAXMSGS, id, True)
         return id[0]
 
     def num_messages(self):
-        """Return the number of messages that are queued on this KSock.
+        """Return the number of messages that are queued on this Ksock.
         """
         id = array.array('L', [0])
-        fcntl.ioctl(self.fd, KSock.IOC_NUMMSGS, id, True)
+        fcntl.ioctl(self.fd, Ksock.IOC_NUMMSGS, id, True)
         return id[0]
 
     def num_unreplied_to(self):
@@ -289,7 +289,7 @@ class KSock(object):
         Reply.
         """
         id = array.array('L', [0])
-        fcntl.ioctl(self.fd, KSock.IOC_UNREPLIEDTO, id, True)
+        fcntl.ioctl(self.fd, Ksock.IOC_UNREPLIEDTO, id, True)
         return id[0]
 
     def want_messages_once(self, only_once=False, just_ask=False):
@@ -314,7 +314,7 @@ class KSock(object):
         Which, if 'just_ask' is true, will also be the current state.
 
         Beware that setting this flag affects how messages are added to the
-        KSock's message queue *as soon as it is set* - so changing it and then
+        Ksock's message queue *as soon as it is set* - so changing it and then
         changing it back "at once" is not (necessarily) a null operation.
         """
         if just_ask:
@@ -324,14 +324,14 @@ class KSock(object):
         else:
             val = 0
         id = array.array('L', [val])
-        fcntl.ioctl(self.fd, KSock.IOC_MSGONLYONCE, id, True)
+        fcntl.ioctl(self.fd, Ksock.IOC_MSGONLYONCE, id, True)
         return id[0]
 
     def kernel_module_verbose(self, verbose=True, just_ask=False):
         """Determine whether the kernel module should output verbose messages.
 
         Determine whether the kernel module should output verbose messages for
-        this device (this KSock). This will only have any effect if the kernel
+        this device (this Ksock). This will only have any effect if the kernel
         module was built with VERBOSE_DEBUG defined.
 
         The default is False, i.e., not to output verbose messages (as this
@@ -344,8 +344,8 @@ class KSock(object):
         Returns the previous value of the flag (i.e., what it used to be set to).
         Which, if 'just_ask' is true, will also be the current state.
 
-        Beware that setting this flag affects the KSock as a whole, so it is
-        possible for several programs to open a KSock and "disagree" about how
+        Beware that setting this flag affects the Ksock as a whole, so it is
+        possible for several programs to open a Ksock and "disagree" about how
         this flag should be set.
         """
         if just_ask:
@@ -355,7 +355,7 @@ class KSock(object):
         else:
             val = 0
         id = array.array('L', [val])
-        fcntl.ioctl(self.fd, KSock.IOC_VERBOSE, id, True)
+        fcntl.ioctl(self.fd, Ksock.IOC_VERBOSE, id, True)
         return id[0]
 
     def new_device(self):
@@ -367,7 +367,7 @@ class KSock(object):
         Returns the new device number (<n>).
         """
         id = array.array('L', [0])
-        fcntl.ioctl(self.fd, KSock.IOC_NEWDEVICE, id, True)
+        fcntl.ioctl(self.fd, Ksock.IOC_NEWDEVICE, id, True)
         return id[0]
 
     def report_replier_binds(self, report_events=True, just_ask=False):
@@ -385,7 +385,7 @@ class KSock(object):
         data:
 
           * a 32-bit value, 1 if this is a bind, 0 if it is an unbind
-          * a 32-bit value, the KSock id of the binder
+          * a 32-bit value, the Ksock id of the binder
           * the name of the message being bound to by a Replier (terminated
             by a null byte, and then, if necessary, padded up to the next
             four-byte boundary with null bytes
@@ -399,8 +399,8 @@ class KSock(object):
         Returns the previous value of the flag (i.e., what it used to be set to).
         Which, if 'just_ask' is true, will also be the current state.
 
-        Beware that setting this flag affects the KSock as a whole, so it is
-        possible for several programs to open a KSock and "disagree" about how
+        Beware that setting this flag affects the Ksock as a whole, so it is
+        possible for several programs to open a Ksock and "disagree" about how
         this flag should be set.
         """
         if just_ask:
@@ -410,7 +410,7 @@ class KSock(object):
         else:
             val = 0
         id = array.array('L', [val])
-        fcntl.ioctl(self.fd, KSock.IOC_REPORTREPLIERBINDS, id, True)
+        fcntl.ioctl(self.fd, Ksock.IOC_REPORTREPLIERBINDS, id, True)
         return id[0]
 
     def write_msg(self, message):
@@ -478,7 +478,7 @@ class KSock(object):
         """Wait for the next Message.
 
         This is a simple wrapper around select.select, waiting for the
-        next Message on this KSock.
+        next Message on this Ksock.
 
         If timeout is given, it is a floating point number of seconds,
         after which to timeout the select, otherwise this method will
@@ -536,7 +536,7 @@ class KSock(object):
     def fileno(self):
         """Return the integer file descriptor from our internal fd.
 
-        This allows a KSock instance to be used in a call of select.select()
+        This allows a Ksock instance to be used in a call of select.select()
         - so, for instance, on should be able to do::
 
             (r, w, x) = select.select([ksock1, ksock2, ksock3], None, None)
@@ -595,4 +595,4 @@ def read_bindings(names):
         bindings.append((id, rep, name))
     return bindings
 
-# vim: set tabstop=8 shiftwidth=4 expandtab:
+# vim: set tabstop=8 softtabstop=4 shiftwidth=4 expandtab:

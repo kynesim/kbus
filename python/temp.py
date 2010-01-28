@@ -19,7 +19,7 @@ try:
         # We need to have a bigger number than the kernel will be using
         TOO_MANY_MESSAGES = 2000
 
-        with KSock(0, 'rw') as first:
+        with Ksock(0, 'rw') as first:
             first.kernel_module_verbose(True)
             first.report_replier_binds(True)
 
@@ -27,12 +27,12 @@ try:
             first.bind('$.KBUS.ReplierBindEvent')
             first.bind('$.Fred')
 
-            with KSock(0, 'rw') as other:
+            with Ksock(0, 'rw') as other:
                 other.set_max_messages(1)
                 other.bind('$.KBUS.ReplierBindEvent')
                 other.bind('$.Jim')
 
-                with KSock(0, 'rw') as second:
+                with Ksock(0, 'rw') as second:
                     second_id = second.ksock_id()
                     for ii in xrange(TOO_MANY_MESSAGES):
                         # Of course, each message name needs to be unique 
