@@ -276,6 +276,7 @@ class TestKsock:
         for ii in range(NUM_DEVICES):
             f = Ksock(ii)
             f.close()
+
         # and not those that don't
         check_IOError(errno.ENOENT, Ksock, -1)
         check_IOError(errno.ENOENT, Ksock, NUM_DEVICES)
@@ -2872,6 +2873,11 @@ class TestKernelModule:
     def test_new_device(self):
         """Test the ability to request new KBUS devices.
         """
+        # Note that this test will affect the 'test_opening()' test
+        # if it occurs first (and we're not allowed to know test order).
+        # So we need to update the global NUM_DEVICES.
+        global NUM_DEVICES
+
         # We need a Ksock to do our ioctl on
         with Ksock(0,'rw') as first:
             # Request a new device - we don't know what it will be
@@ -2880,11 +2886,12 @@ class TestKernelModule:
             # ...after it's had time to come into existence
             time.sleep(0.5)
             with Ksock(next, 'rw') as second:
+                NUM_DEVICES += 1
                 another = second.new_device()
                 assert another == (next + 1)
                 time.sleep(0.5)
                 with Ksock(another, 'rw') as third:
-                    pass
+                    NUM_DEVICES += 1
 
     def test_bind_messages_flag(self):
         """Test changing the "receiving a message when someone binds/unbinds" flag.
