@@ -234,7 +234,7 @@ def _equivalent_message_struct(this, that):
 def c_data_as_string(data, data_len):
     """Return the message data as a string.
     """
-    # And, somewhat inefficiently, convert it to a (byte) string
+    # Somewhat inefficiently, convert it to a (byte) string
     w = []
     for ii in range(data_len):
         w.append(chr(data[ii]))
@@ -971,12 +971,12 @@ class Message(object):
     def __str__(self):
         (id, in_reply_to, to, from_, orig_from, flags, name, data) = self.extract()
         # Try to be a bit friendly about what type of message this is
-        if in_reply_to:
+        if self.is_reply():
             if name.startswith('$.KBUS.'):
                 what = 'Status'
             else:
                 what = 'Reply'
-        elif flags & Message.WANT_A_REPLY:
+        elif self.is_request():
             what = 'Request'
         else:
             what = 'Announcement'
@@ -1192,6 +1192,30 @@ class Message(object):
                                         flags, name, data)
         return _struct_to_string(tmp)
 
+    def is_reply(self):
+        """A convenience method - are we a Reply?
+        """
+        if self.in_reply_to:
+            return True
+        else:
+            return False
+
+    def is_request(self):
+        """A convenience method - are we a Request?
+        """
+        if self.msg.flags & Message.WANT_A_REPLY:
+            return True
+        else:
+            return False
+
+    def is_stateful_request(self):
+        """A convenience method - are we a Stateful Request?
+        """
+        if self.msg.flags & Message.WANT_A_REPLY and self.to:
+            return True
+        else:
+            return False
+
     def cast(self):
         """Return (a copy of) ourselves as an appropriate subclass of Message
 
@@ -1199,20 +1223,17 @@ class Message(object):
         type. Normally, this is OK, but sometimes it would be nice to have
         an actual message of the correct class.
         """
-        # If it has in_reply_to set...
-        if self.in_reply_to:
+        if self.is_reply():
             # Status messages have a specific sort of name
             if self.msg.name.startswith('$.KBUS.'):
                 return Status(self)
             else:
                 return Reply(self)
-
-        # If it has the WANT_A_REPLY flag set, then it's a Request
-        if self.msg.flags & Message.WANT_A_REPLY:
+        elif self.is_request():
             return Request(self)
-
-        # Otherwise, it's basically an Announcement (at least, that's a good bet)
-        return Announcement(self)
+        else:
+            # Otherwise, it's basically an Announcement (at least, that's a good bet)
+            return Announcement(self)
 
 class Announcement(Message):
     """A "plain" message, needing no reply
@@ -1677,11 +1698,10 @@ def stateful_request(earlier_msg, arg, data=None, from_=None,
         >>> request
         Request('$.Again', data='Aha!', to=39L, orig_from=OrigFrom(19, 23), flags=0x00000001)
     """
-    if earlier_msg.in_reply_to:
-        # It's an earlier Reply
+    if earlier_msg.is_reply():
         orig_from = earlier_msg.orig_from
         to = earlier_msg.from_
-    elif (earlier_msg.flags & Message.WANT_A_REPLY) and earlier_msg.to:
+    elif earlier_msg.is_stateful_request():
         # It's an earlier stateful Request
         orig_from = earlier_msg.orig_from
         to = earlier_msg.to

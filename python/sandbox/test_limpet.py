@@ -37,7 +37,7 @@ import time
 import nose
 from multiprocessing import Process
 
-from kbus import KSock, Message, MessageId, Announcement, \
+from kbus import Ksock, Message, MessageId, Announcement, \
                  Request, Reply, Status, reply_to
 from limpet import run_a_limpet, GiveUp, OtherLimpetGoneAway
 
@@ -82,7 +82,7 @@ def our_limpet(is_server, sock_address, sock_family, kbus_device, network_id):
     except Exception as exc:
         print 'KBUS %d %s'%(kbus_device, exc)
 
-# The "normal" KBUS test code uses a single KBUS, and tests open KSocks
+# The "normal" KBUS test code uses a single KBUS, and tests open Ksocks
 # on it to send/receive messages.
 #
 # We, on the other hand, expect the tests to use different KBUSs for the
@@ -139,7 +139,7 @@ def setup_module():
 
         # Debug output may be useful...
         for devno in range(3):
-            with KSock(devno, 'rw') as friend:
+            with Ksock(devno, 'rw') as friend:
                 friend.kernel_module_verbose(True)
 
     except:
@@ -147,7 +147,7 @@ def setup_module():
         raise
 
 def teardown_module():
-    with KSock(1, 'rw') as sender:
+    with Ksock(1, 'rw') as sender:
         sender.send_msg(Message(TERMINATION_MESSAGE))
 
     print 'Limpet termination message sent'
@@ -169,8 +169,8 @@ class TestLimpets(object):
     def test_the_first(self):
         """An establishing test, to check we can send a single message.
         """
-        with KSock(KBUS_SENDER, 'rw') as sender:
-            with KSock(KBUS_LISTENER, 'rw') as listener:
+        with Ksock(KBUS_SENDER, 'rw') as sender:
+            with Ksock(KBUS_LISTENER, 'rw') as listener:
 
                 listener.bind('$.Fred')
 
@@ -188,9 +188,9 @@ class TestLimpets(object):
     def test_request_vs_message_flat(self):
         """Test repliers and Requests versus Messages (listener is replier)
         """
-        with KSock(KBUS_SENDER, 'rw') as sender:
+        with Ksock(KBUS_SENDER, 'rw') as sender:
             print 'Sender',str(sender)
-            with KSock(KBUS_LISTENER, 'rw') as replier:
+            with Ksock(KBUS_LISTENER, 'rw') as replier:
                 print 'Listener',str(replier)
                 replier.bind('$.Fred.Message', False)
 
@@ -242,9 +242,9 @@ class TestLimpets(object):
 
         This is closer to the original test than the "flat" version above
         """
-        with KSock(KBUS_SENDER, 'rw') as sender:
+        with Ksock(KBUS_SENDER, 'rw') as sender:
             print 'Sender',str(sender)
-            with KSock(KBUS_LISTENER, 'r') as listener:
+            with Ksock(KBUS_LISTENER, 'r') as listener:
                 print 'Listener',str(listener)
                 listener.bind('$.Fred.Message', False)
                 
@@ -257,7 +257,7 @@ class TestLimpets(object):
 
                 sender.bind('$.KBUS.ReplierBindEvent')
 
-                with KSock(KBUS_LISTENER, 'rw') as replier:
+                with Ksock(KBUS_LISTENER, 'rw') as replier:
                     print 'Replier',str(replier)
                     replier.bind('$.Fred.Message', True)
 
@@ -289,8 +289,8 @@ class TestLimpets(object):
     def test_simple_listening(self):
         """Test simple listening.
         """
-        with KSock(KBUS_LISTENER, 'rw') as this:
-            with KSock(KBUS_SENDER, 'rw') as that:
+        with Ksock(KBUS_LISTENER, 'rw') as this:
+            with Ksock(KBUS_SENDER, 'rw') as that:
 
                 print 'this',str(this)
                 print 'that',str(that)
@@ -310,9 +310,9 @@ class TestLimpets(object):
     def test_reply_to_specific_id(self):
         """Test replying to a specific id.
         """
-        with KSock(KBUS_LISTENER, 'rw') as this_1:
-            with KSock(KBUS_SENDER, 'rw') as that:
-                with KSock(KBUS_LISTENER, 'rw') as this_2:
+        with Ksock(KBUS_LISTENER, 'rw') as this_1:
+            with Ksock(KBUS_SENDER, 'rw') as that:
+                with Ksock(KBUS_LISTENER, 'rw') as this_2:
 
                     print 'this_1',str(this_1)
                     print 'this_2',str(this_2)
