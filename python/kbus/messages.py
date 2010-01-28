@@ -1630,17 +1630,30 @@ def reply_to(original, data=None, flags=0):
     # any flags from the original message.
     return Reply(name, data=data, in_reply_to=id, to=from_, flags=flags)
 
-def stateful_request(earlier_reply, arg, data=None, from_=None,
+def stateful_request(earlier_msg, arg, data=None, from_=None,
                      flags=None, id=None):
-    """Construct a stateful Request, based on an earlier Reply.
+    """Construct a stateful Request, based on an earlier Reply or stateful Request.
 
-    'earlier_reply' is an earlier Reply, whose 'from_' field will be used as
-    the new Request's 'to' field, and whose 'orig_from' field will be copied.
+    This is intended to be the normal way of constructing a stateful request.
+
+    'earlier_msg' is either:
+        
+    1. an earlier Reply, whose 'from_' field will be used as the new Request's
+       'to' field, and whose 'orig_from' field will be copied.
+
+            Remember, a Reply is a message whose 'in_reply_to' field is set.
+
+    2. an earlier Stateful Request, whose 'to' and 'orig_from' fields will be
+       copied to the new Request.
+
+            Remember, a Stateful Request is a message with the WANT_A_REPLY
+            flag set (a Request), and whose 'to' field is set (which is to a
+            specific Replier).
 
     The rest of the arguments are the same as for Request, except that the
     'to' and 'orig_from' initialiser arguments are missing.
 
-    For instance:
+    For instance, in the normal (single network) case:
 
         >>> reply = Reply('$.Fred', to=27, from_=39, in_reply_to=MessageId(0, 132))
         >>> reply
@@ -1648,13 +1661,33 @@ def stateful_request(earlier_reply, arg, data=None, from_=None,
         >>> request = stateful_request(reply, '$.SomethingElse')
         >>> request
         Request('$.SomethingElse', to=39L, flags=0x00000001)
-    """
-    if not earlier_reply.in_reply_to:
-        raise ValueError("The first argument of stateful_request() must be a"
-                         " Reply (i.e., have an 'in_reply_to' field)")
 
-    orig_from = earlier_reply.orig_from
-    to = earlier_reply.from_
+    or, with a Reply that has come from far away:
+
+        >>> reply = Reply('$.Fred', to=27, from_=39, in_reply_to=MessageId(0, 132), orig_from=OrigFrom(19,23))
+        >>> reply
+        Reply('$.Fred', to=27L, from_=39L, orig_from=OrigFrom(19, 23), in_reply_to=MessageId(0, 132))
+        >>> request = stateful_request(reply, '$.SomethingElse')
+        >>> request
+        Request('$.SomethingElse', to=39L, orig_from=OrigFrom(19, 23), flags=0x00000001)
+
+    or, reusing our stateful Request:
+
+        >>> request = stateful_request(request, '$.Again', data='Aha!')
+        >>> request
+        Request('$.Again', data='Aha!', to=39L, orig_from=OrigFrom(19, 23), flags=0x00000001)
+    """
+    if earlier_msg.in_reply_to:
+        # It's an earlier Reply
+        orig_from = earlier_msg.orig_from
+        to = earlier_msg.from_
+    elif (earlier_msg.flags & Message.WANT_A_REPLY) and earlier_msg.to:
+        # It's an earlier stateful Request
+        orig_from = earlier_msg.orig_from
+        to = earlier_msg.to
+    else:
+        raise ValueError("The first argument of stateful_request() must be a"
+                         " Reply or a previous Stateful Request")
 
     return Request(arg, data=data, to=to, from_=from_, orig_from=orig_from,
                    flags=flags, id=id)
