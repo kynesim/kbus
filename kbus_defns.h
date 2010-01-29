@@ -75,16 +75,18 @@ struct kbus_msg_id {
 };
 
 /*
- * The "originally from" id allows stateful requests to be done over a
- * Limpet-mediated system.
+ * XXX REWRITE to (a) make sense and (b) be true.
  *
- * Basically, it uniquely identifies the location of the Replier with
- * whom one wishes to communicate.
+ * The "originally from" and "finally to" ids allow stateful requests to be
+ * done over a Limpet-mediated system.
  *
- * An "originally from" id is made up of two fields, the network id
- * (which indicates the Limpet, if any, that originally gated the
- * Reply message), and a local id, which is the Ksock id of the original
- * sender of the Reply message, on its local KBUS.
+ * Basically, they uniquely identify the source of a message, and the location
+ * of the Replier with whom one wishes to communicate.
+ *
+ * An "originally from" or "finally to" id is made up of two fields, the
+ * network id (which indicates the Limpet, if any, that originally gated the
+ * message), and a local id, which is the Ksock id of the original sender
+ * of the message, on its local KBUS.
  *
  * If the network id is 0, then the "originally from" id is not being used.
  *
@@ -185,6 +187,8 @@ struct kbus_message_header {
 	 *   creating a stateful request, copy the 'orig_from' field from
 	 *   the previous Reply from the required replier.
 	 *
+	 * - 'final_to' is somewhat similar XXX missing explanation
+	 *
 	 * - 'extra' is currently unused. KBUS will currently set it to zero,
 	 *   but future versions of the software may use it.
 	 *
@@ -236,6 +240,7 @@ struct kbus_message_header {
 	uint32_t		 to;	      /* 0 (empty) or a replier id */
 	uint32_t		 from;	      /* 0 (KBUS) or the sender's id */
 	struct kbus_orig_from	 orig_from;   /* Cross-network linkage */
+	struct kbus_orig_from	 final_to;    /* Cross-network linkage */
 	uint32_t		 extra;       /* ignored field - future proofing */
 	uint32_t		 flags;	      /* Message type/flags */
 	uint32_t		 name_len;    /* Message name's length, in bytes */

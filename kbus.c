@@ -1090,24 +1090,26 @@ static void kbus_report_message(char				*kern_prefix,
 	if (msg->data_len) {
 		uint32_t	*udata_p = (uint32_t *)data_p;
 		printk("%skbus:   =%s= %u:%u '%.*s'"
-		       " to %u from %u orig %u,%u flags %04x:%04x data/%u %08x\n",
+		       " to %u from %u orig %u,%u final %u:%u flags %04x:%04x data/%u %08x\n",
 		       kern_prefix,
 		       msg->name==NULL?"E":"=",
 		       msg->id.network_id,msg->id.serial_num,
 		       msg->name_len,name_p,
 		       msg->to, msg->from,
 		       msg->orig_from.network_id, msg->orig_from.local_id,
+		       msg->final_to.network_id,  msg->final_to.local_id,
 		       (msg->flags & 0xFFFF0000)>>4, (msg->flags & 0x0000FFFF),
 		       msg->data_len,udata_p[0]);
 	} else {
 		printk("%skbus:   =%s= %u:%u '%.*s'"
-		       " to %u from %u orig %u,%u flags %04x:%04x\n",
+		       " to %u from %u orig %u,%u final %u,%u flags %04x:%04x\n",
 		       kern_prefix,
 		       msg->name==NULL?"E":"=",
 		       msg->id.network_id,msg->id.serial_num,
 		       msg->name_len,name_p,
 		       msg->to, msg->from,
 		       msg->orig_from.network_id, msg->orig_from.local_id,
+		       msg->final_to.network_id,  msg->final_to.local_id,
 		       (msg->flags & 0xFFFF0000)>>4, (msg->flags & 0x0000FFFF));
 	}
 }
