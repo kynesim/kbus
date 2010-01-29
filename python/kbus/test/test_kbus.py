@@ -1055,7 +1055,7 @@ class TestKernelModule:
             # We can make a reply "by hand" - remember that we want to
             # reply to the message we *received*, which has the id set
             # (by KBUS)
-            (id, in_reply_to, to, from_, orig_from,
+            (id, in_reply_to, to, from_, orig_from, final_to,
                     flags, name, data_array) = m2.extract()
             reply_by_hand = Message(name, data=None, in_reply_to=id, to=from_)
 
@@ -2352,7 +2352,8 @@ class TestKernelModule:
                                       MessageId(0, 27),     # in_reply_to
                                       32,                   # to
                                       0,                    # from_
-                                      OrigFrom(0, 4),       # orig_from,
+                                      OrigFrom(0, 4),       # orig_from
+                                      OrigFrom(0, 9),       # final_to
                                       0,                    # extra
                                       0,                    # flags
                                       len(name),
@@ -2370,6 +2371,8 @@ class TestKernelModule:
         assert header.from_ == 0
         assert header.orig_from.network_id == 0
         assert header.orig_from.local_id == 4
+        assert header.final_to.network_id == 0
+        assert header.final_to.local_id == 9
         assert header.flags == 0
         assert header.name_len == len(name)
         assert header.data_len == len(data)
@@ -2412,6 +2415,7 @@ class TestKernelModule:
                                            32,      # to
                                            0,       # from_
                                            (0, 0),  # orig_from
+                                           (0, 0),  # final_to
                                            0,       # flags
                                            '$.Jim.Bob',
                                            '123456')
@@ -2470,14 +2474,14 @@ class TestKernelModule:
 
             # Because we constructed a "pointy" message, the message
             # size is just the size of the header, without the name
-            assert ctypes.sizeof(m.msg) == 64
+            assert ctypes.sizeof(m.msg) == 72
 
             # But if we convert it to a string (which will be an
             # "entire" message), then the length will include the
             # message name, appropriately padded (as well as the
             # extra end guard at the very end, of course)
             s = m.to_string()
-            assert len(s) == 68 + increments[length]
+            assert len(s) == 76 + increments[length]
             assert len(s) == m.total_length()
 
     def test_message_length_data(self):
@@ -2495,14 +2499,14 @@ class TestKernelModule:
 
             # Because we constructed a "pointy" message, the message
             # size is just the size of the header, without the name
-            assert ctypes.sizeof(m.msg) == 64
+            assert ctypes.sizeof(m.msg) == 72
 
             # But if we convert it to a string (which will be an "entire"
             # message), then the length will include the message name,
             # appropriately padded, the extra end guard at the very end,
             # and the data itself, also padded
             s = m.to_string()
-            assert len(s) == 68 + 4 + increments[length]
+            assert len(s) == 76 + 4 + increments[length]
             assert len(s) == m.total_length()
 
     def test_message_data_as_string(self):
@@ -2561,6 +2565,7 @@ class TestKernelModule:
                                                0,               # to
                                                0,               # from_
                                                OrigFrom(0,0),   # orig_from
+                                               OrigFrom(0,0),   # final_to
                                                0,               # extra
                                                0,               # flags
                                                6,               # name_len
@@ -2578,6 +2583,7 @@ class TestKernelModule:
                                                0,               # to
                                                0,               # from
                                                OrigFrom(0,0),   # orig_from
+                                               OrigFrom(0,0),   # final_to
                                                0,               # extra
                                                0,               # flags
                                                6,               # name_len
@@ -2651,7 +2657,7 @@ class TestKernelModule:
 
                 # The maximum size of an entire "entire" message is 2048 bytes
                 MAX_SIZE = 2048
-                max_data_len = MAX_SIZE - 76
+                max_data_len = MAX_SIZE - 84
 
                 data = 'x' * (max_data_len -1)
                 msg = Announcement('$.Fred', data=data)

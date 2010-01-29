@@ -313,32 +313,34 @@ class BadMessage(Exception):
 def msgstr(msg):
     """Return a short string for what we want to know of a message.
     """
-    if msg.name == '$.KBUS.ReplierBindEvent':
-        is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
-        return '<%s %s from %s: %s for %d>'%('Bind' if is_bind else 'Unbind',
-                                     str(msg.id) if msg.id else '[0:0]',
-                                     msg.from_,
-                                     name, binder_id)
+    return str(msg)
 
-    if msg.is_request():
-        if msg.wants_us_to_reply():
-            what = 'Request (to us)'
-        else:
-            what = 'Request'
-    elif msg.is_reply():
-        what = 'Reply (to request %s)'%str(msg.in_reply_to)
-    else:
-        what = 'Message'
+    #if msg.name == '$.KBUS.ReplierBindEvent':
+    #    is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
+    #    return '<%s %s from %s: %s for %d>'%('Bind' if is_bind else 'Unbind',
+    #                                 str(msg.id) if msg.id else '[0:0]',
+    #                                 msg.from_,
+    #                                 name, binder_id)
 
-    if msg.is_synthetic():
-        flag = ' <synthetic> '
-    elif msg.is_urgent():
-        flag = ' <urgent> '
-    else:
-        flag = ''
+    #if msg.is_request():
+    #    if msg.wants_us_to_reply():
+    #        what = 'Request (to us)'
+    #    else:
+    #        what = 'Request'
+    #elif msg.is_reply():
+    #    what = 'Reply (to request %s)'%str(msg.in_reply_to)
+    #else:
+    #    what = 'Message'
 
-    return '%s %s %s: %s%s from %s, to %s'%(what, msg.name,
-            str(msg.id) if msg.id else '[0:0]', flag, repr(msg.data), msg.from_, msg.to)
+    #if msg.is_synthetic():
+    #    flag = ' <synthetic> '
+    #elif msg.is_urgent():
+    #    flag = ' <urgent> '
+    #else:
+    #    flag = ''
+
+    #return '%s %s %s: %s%s from %s, to %s'%(what, msg.name,
+    #        str(msg.id) if msg.id else '[0:0]', flag, repr(msg.data), msg.from_, msg.to)
 
 def padded_name_len(name_len):
     """Calculate the length of a message name, in bytes, after padding.
@@ -717,13 +719,16 @@ class Limpet(object):
 
         elif msg.is_reply():                   # a Reply (or Status)
 
+            # The 'orig_from' field is meaningful in Replies (if they've
+            # pass "through" Limpets), and in Stateful Requests (if they
+            # are "talking to" such a Replier).
+            #
             # Limpets are responsible for setting the 'orig_from' field
-            # on Replies
-            if msg.orig_from.local_id == 0:
+            # on Replies.
+            if msg.msg.orig_from.local_id == 0:
                 msg.msg.orig_from.local_id = msg.from_
-            if msg.orig_from.network_id == 0:
+            if msg.msg.orig_from.network_id == 0:
                 msg.msg.orig_from.network_id = self.network_id
-
 
         elif msg.is_request():
             if msg.flags & Message.WANT_YOU_TO_REPLY:
@@ -855,7 +860,8 @@ class Limpet(object):
                 # So, we want to send the Reply on to our KBUS
                 # The simplest thing to do really is creating a whole new message
                 msg = Reply(msg.name, data=msg.data,
-                            in_reply_to=MessageId(key[0],key[1]), to=from_)
+                            in_reply_to=MessageId(key[0],key[1]),
+                            to=from_, orig_from=orig_from)
             except KeyError:
                 # We already dealt with this Reply once, so this is presumably
                 # a "listening" copy - ignore it, the KBUS at this end will
@@ -868,28 +874,63 @@ class Limpet(object):
                 print '%s as %s'%(' '*(len(limpet_hdr)-3), msgstr(msg))
 
         elif msg.is_request():
-            if msg.flags & Message.WANT_YOU_TO_REPLY:
+            if msg.wants_us_to_reply():
                 # This is a Request that we're proxying the Replier to.
 
                 # KBUS will set/unset the WANT_YOU_TO_REPLY flag for us,
                 # so we don't need to.
 
                 # We need to handle Stateful Requests specially.                
-                # If the message was "to" our partner limpet, then we need
-                # to figure out who it's actually going to be passed on to...
-                # Otherwise, it had better be 0 (if it is some other value,
-                # then it should not be marked for us (well, our pair) to
-                # reply to, so something would be wrong).
-                if msg.to == self.other_network_id:
+                if msg.to:
+                    # The Request will have been marked "to" our Limpet pair
+                    # (otherwise we would not have received it).
+                    #
+                    # We now need to work out what the 'to' field needs setting
+                    # to for the next step on the messages route.
+
+                    # If the 'orig_from' has a network id that matches ours,
+                    # then we need to unset that, as it has clearly now come
+                    # into its "local" network
+                    if msg.msg.orig_from.network_id == self.network_id:
+                        msg.msg.orig_from.network_id = 0
+                        is_local = True
+                    else:
+                        is_local = False
+
                     # Find out who KBUS thinks is replying to this message name
                     replier_id = self.ksock.find_replier(msg.name)
-                    msg.to = replier_id
+                    if replier_id is None:
+                        # Oh dear - there is no replier
+                        if self.verbosity > 1:
+                            print '%s *** Replier gone away'%kbus_hdr
+                        error = Message('$.KBUS.Replier.GoneAway',
+                                        to=msg.from_,
+                                        in_reply_to=msg.id)
+                        self.write_message_to_socket(error)
+                        return
 
-                # Meanwhile, if the 'orig_from' has a network id that
-                # matches ours, then we need to unset that, as it has
-                # clearly now come into its "local" network
-                if msg.msg.orig_from.network_id == self.network_id:
-                    msg.msg.orig_from.network_id = 0
+                    if self.verbosity > 1:
+                        print '%s *** %s, kbus replier %u'%(kbus_hdr,
+                                'Local' if is_local else 'Nonlocal',replier_id)
+
+                    if is_local:
+                        # The KBUS we're going to write the message to is
+                        # its final KBUS. Thus the replier id must match
+                        # that of the original Replier
+                        if replier_id != msg.msg.orig_from.local_id:
+                            # Oops - wrong replier - someone rebound
+                            if self.verbosity > 1:
+                                print '%s *** Replier gone away'%kbus_hdr
+                            error = Message('$.KBUS.Replier.NotSameKsock', # XXX New message name
+                                            to=msg.from_,
+                                            in_reply_to=msg.id)
+                            self.write_message_to_socket(error)
+                            return
+
+                    # Otherwise, we should be OK reworking the State
+                    # in the Stateful Request to match this actual replier
+                    msg.msg.to = replier_id
+
             else:
                 pass
 
@@ -903,6 +944,15 @@ class Limpet(object):
         except IOError as exc:
             # If we were sending a Request, we need to fake an
             # appropriate Reply.
+            if msg.is_request():
+                errname = '$.KBUS.RemoteError.%s'%str(exc)
+                if self.verbosity > 1:
+                    print '%s *** Remote error %s'%(kbus_hdr, errname)
+                error = Message(errname,
+                                to=msg.from_,
+                                in_reply_to=msg.id)
+                self.write_message_to_socket(error)
+                return
             #
             # If we were sending a Reply, we need to think whether we
             # can do anything useful...

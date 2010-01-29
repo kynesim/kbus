@@ -181,6 +181,7 @@ def _same_message_struct(this, that):
         this.to != that.to or
         this.from_ != that.from_ or
         this.orig_from != that.orig_from or
+        this.final_to  != that.final_to or
         this.flags != that.flags or
         this.name_len != that.name_len or
         this.data_len != that.data_len or
@@ -202,7 +203,7 @@ def _equivalent_message_struct(this, that):
     * 'flags',
     * 'in_reply_to',
     * 'from' and
-    * 'orig_from'
+    * 'orig_from' and 'final_to'
 
     and, of course 'extra'.
 
@@ -312,6 +313,7 @@ class _MessageHeaderStruct(ctypes.Structure):
                 ('to',          ctypes.c_uint32),
                 ('from_',       ctypes.c_uint32), # named consistently with elsewhere
                 ('orig_from',   OrigFrom),
+                ('final_to',    OrigFrom),
                 ('extra',       ctypes.c_uint32),
                 ('flags',       ctypes.c_uint32),
                 ('name_len',    ctypes.c_uint32),
@@ -336,13 +338,14 @@ class _MessageHeaderStruct(ctypes.Structure):
             p = ctypes.cast(self.data, ctypes.POINTER(ctypes.c_uint8*self.data_len))
             s = ctypes.string_at(p, self.data_len)
             dd = repr(hexdata(s))
-        return "<%08x] %s %s %u %u %s %08x %u %u %s %s [%08x>"%(
+        return "<%08x] %s %s %u %u %s %s %08x %u %u %s %s [%08x>"%(
                 self.start_guard,
                 self.id._short_str(),
                 self.in_reply_to._short_str(),
                 self.to,
                 self.from_,
                 self.orig_from._short_str(),
+                self.final_to._short_str(),
                 self.flags,
                 self.name_len,
                 self.data_len,
@@ -381,17 +384,20 @@ def _struct_from_string(struct_class, data):
     ctypes.memmove(ctypes.addressof(thing), data, ctypes.sizeof(thing))
     return thing
 
-def message_from_parts(id, in_reply_to, to, from_, orig_from, flags, name, data):
+def message_from_parts(id, in_reply_to, to, from_, orig_from, final_to, flags, name, data):
     """Return a new Message header structure, with name and data attached.
 
     - 'id' and 'in_reply_to' are (network_id, serial_num) tuples
     - 'to', 'in_reply_to' and 'from_' are 0 or a Ksock id
-    - 'orig_from' is None or a (network_id, local_id) tuple
+    - 'orig_from' and 'final_to' are None or a (network_id, local_id) tuple
     - 'name' is a string
     - 'data' is a string or None
     """
     if orig_from is None:
         orig_from = (0,0)
+
+    if final_to is None:
+        final_to = (0,0)
 
     name_len = len(name)
 
@@ -429,7 +435,7 @@ def message_from_parts(id, in_reply_to, to, from_, orig_from, flags, name, data)
 
     return _MessageHeaderStruct(Message.START_GUARD,
                                 id, in_reply_to,
-                                to, from_, orig_from, 0, flags,
+                                to, from_, orig_from, final_to, 0, flags,
                                 name_len, data_len,
                                 name_ptr, data_ptr, Message.END_GUARD)
 
@@ -446,7 +452,7 @@ def message_from_string(msg_data):
     # But not so the data
     padded_data_len = 4*((h.data_len + 3) / 4)
 
-    name_offset = 64
+    name_offset = 72
 
     h.name = msg_data[name_offset:name_offset+h.name_len]
 
@@ -509,40 +515,54 @@ class _EntireMessageStructBaseclass(ctypes.Structure):
     def id(self):
         return self.header.id
 
-    # Announcement wants to be able to overwrite in_reply_to
-    def get_in_reply_to(self):
+    @property
+    def in_reply_to(self):
         return self.header.in_reply_to
 
-    def set_in_reply_to(self, value):
+    # Announcement wants to be able to overwrite in_reply_to
+    @in_reply_to.setter
+    def in_reply_to(self, value):
         self.header.in_reply_to = value
-
-    in_reply_to = property(get_in_reply_to, set_in_reply_to)
 
     @property
     def to(self):
         return self.header.to
 
+    # Limpets want to be able to overwrite to
+    @to.setter
+    def to(self, value):
+        self.header.to = value
+
     @property
     def from_(self):
         return self.header.from_
 
-    # Announcement and Status would quite like to be able to overwrite orig_from
-    def get_orig_from(self):
+    @property
+    def orig_from(self):
         return self.header.orig_from
 
-    def set_orig_from(self, value):
+    # Announcement and Status would quite like to be able to overwrite orig_from
+    @orig_from.setter
+    def orig_from(self, value):
         self.header.orig_from = value
 
-    orig_from = property(get_orig_from, set_orig_from)
+    @property
+    def final_to(self):
+        return self.header.final_to
 
-    # It's useful to be able to set flags
-    def get_flags(self):
+    # Announcement and Status would quite like to be able to overwrite final_to
+    @final_to.setter
+    def final_to(self, value):
+        self.header.final_to = value
+
+    @property
+    def flags(self):
         return self.header.flags
 
-    def set_flags(self, value):
+    # It's useful to be able to set flags
+    @flags.setter
+    def flags(self, value):
         self.header.flags = value
-
-    flags = property(get_flags, set_flags)
 
     @property
     def name_len(self):
@@ -599,14 +619,15 @@ def _specific_entire_message_struct(padded_name_len, padded_data_len):
         _specific_entire_message_struct_dict[key] = localEntireMessageStruct
         return localEntireMessageStruct
 
-def entire_message_from_parts(id, in_reply_to, to, from_, orig_from,
+def entire_message_from_parts(id, in_reply_to, to, from_, orig_from, final_to,
                               flags, name, data):
     """Return a new message structure of the correct shape.
 
     - 'id' and 'in_reply_to' are None or MessageId instance or (network_id,
       serial_num) tuples
     - 'to', 'in_reply_to' and 'from_' are 0 or a Ksock id
-    - 'orig_from' is None or OrigFrom instance or (network_id, local_id) tuple
+    - 'orig_from' and 'final_to' are None or OrigFrom instance or (network_id,
+      local_id) tuple
     - 'name' is a string
     - 'data' is a string or None
     """
@@ -619,6 +640,9 @@ def entire_message_from_parts(id, in_reply_to, to, from_, orig_from,
 
     if orig_from is None:
         orig_from = OrigFrom(0,0)
+
+    if final_to is None:
+        final_to = OrigFrom(0,0)
 
     name_len = len(name)
 
@@ -644,7 +668,7 @@ def entire_message_from_parts(id, in_reply_to, to, from_, orig_from,
 
     header = _MessageHeaderStruct(Message.START_GUARD,
                                   id, in_reply_to,
-                                  to, from_, orig_from, 0, flags,
+                                  to, from_, orig_from, final_to, 0, flags,
                                   name_len, data_len,
                                   None, None, Message.END_GUARD)
 
@@ -768,7 +792,7 @@ class Message(object):
 
     If you need to do that, go via the 'extract()' method:
 
-        >>> (id, in_reply_to, to, from_, orig_from, flags, name, data) = msg5.extract()
+        >>> (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data) = msg5.extract()
         >>> msg6 = Message(name, data, to, from_, None, None, flags, id)
         >>> msg6
         Message('$.Fred', data='1234', to=9L)
@@ -842,32 +866,32 @@ class Message(object):
     ALL_OR_FAIL         = _BIT(9)
 
     def __init__(self, arg, data=None, to=None, from_=None, orig_from=None,
-                 in_reply_to=None, flags=None, id=None):
+                 final_to=None, in_reply_to=None, flags=None, id=None):
         """Initialise a Message.
 
         All named arguments are meant to be "unset" by default.
         """
 
         if isinstance(arg, Message):
-            self._merge_args(arg.extract(), data, to, from_, orig_from,
+            self._merge_args(arg.extract(), data, to, from_, orig_from, final_to,
                              in_reply_to, flags, id)
         elif isinstance(arg, tuple) or isinstance(arg, list):
             # A tuple from .extract(), or an equivalent tuple/list
-            if len(arg) != 8:
+            if len(arg) != 9:
                 raise ValueError("Tuple arg to Message() must have"
-                        " 8 values, not %d"%len(arg))
+                        " 9 values, not %d"%len(arg))
             else:
-                self._merge_args(arg, data, to, from_, orig_from,
+                self._merge_args(arg, data, to, from_, orig_from, final_to,
                                  in_reply_to, flags, id)
         elif isinstance(arg, str):
             if arg.startswith('$.'):
                 # It looks like a message name
                 name = arg
-                self._from_data(name, data, to, from_, orig_from,
+                self._from_data(name, data, to, from_, orig_from, final_to,
                                 in_reply_to, flags, id)
             elif data is None and to is None and from_ is None and \
-                 orig_from is None and in_reply_to is None and \
-                 flags is None and id is None:
+                 orig_from is None and final_to is None and \
+                 in_reply_to is None and flags is None and id is None:
                 # Assume it's sensible data...
                 self.msg = entire_message_from_string(arg)
             else:
@@ -880,7 +904,8 @@ class Message(object):
         self._check()
 
     def _merge_args(self, extracted, this_data, this_to, this_from_,
-                    this_orig_from, this_in_reply_to, this_flags, this_id):
+                    this_orig_from, this_final_to, this_in_reply_to,
+                    this_flags, this_id):
         """Set our data from a msg.extract() tuple and optional arguments.
 
         Note that, if given, 'id' and 'in_reply_to' must be MessageId
@@ -891,21 +916,22 @@ class Message(object):
         1. a string, or something else compatible.
         2. None.
         """
-        (id, in_reply_to, to, from_, orig_from, flags, name, data) = extracted
+        (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data) = extracted
         if this_data        is not None: data        = this_data
         if this_to          is not None: to          = this_to
         if this_from_       is not None: from_       = this_from_
         if this_orig_from   is not None: orig_from   = this_orig_from
+        if this_final_to    is not None: final_to    = this_final_to
         if this_in_reply_to is not None: in_reply_to = this_in_reply_to
         if this_flags       is not None: flags       = this_flags
         if this_id          is not None: id          = this_id
-        self._from_data(name, data, to, from_, orig_from, in_reply_to, flags, id)
+        self._from_data(name, data, to, from_, orig_from, final_to, in_reply_to, flags, id)
 
-    def _from_data(self, name, data, to, from_, orig_from, in_reply_to, flags, id):
+    def _from_data(self, name, data, to, from_, orig_from, final_to, in_reply_to, flags, id):
         """Set our data from individual arguments.
 
         Note that, if given, 'id' and 'in_reply_to' must be MessageId
-        instances, and 'orig_from' an OrigFrom instance.
+        instances, and 'orig_from' and 'final_to' OrigFrom instances.
         """
 
         if id:
@@ -929,11 +955,17 @@ class Message(object):
         else:
             orig_from_tuple = (0, 0)
 
+        if final_to:
+            final_to_tuple = (final_to.network_id, final_to.local_id)
+        else:
+            final_to_tuple = (0, 0)
+
         if not flags:
             flags = 0
 
         self.msg = message_from_parts(id_tuple, in_reply_to_tuple,
-                                      to, from_, orig_from_tuple,
+                                      to, from_,
+                                      orig_from_tuple, final_to_tuple,
                                       flags, name, data)
 
     def _check(self):
@@ -950,7 +982,7 @@ class Message(object):
                              " (e.g., '$.*')"%self.msg.name_len)
 
     def __repr__(self):
-        (id, in_reply_to, to, from_, orig_from, flags, name, data) = self.extract()
+        (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data) = self.extract()
         args = [repr(name)]
         if data is not None:
             args.append('data=%s'%repr(hexdata(data)))
@@ -960,6 +992,8 @@ class Message(object):
             args.append('from_=%s'%repr(from_))
         if orig_from:
             args.append('orig_from=%s'%repr(orig_from))
+        if final_to:
+            args.append('final_to=%s'%repr(final_to))
         if in_reply_to:
             args.append('in_reply_to=%s'%repr(in_reply_to))
         if flags:
@@ -969,7 +1003,7 @@ class Message(object):
         return 'Message(%s)'%(', '.join(args))
 
     def __str__(self):
-        (id, in_reply_to, to, from_, orig_from, flags, name, data) = self.extract()
+        (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data) = self.extract()
         # Try to be a bit friendly about what type of message this is
         if self.is_reply():
             if name.startswith('$.KBUS.'):
@@ -980,7 +1014,13 @@ class Message(object):
             what = 'Request'
         else:
             what = 'Announcement'
-        parts = [repr(name)]
+
+        if name == '$.KBUS.ReplierBindEvent':
+            what = 'ReplierBindEvent'
+            parts = []
+        else:
+            parts = [repr(name)]
+
         if id:
             parts.append('id=%s'%str(id))
         if to:
@@ -989,6 +1029,8 @@ class Message(object):
             parts.append('from=%d'%from_)
         if orig_from:
             parts.append('orig_from=%s'%str(orig_from))
+        if final_to:
+            parts.append('final_to=%s'%str(final_to))
         if in_reply_to:
             parts.append('in_reply_to=%s'%str(in_reply_to))
         if flags:
@@ -998,7 +1040,12 @@ class Message(object):
             else:
                 parts.append('flags=0x%x'%flags)
         if data:
-            parts.append('data=%s'%repr(data))
+            if name == '$.KBUS.ReplierBindEvent':
+                is_bind, binder_id, name = split_replier_bind_event_data(data)
+                parts.append('[%s %s for %u]'%('Bind' if is_bind else 'Unbind',
+                                               repr(name), binder_id))
+            else:
+                parts.append('data=%s'%repr(data))
         return '<%s %s>'%(what, ', '.join(parts))
 
     def _flag_text(self, flags):
@@ -1013,6 +1060,14 @@ class Message(object):
             words.append('SYN')
         if flags & Message.URGENT:
             words.append('URG')
+
+        # I can't think of good short mnemonics for the next two,
+        # so let's go with bad short mnemonics
+        if flags & Message.ALL_OR_FAIL:
+            words.append('aFL')
+        if flags & Message.ALL_OR_WAIT:
+            words.append('aWT')
+
         if len(words):
             return ','.join(words)
         else:
@@ -1148,6 +1203,15 @@ class Message(object):
             return self.msg.orig_from
 
     @property
+    def final_to(self):
+        network_id = self.msg.final_to.network_id
+        local_id   = self.msg.final_to.local_id
+        if network_id == 0 and local_id == 0:
+            return None
+        else:
+            return self.msg.final_to
+
+    @property
     def flags(self):
         return self.msg.flags
 
@@ -1171,12 +1235,12 @@ class Message(object):
         The values are returned in something approximating the order
         within the message itself:
 
-            (id, in_reply_to, to, from_, orig_from, flags, name, data)
+            (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data)
 
         This is not the same order as the keyword arguments to Message().
         """
         return (self.id, self.in_reply_to, self.to, self.from_, self.orig_from,
-                self.flags, self.name, self.data)
+                self.final_to, self.flags, self.name, self.data)
 
     def to_string(self):
         """Return the message as a string.
@@ -1187,9 +1251,9 @@ class Message(object):
         message (so that we don't have any dangling "pointers" to the
         name or data).
         """
-        (id, in_reply_to, to, from_, orig_from, flags, name, data) = self.extract()
+        (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data) = self.extract()
         tmp = entire_message_from_parts(id, in_reply_to, to, from_, orig_from,
-                                        flags, name, data)
+                                        final_to, flags, name, data)
         return _struct_to_string(tmp)
 
     def is_reply(self):
@@ -1346,8 +1410,9 @@ class Announcement(Message):
                                            from_=from_, flags=flags, id=id)
         # And, in case 'in_reply_to' got set by that
         self.msg.in_reply_to = MessageId(0, 0)
-        # Or 'orig_from'
+        # Or 'orig_from' and friend
         self.msg.orig_from = OrigFrom(0,0)
+        self.msg.final_to = OrigFrom(0,0)
 
     def set_want_reply(self, value=True):
         """Announcements are not Requests.
@@ -1355,7 +1420,7 @@ class Announcement(Message):
         raise TypeError("Announcements are not Requests")
 
     def __repr__(self):
-        (id, in_reply_to, to, from_, orig_from, flags, name, data) = self.extract()
+        (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data) = self.extract()
         args = [repr(name)]
         if data is not None:
             args.append('data=%s'%repr(hexdata(data)))
@@ -1405,14 +1470,14 @@ class Request(Message):
         >>> req
         Request('$.Fred', data='1234', to=1234L, flags=0x00000001)
 
-    A Stateful Request may also need to supply an 'orig_from' argument, if the
+    A Stateful Request may also need to supply a 'final_to' argument, if the
     original Replier is over a (Limpet) network. This should be taken from an
     earlier Reply from that Replier -- see the convenience function
     stateful_request(). However, it can be done by hand:
 
-        >>> req = Request('$.Fred', data='1234', to=1234, orig_from=OrigFrom(12, 23), flags=0x00000001)
+        >>> req = Request('$.Fred', data='1234', to=1234, final_to=OrigFrom(12, 23), flags=0x00000001)
         >>> req
-        Request('$.Fred', data='1234', to=1234L, orig_from=OrigFrom(12, 23), flags=0x00000001)
+        Request('$.Fred', data='1234', to=1234L, final_to=OrigFrom(12, 23), flags=0x00000001)
 
     Note that:
 
@@ -1435,18 +1500,19 @@ class Request(Message):
     #
     # which I *can* do (and want to be able to do) with Message
 
-    def __init__(self, arg, data=None, to=None, from_=None, orig_from=None,
+    def __init__(self, arg, data=None, to=None, from_=None, final_to=None,
                  flags=None, id=None):
         """Arguments are exactly the same as for Message itself.
         """
         # First, just do what the caller asked for directly
         # but with 'in_reply_to' as 0
-        super(Request, self).__init__(arg, data, to, from_, orig_from, 0, flags, id)
+        super(Request, self).__init__(arg, data=data, to=to, from_=from_,
+                                      final_to=final_to, flags=flags, id=id)
         # But then make sure that the "wants a reply" flag is set
         super(Request, self).set_want_reply(True)
 
     def __repr__(self):
-        (id, in_reply_to, to, from_, orig_from, flags, name, data) = self.extract()
+        (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data) = self.extract()
         args = [repr(name)]
         if data is not None:
             args.append('data=%s'%repr(hexdata(data)))
@@ -1456,6 +1522,8 @@ class Request(Message):
             args.append('from_=%s'%repr(from_))
         if orig_from:
             args.append('orig_from=%s'%repr(orig_from))
+        if final_to:
+            args.append('final_to=%s'%repr(final_to))
         if flags:
             args.append('flags=0x%08x'%flags)
         if id:
@@ -1527,7 +1595,7 @@ class Reply(Message):
             raise ValueError("A Reply must specify in_reply_to")
 
     def __repr__(self):
-        (id, in_reply_to, to, from_, orig_from, flags, name, data) = self.extract()
+        (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data) = self.extract()
         args = [repr(name)]
         if data is not None:
             args.append('data=%s'%repr(hexdata(data)))
@@ -1574,9 +1642,10 @@ class Status(Message):
         super(Status, self).__init__(original)
         # And, in case 'orig_from' got set by that
         self.msg.orig_from = OrigFrom(0,0)
+        self.msg.final_to = OrigFrom(0,0)
 
     def __repr__(self):
-        (id, in_reply_to, to, from_, orig_from, flags, name, data) = self.extract()
+        (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data) = self.extract()
         args = [repr(name)]
         if data is not None:
             args.append('data=%s'%repr(hexdata(data)))
@@ -1640,7 +1709,7 @@ def reply_to(original, data=None, flags=0):
         raise ValueError("Cannot form a reply to a message that does not have"
                 " WANT_A_REPLY and WANT_YOU_TO_REPLY set: %s"%original)
 
-    (id, in_reply_to, to, from_, orig_from, original_flags,
+    (id, in_reply_to, to, from_, orig_from, final_to, original_flags,
             name, data_tuple) = original.extract()
     # We reply to the original sender (to), indicating which message we're
     # responding to (in_reply_to).
@@ -1660,7 +1729,8 @@ def stateful_request(earlier_msg, arg, data=None, from_=None,
     'earlier_msg' is either:
         
     1. an earlier Reply, whose 'from_' field will be used as the new Request's
-       'to' field, and whose 'orig_from' field will be copied.
+       'to' field, and whose 'orig_from' field will be used as the new Request's
+       'final_to' field.
 
             Remember, a Reply is a message whose 'in_reply_to' field is set.
 
@@ -1690,26 +1760,26 @@ def stateful_request(earlier_msg, arg, data=None, from_=None,
         Reply('$.Fred', to=27L, from_=39L, orig_from=OrigFrom(19, 23), in_reply_to=MessageId(0, 132))
         >>> request = stateful_request(reply, '$.SomethingElse')
         >>> request
-        Request('$.SomethingElse', to=39L, orig_from=OrigFrom(19, 23), flags=0x00000001)
+        Request('$.SomethingElse', to=39L, final_to=OrigFrom(19, 23), flags=0x00000001)
 
     or, reusing our stateful Request:
 
         >>> request = stateful_request(request, '$.Again', data='Aha!')
         >>> request
-        Request('$.Again', data='Aha!', to=39L, orig_from=OrigFrom(19, 23), flags=0x00000001)
+        Request('$.Again', data='Aha!', to=39L, final_to=OrigFrom(19, 23), flags=0x00000001)
     """
     if earlier_msg.is_reply():
-        orig_from = earlier_msg.orig_from
+        final_to = earlier_msg.orig_from
         to = earlier_msg.from_
     elif earlier_msg.is_stateful_request():
         # It's an earlier stateful Request
-        orig_from = earlier_msg.orig_from
+        final_to = earlier_msg.final_to
         to = earlier_msg.to
     else:
         raise ValueError("The first argument of stateful_request() must be a"
                          " Reply or a previous Stateful Request")
 
-    return Request(arg, data=data, to=to, from_=from_, orig_from=orig_from,
+    return Request(arg, data=data, to=to, from_=from_, final_to=final_to,
                    flags=flags, id=id)
 
 

@@ -28,6 +28,7 @@
 #
 # ***** END LICENSE BLOCK *****
 
+import errno
 import os
 import select
 import socket
@@ -38,7 +39,10 @@ import nose
 from multiprocessing import Process
 
 from kbus import Ksock, Message, MessageId, Announcement, \
-                 Request, Reply, Status, reply_to
+                 Request, Reply, Status, reply_to, stateful_request
+
+from kbus.test.test_kbus import check_IOError
+
 from limpet import run_a_limpet, GiveUp, OtherLimpetGoneAway
 
 NUM_DEVICES = 5
@@ -81,6 +85,7 @@ def our_limpet(is_server, sock_address, sock_family, kbus_device, network_id):
         print 'KBUS %d The Limpet at the other end of the connection has closed'%kbus_device
     except Exception as exc:
         print 'KBUS %d %s'%(kbus_device, exc)
+        traceback.print_exc()
 
 # The "normal" KBUS test code uses a single KBUS, and tests open Ksocks
 # on it to send/receive messages.
@@ -310,53 +315,118 @@ class TestLimpets(object):
     def test_reply_to_specific_id(self):
         """Test replying to a specific id.
         """
-        with Ksock(KBUS_LISTENER, 'rw') as this_1:
-            with Ksock(KBUS_SENDER, 'rw') as that:
-                with Ksock(KBUS_LISTENER, 'rw') as this_2:
+        with Ksock(KBUS_LISTENER, 'rw') as replier:
+            with Ksock(KBUS_SENDER, 'rw') as sender:
+                with Ksock(KBUS_LISTENER, 'rw') as listener:
 
-                    print 'this_1',str(this_1)
-                    print 'this_2',str(this_2)
-                    print 'that  ',str(that)
+                    print 'Participants:'
+                    print '  sender  ',str(sender)
+                    print '  replier ',str(replier)
+                    print '  listener',str(listener)
 
-                    # that is listening for someone to say 'Hello'
-                    that.bind('$.Hello')
+                    sender.bind('$.KBUS.ReplierBindEvent')
 
-                    # this_1 says 'Hello' to anyone listening
+                    # sender is listening for someone to say 'Hello'
+                    sender.bind('$.Hello')
+
+                    # replier says 'Hello' to anyone listening
                     m = Message('$.Hello', 'dada')
-                    this_1.send_msg(m)
+                    replier.send_msg(m)
 
                     # We read the next message - it's a 'Hello'
-                    r = that.wait_for_msg()
+                    r = sender.wait_for_msg()
                     assert r.name == '$.Hello'
                     print r
 
                     # Two interfaces decide to listen to '$.Reponse'
-                    this_1.bind('$.Response', True)
-                    this_2.bind('$.Response')
-                    # However, that *cares* that this_1 should receive its
+                    replier.bind('$.Response', True)
+                    listener.bind('$.Response')
+
+                    # Synchronise...
+                    b = sender.wait_for_msg()
+                    assert b.name == '$.KBUS.ReplierBindEvent'
+
+                    # However, sender *cares* that replier should receive its
                     # response, and is not worried about anyone else
-                    # doing so
-                    target_id = r.from_
-                    print 'Hello from %d'%target_id
-                    m2 = Request('$.Response', data='fead', to=target_id)
-                    that.send_msg(m2)   # XXX MAKE THIS WORK XXX
+                    # doing so. First it needs to get the contact information
+                    # for replier. The normal way to do that is to send a
+                    # request (this makes sense as "the normal way", since by
+                    # definition a stateful request wants a Replier at the
+                    # other end, and doing the Request/Reply thing establishes
+                    # that that is what we have).
+                    req = Request('$.Response')
+                    sender.send_msg(req)
 
-                    # So, both recipients should "see" it
-                    r = this_1.wait_for_msg()
-                    assert r.equivalent(m2)
-                    r = this_2.wait_for_msg()
-                    assert r.equivalent(m2)
+                    # The listener gets a plain request
+                    a = listener.wait_for_msg()
+                    assert not r.wants_us_to_reply()
 
-                    # But if this_1 should stop listening to the responses
+                    # The replier gets the request-for-reply
+                    b = replier.wait_for_msg()
+                    assert b.wants_us_to_reply()
+                    # and should thus reply to it
+                    r = reply_to(b)
+                    replier.send_msg(r)
+
+                    # listener receives the reply, because it has the same name
+                    c = listener.wait_for_msg()
+                    assert c.is_reply()
+
+                    # sender receives the reply
+                    m = sender.wait_for_msg()
+                    print 'Sender received  ',str(m)
+                    # and uses *that* to construct a stateful request
+                    s = stateful_request(m, '$.Response', 'Aha!')
+                    print 'Sender requests  ',str(s)
+                    sender.send_msg(s)
+
+                    # Both recipients should "see" that stateful request
+                    r = replier.wait_for_msg()
+                    print 'Replier receives ',str(r)
+                    assert r.wants_us_to_reply()
+                    assert r.to == replier.ksock_id()
+                    assert r.data == 'Aha!'
+
+                    l = listener.wait_for_msg()
+                    print 'Listener receives',str(l)
+                    assert not l.wants_us_to_reply()
+                    assert l.to == replier.ksock_id()
+                    assert l.data == 'Aha!'
+                    assert l.id == r.id
+
+                    # But if replier should stop listening to the responses
                     # (either because it "goes away", or because it unbinds)
                     # then we want to know about this...
-                    this_1.unbind('$.Response', True)
-                    check_IOError(errno.EADDRNOTAVAIL, that.send_msg, m2)
+                    replier.unbind('$.Response', True)
+                    # But the Limpet's have to commnicate that fact. So the
+                    # sender has no way of knowing (until that has happened)
+                    # that it can't still connect to the same replier...
+                    sent_id = sender.send_msg(s)
+                    m = sender.wait_for_msg()
+                    print 'Replier unbind event',str(m)
+                    assert m.name == '$.KBUS.ReplierBindEvent'
+
+                    m = sender.wait_for_msg()
+                    print 'Expect complaint that Replier did go away',str(m)
+                    assert m.to == sender.ksock_id()
+                    assert m.in_reply_to == sent_id
 
                     # And if someone different starts to reply, we want to
                     # know about that as well
-                    this_2.bind('$.Response', True)
-                    check_IOError(errno.EPIPE, that.send_msg, m2)
+                    listener.bind('$.Response', True)
+
+                    # Synchronise...
+                    b = sender.wait_for_msg()
+                    print 'Expect new binder',str(b)
+                    assert b.name == '$.KBUS.ReplierBindEvent'
+
+                    # And sending our Request again should fail
+                    # because it's the wrong replier
+                    sent_id = sender.send_msg(s)
+                    m = sender.wait_for_msg(5)
+                    print 'Finally, got',str(m)
+                    raise GiveUp
+
 
 import traceback
     
@@ -402,7 +472,7 @@ if __name__ == '__main__':
         delim = '='*60
         colour = 'GREEN'
     else:
-        delim = '!'
+        delim = '!'*60
         colour = 'RED'
     print delim
     print '%s: Passed %d out of %d tests'%(colour, passed, num_tests)
