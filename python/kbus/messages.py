@@ -1176,6 +1176,12 @@ class Message(object):
             return self.msg.id
 
     @property
+    def _id(self):
+        """This is a "direct" form of the 'id' property.
+        """
+        return self.msg.id
+
+    @property
     def in_reply_to(self):
         network_id = self.msg.in_reply_to.network_id
         serial_num = self.msg.in_reply_to.serial_num
@@ -1184,6 +1190,12 @@ class Message(object):
         else:
             #return MessageId(network_id, serial_num)
             return self.msg.in_reply_to
+
+    @property
+    def _in_reply_to(self):
+        """This is a "direct" form of the 'in_reply_to' property.
+        """
+        return self.msg.in_reply_to
 
     @property
     def to(self):
@@ -1203,6 +1215,12 @@ class Message(object):
             return self.msg.orig_from
 
     @property
+    def _orig_from(self):
+        """This is a "direct" version of the 'orig_from' property.
+        """
+        return self.msg.orig_from
+
+    @property
     def final_to(self):
         network_id = self.msg.final_to.network_id
         local_id   = self.msg.final_to.local_id
@@ -1210,6 +1228,12 @@ class Message(object):
             return None
         else:
             return self.msg.final_to
+
+    @property
+    def _final_to(self):
+        """This is a "direct" version of the 'final_to' property.
+        """
+        return self.msg.final_to
 
     @property
     def flags(self):
@@ -1772,7 +1796,6 @@ def stateful_request(earlier_msg, arg, data=None, from_=None,
         final_to = earlier_msg.orig_from
         to = earlier_msg.from_
     elif earlier_msg.is_stateful_request():
-        # It's an earlier stateful Request
         final_to = earlier_msg.final_to
         to = earlier_msg.to
     else:

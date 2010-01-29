@@ -26,7 +26,8 @@ command line is not significant, but if a later <thing> contradicts an earlier
 
     -id <number>    Messages sent by this Limpet (to the other Limpet) will
                     have network ID <number>. This defaults to 1 for a client
-                    and 2 for a server.
+                    and 2 for a server. Regardless, it must be greater than
+                    zero.
 
     -k <number>, -kbus <number>
                     Connect to the given KBUS device. The default is to connect
@@ -280,6 +281,7 @@ effect...
 """
 
 import ctypes
+import errno
 import os
 import select
 import socket
@@ -403,7 +405,8 @@ class Limpet(object):
 
         - kbus_device is which KBUS to open
         - network_id is the network id to set in message ids when we are
-          forwarding a message to the other Limpet
+          forwarding a message to the other Limpet. It must be greater
+          than zero.
         - socket_addresss is the socket address we use to talk to the
           other Limpet
         - is_server is true if we are the "server" of the Limpet pair, false
@@ -417,6 +420,14 @@ class Limpet(object):
           1 we just announce ourselves, if it is 2 (or higher) we output
           information about each message as it is processed.
         """
+        if network_id < 1:
+            raise ValueError('Limpet network id must be > 0, not %d'%network_id)
+
+        if socket_family not in (socket.AF_UNIX, socket.AF_INET):
+            raise ValueError('Socket family is %d, must be AF_UNIX (%s) or'
+                             ' AF_INET (%d)'%(socket_family,
+                                              socket.AF_UNIX, socket.AF_INET))
+
         self.kbus_device = kbus_device
         self.sock_address = socket_addresss
         self.sock_family = socket_family
@@ -427,10 +438,6 @@ class Limpet(object):
 
         # We don't know the network id of our Limpet pair yet
         self.other_network_id = None
-
-        if socket_family not in (socket.AF_UNIX, socket.AF_INET):
-            raise GiveUp('Socket family is %d, must be AF_UNIX (%s) or AF_INET (%d)'%(socket_family,
-                socket.AF_UNIX, socket.AF_INET))
 
         self.sock = None
         self.listener = None
@@ -443,7 +450,7 @@ class Limpet(object):
 
         # A dictionary of information about each Request that we have proxied
         # as a Replier for that Request. We remember the Request message id as
-        # the key, and the from/to/orig_from information as the data
+        # the key, and the from/to information as the data
         self.our_requests = {}
 
         if is_server:
@@ -667,8 +674,33 @@ class Limpet(object):
         # from KBUS itself, which *will* have message id [0:0]. So we need
         # to go "under the hood" a bit, and the following is the current
         # correct way to do so.
-        if msg.msg.id.network_id == 0:
-            msg.msg.id.network_id = self.network_id
+        if msg._id.network_id == 0:
+            msg._id.network_id = self.network_id
+
+        # Limpets are responsible for setting the 'orig_from' field,
+        # which indicates:
+        #
+        # 1. The ksock_id of the original sender of the message
+        # 2. The network_id of the first Limpet to pass the message
+        #    on to its pair.
+        #
+        # When the message gets *back* to this Limpet, we will be
+        # able to recognise it (its network id will be the same as
+        # ours), and thus we will know the ksock_id of its original
+        # sender, if we care.
+        #
+        # Moreover, we can use this information when setting up a
+        # stateful request - the orig_from can be copied to the
+        # stateful request's final_to field, the network/ksock we
+        # want to assert must handle the far end of the dialogue.
+        #
+        # So, if we are the first Limpet to handle this message from
+        # KBUS, then we give it our network id.
+        if msg._orig_from.network_id == 0:
+            if self.verbosity > 1:
+                print '+++++++++ setting orig_from to %u,%u'%(self.network_id,msg.from_)
+            msg._orig_from.network_id = self.network_id
+            msg._orig_from.local_id = msg.from_
 
         data = msg.to_string()
         self.sock.sendall(data)
@@ -718,25 +750,15 @@ class Limpet(object):
                 return
 
         elif msg.is_reply():                   # a Reply (or Status)
-
-            # The 'orig_from' field is meaningful in Replies (if they've
-            # pass "through" Limpets), and in Stateful Requests (if they
-            # are "talking to" such a Replier).
-            #
-            # Limpets are responsible for setting the 'orig_from' field
-            # on Replies.
-            if msg.msg.orig_from.local_id == 0:
-                msg.msg.orig_from.local_id = msg.from_
-            if msg.msg.orig_from.network_id == 0:
-                msg.msg.orig_from.network_id = self.network_id
+            pass
 
         elif msg.is_request():
             if msg.flags & Message.WANT_YOU_TO_REPLY:
                 # Remember the details of this Request for when we get a Reply
                 # (Note that the message id itself is not suitable as a key,
                 # as it is not immutable, and does not have a __hash__ method)
-                key = (msg.msg.id.network_id, msg.msg.id.serial_num)
-                self.our_requests[key] = (msg.from_, msg.to, msg.orig_from)
+                key = (msg._id.network_id, msg._id.serial_num)
+                self.our_requests[key] = (msg.from_, msg.to)
                 # and send it on
             else:
                 pass        # send it on
@@ -744,7 +766,7 @@ class Limpet(object):
         else: # It's a "normal" message, an Announcement
             pass
 
-        if msg.msg.id.network_id == self.other_network_id:
+        if msg._id.network_id == self.other_network_id:
             # This is a message that originated with our pair Limpet (so it's
             # been from the other Limpet, to us, to KBUS, and we're now getting
             # it back again). Therefore we want to ignore it. When the original
@@ -821,13 +843,13 @@ class Limpet(object):
 
             # If this message is in reply to a message from our network,
             # revert to the original message id
-            if msg.msg.in_reply_to.network_id == self.network_id:
-                msg.msg.in_reply_to.network_id = 0
+            if msg._in_reply_to.network_id == self.network_id:
+                msg._in_reply_to.network_id = 0
 
             # Look up the original Request and amend appropriately
-            key = (msg.msg.in_reply_to.network_id, msg.msg.in_reply_to.serial_num)
+            key = (msg._in_reply_to.network_id, msg._in_reply_to.serial_num)
             try:
-                from_, to, orig_from = self.our_requests[key]
+                from_, to = self.our_requests[key]
                 del self.our_requests[key]          # we shouldn't see it again
 
                 # What if it's a Status message? A Status message is one with
@@ -861,7 +883,7 @@ class Limpet(object):
                 # The simplest thing to do really is creating a whole new message
                 msg = Reply(msg.name, data=msg.data,
                             in_reply_to=MessageId(key[0],key[1]),
-                            to=from_, orig_from=orig_from)
+                            to=from_, orig_from=msg.orig_from)
             except KeyError:
                 # We already dealt with this Reply once, so this is presumably
                 # a "listening" copy - ignore it, the KBUS at this end will
@@ -873,66 +895,75 @@ class Limpet(object):
             if self.verbosity > 1:
                 print '%s as %s'%(' '*(len(limpet_hdr)-3), msgstr(msg))
 
-        elif msg.is_request():
-            if msg.wants_us_to_reply():
-                # This is a Request that we're proxying the Replier to.
+        elif msg.is_stateful_request() and msg.wants_us_to_reply():
+            # The Request will have been marked "to" our Limpet pair
+            # (otherwise we would not have received it).
+            #
+            # We now need to work out what the 'to' field needs setting
+            # to for the next step on the messages route.
 
-                # KBUS will set/unset the WANT_YOU_TO_REPLY flag for us,
-                # so we don't need to.
-
-                # We need to handle Stateful Requests specially.                
-                if msg.to:
-                    # The Request will have been marked "to" our Limpet pair
-                    # (otherwise we would not have received it).
-                    #
-                    # We now need to work out what the 'to' field needs setting
-                    # to for the next step on the messages route.
-
-                    # If the 'orig_from' has a network id that matches ours,
-                    # then we need to unset that, as it has clearly now come
-                    # into its "local" network
-                    if msg.msg.orig_from.network_id == self.network_id:
-                        msg.msg.orig_from.network_id = 0
-                        is_local = True
-                    else:
-                        is_local = False
-
-                    # Find out who KBUS thinks is replying to this message name
-                    replier_id = self.ksock.find_replier(msg.name)
-                    if replier_id is None:
-                        # Oh dear - there is no replier
-                        if self.verbosity > 1:
-                            print '%s *** Replier gone away'%kbus_hdr
-                        error = Message('$.KBUS.Replier.GoneAway',
-                                        to=msg.from_,
-                                        in_reply_to=msg.id)
-                        self.write_message_to_socket(error)
-                        return
-
-                    if self.verbosity > 1:
-                        print '%s *** %s, kbus replier %u'%(kbus_hdr,
-                                'Local' if is_local else 'Nonlocal',replier_id)
-
-                    if is_local:
-                        # The KBUS we're going to write the message to is
-                        # its final KBUS. Thus the replier id must match
-                        # that of the original Replier
-                        if replier_id != msg.msg.orig_from.local_id:
-                            # Oops - wrong replier - someone rebound
-                            if self.verbosity > 1:
-                                print '%s *** Replier gone away'%kbus_hdr
-                            error = Message('$.KBUS.Replier.NotSameKsock', # XXX New message name
-                                            to=msg.from_,
-                                            in_reply_to=msg.id)
-                            self.write_message_to_socket(error)
-                            return
-
-                    # Otherwise, we should be OK reworking the State
-                    # in the Stateful Request to match this actual replier
-                    msg.msg.to = replier_id
-
+            # If the 'final_to' has a network id that matches ours,
+            # then we need to unset that, as it has clearly now come
+            # into its "local" network.
+            if self.verbosity > 1:
+                print '%s *** final_to.network_id %u, network_id %u'%(kbus_hdr,
+                              msg._final_to.network_id, self.network_id)
+            if msg._final_to.network_id == self.network_id:
+                msg._final_to.network_id = 0        # XXX Do we need to do this?
+                is_local = True
             else:
-                pass
+                is_local = False
+
+            # Find out who KBUS thinks is replying to this message name
+            replier_id = self.ksock.find_replier(msg.name)
+            if replier_id is None:
+                # Oh dear - there is no replier
+                if self.verbosity > 1:
+                    print '%s *** There is no Replier - Replier gone away'%kbus_hdr
+                error = Message('$.KBUS.Replier.GoneAway',
+                                to=msg.from_,
+                                in_reply_to=msg.id)
+                self.write_message_to_socket(error)
+                return
+
+            if self.verbosity > 1:
+                print '%s *** %s, kbus replier %u'%(kbus_hdr,
+                        'Local' if is_local else 'Nonlocal',replier_id)
+
+            if is_local:
+                # The KBUS we're going to write the message to is
+                # the final KBUS. Thus the replier id must match
+                # that of the original Replier
+                if replier_id != msg._final_to.local_id:
+                    # Oops - wrong replier - someone rebound
+                    if self.verbosity > 1:
+                        print '%s *** Replier is %u, wanted %u - ' \
+                              'Replier gone away'%(kbus_hdr,replier_id,msg._final_to.local_id)
+                    error = Message('$.KBUS.Replier.NotSameKsock', # XXX New message name
+                                    to=msg.from_,
+                                    in_reply_to=msg.id)
+                    self.write_message_to_socket(error)
+                    return
+
+            # Regardless, we believe the message is OK, so need to
+            # adjust who it is meant to go to (locally)
+            if is_local:
+                # If we're in our final stage, then we insist that the
+                # Replier we deliver to be the Replier we expected
+                msg.msg.to = msg._final_to.local_id
+            else:
+                # If we're just passing through, then just deliver
+                # it to whoever is listening
+                # XXX What happens if they are not a Limpet?
+                # XXX That would be bad - but I'm not sure how we could
+                # XXX tell (short of allowing Limpets to register with
+                # XXX KBUS, so that we can ask - and then a non-Limpet
+                # XXX could presumably *pretend* to be a Limpet anyway
+                # XXX - a potentially infinite shell game then ensues...
+                msg.msg.to = replier_id
+
+            if self.verbosity > 1:
+                print '%s Adjusted the msg.to field'%kbus_hdr
 
         else:
             pass
@@ -945,7 +976,10 @@ class Limpet(object):
             # If we were sending a Request, we need to fake an
             # appropriate Reply.
             if msg.is_request():
-                errname = '$.KBUS.RemoteError.%s'%str(exc)
+                try:
+                    errname = '$.KBUS.RemoteError.%s'%errno.errorcode[exc.errno]
+                except KeyError:
+                    errname = '$.KBUS.RemoteError.%d'%exc.errno
                 if self.verbosity > 1:
                     print '%s *** Remote error %s'%(kbus_hdr, errname)
                 error = Message(errname,
@@ -1068,6 +1102,9 @@ def main(args):
                     network_id = int(args[0])
                 except:
                     raise GiveUp('-id requires an integer argument (network id)')
+                if network_id < 1:
+                    raise GiveUp('Illegal network id (-id %d), network id must'
+                                 ' be > 0'%network_id)
                 args = args[1:]
             elif word in ('-m', '-message'):
                 try:

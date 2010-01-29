@@ -374,11 +374,15 @@ class TestLimpets(object):
 
                     # sender receives the reply
                     m = sender.wait_for_msg()
+                    print
+                    print '*'*60
+                    print 'STATEFUL REQUEST'
                     print 'Sender received  ',str(m)
                     # and uses *that* to construct a stateful request
                     s = stateful_request(m, '$.Response', 'Aha!')
                     print 'Sender requests  ',str(s)
                     sender.send_msg(s)
+                    print '*'*60
 
                     # Both recipients should "see" that stateful request
                     r = replier.wait_for_msg()
@@ -425,7 +429,7 @@ class TestLimpets(object):
                     sent_id = sender.send_msg(s)
                     m = sender.wait_for_msg(5)
                     print 'Finally, got',str(m)
-                    raise GiveUp
+                    assert m.name == '$.KBUS.Replier.NotSameKsock'
 
 
 import traceback
