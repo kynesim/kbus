@@ -1,42 +1,7 @@
-#! /usr/bin/env python
-"""Limpet - a mechanism that proxies KBUS messages to/from another Limpet.
+"""Limpet - a mechanims for proxying KBUS messages to/from another Limpet.
 
-Usage:
-
-    limpet.py  <things>
-
-This runs a client or server limpet, talking to a server or client limpet
-(respectively).
-
-The <things> specify what the Limpet is to do. The order of <things> on the
-command line is not significant, but if a later <thing> contradicts an earlier
-<thing>, the later <thing> wins.
-
-<thing> may be:
-
-    <host>:<port>   Communicate via the specified host and port.
-    <path>          Communicate via the named Unix domain socket.
-
-        One or the other communication mechanism must be specified.
-
-    -c, -client     This is a client Limpet.
-    -s, -server     This is a server Limpet.
-
-        Either client or server must be specified.
-
-    -id <number>    Messages sent by this Limpet (to the other Limpet) will
-                    have network ID <number>. This defaults to 1 for a client
-                    and 2 for a server. Regardless, it must be greater than
-                    zero.
-
-    -k <number>, -kbus <number>
-                    Connect to the given KBUS device. The default is to connect
-                    to KBUS 0.
-
-    -m <name>, -message <name>
-                    Proxy any messages with this name to the other Limpet.
-                    Using "-m '$.*'" will proxy all messages, and this is
-                    the default.
+This allows messages to be communicated from one KBUS device to another,
+either on the same machine or over a network.
 """
 
 # ***** BEGIN LICENSE BLOCK *****
@@ -65,221 +30,6 @@ command line is not significant, but if a later <thing> contradicts an earlier
 #
 # ***** END LICENSE BLOCK *****
 
-documentation = """\
-===============
-How things work
-===============
-
-Consider a single KBUS as a very simple "black box", and a pair of KBUS's
-linked by Limpets as a rather fatter "black box". Ideally, the processes
-talking to either "side" of a black box should not need to care about which
-it is.
-
-So we have::
-
-        A --------> Just-KBUS -------> B
-
-and we also have::
-
-        A --------> KBUS/Limpet:x/~~>/Limpet:y/KBUS --------> B
-
-The only difference we *want* to see is that a message from A to B on the same
-KBUS should have an id of the form [0:n] (i.e., no network id), whereas a
-message from A to V over a Limpet proxy should have an id of the form [x:n]
-(i.e., the network id shows it came via a Limpet with network id 'x').
-
-Complexities may arise for three reasons:
-
-    1. A Limpet does not necessarily have to forward all messages (the default
-       is presumably to forward '$.*', subject to solving (1) and (2) above).
-    2. A is also listening to messages - we don't want it to hear too many
-    3. B binds as a Replier - we want it to be able to reply to messages from A
-
-.. note:: There's a question in that last which will also need answering,
-   namely, do Limpets always listen to '$.*', or is it reasonable to be able
-   to limit them? If we can limit them, what happens if we accidentally end
-   up asking them to listen to the same message more than once?
-
-The Golden Rule of Limpet communication
----------------------------------------
-If your Ksocks are communicating via Limpets, then you must remember to use
-``ksock.wait_for_msg()``, instead of ``ksock.read_next_msg()``, because you
-don't know how long it will take for a message to work its way through the
-"network".
-
-Looking at 1: A Limpet does not have to forward all messages
-------------------------------------------------------------
-The possibilities are broadly:
-
-    1. Limpets always listen for '$.*'
-
-       This is the simplest option, but wastes the maximum bandwith (since it
-       seems likely that we might know that only a subset of messages are of
-       interest to the other Limpet's system).
-
-    2. Limpets default to listening for '$.*', but the user may replace
-       that with a single (possibly wildcarded) name, e.g., '$.Fred.%'
-
-       This is the next simplest option. It retains much of the simplicity of
-       the first option, but allows us to not send some (many) messages. It
-       does, however, assume that a single wildcarding is enough to do the
-       restriction we wish.
-
-       For the moment, I think this is my favoured option, as it seems to be a
-       good middle ground.
-
-    3. Limpets default to listening for '$.*', but the user may replace
-       that with more than one (possibly wildcarded) name. That may
-       cause philosophical problems if they choose (for instance) '$.Fred.*'
-       and '$.Fred.Jim', since the Limpet will "hear" some messages twice.
-
-       This is the most flexible option, but is most likely to cause problems
-       when the user specifies overlapping wildcards (if it's possible, we have
-       to support it). I'd like to avoid it unless it is needed.
-
-There's also a variant of each of the second and third where the Limpet doesn't
-have a default at all, and thus won't transmit anything until told what to do.
-But I think that is sufficiently similar not to worry about separately.
-
-Remember that Limpets will always transmit Replies (things that they are
-proxying as Sender for).
-
-    .. note:: Limpets must always listen to $.KBUS.ReplierBindEvent. If we
-       allow them to choose to listen to something other then '$.*', then
-       we also need to CHECK that the thing-listened-to includes the replier
-       bind events, and if not, add them in as well.
-       
-       Which is luckily solved if I use MSGONLYONCE to ask for messages
-       to be sent only once to the Limpet's Ksock - which is really what
-       I want anyway, I think...
-
-Looking at 2: A is also listening to messages
----------------------------------------------
-
-Let us assume A is listening to '$.*' - that is, all messages.
-
-In the "normal" case, when A sends a message (any message) it will also get to
-read that message back, precisely once for each time it is bound to '$.*' as a
-Listener. It may also get it back for other reasons (because it was sending a
-Request and is also a Replier, or because it is listening to the message with a
-more specific binding name), but if solve the one then the others come for free.
-
-So we want the same behaviour for the case with Limpets. And lo, when A sends
-the message to its own KBUS, that same KBUS will do all the mirroring (to A)
-that is necessary.
-
-Limpet:x still needs to forward it (in case B wants to hear it - and unless
-Limpet:x has been told not to). If we assume Limpet:y passes it on, and is
-itself listening for '$.*' (a sensible assumption), then we also know that
-Limpet:y will receive it back again.
-
-We also know that the message received back by Limpet:y will have its network
-id set to x (since KBUS won't have changed it), so (if we knew x) we could just
-make a rule that messages with their network id set to the other Limpet's
-network id shouldn't be sent back.
-
-That assumes we have a simple way of knowing that network id. We could hack
-that by remembering it off the first message we received from Limpet:x, given
-we only talk to one other Limpet, if, and only if, all messages from Limpet:x
-actually have that network id. Which I'm not sure about, since I don't yet know
-what we're going to do about situations like::
-
-        A --------> K/L:x/~~>/L:y/K/L:u/~~>/L:v/K --------> B
-
-which we can't exactly forbid, and so will have to deal with.
-
-So rather than that, the solution may just be to make Limpet:y remember the
-message ids of any messages it receives from Limpet:x *that also match those it
-is Listening for*, and "cross them off" when it gets them back from KBUS.
-
-That is:
-
-    * receive a message from the other Limpet
-    * if its name matches those we're bound to Listen for, remember its id
-    * when we read a message from KBUS, if it's not a message we're the
-      replier for (i.e., if we got it as a Listener), and its id is one we've
-      remembered, then:
-      
-      1. don't send it to the other Limpet
-      2. forget its id -- this assumes that we're only listening to this
-         message name once, if we allow otherwise, then we need to be a bit
-         more careful
-
-Looking at 3: B binds as a Replier
-----------------------------------
-B binds as a replier, and thus Limpet:x has to bind as a Replier for the same
-message name.
-
-    .. note:: From the KBUS documentation
-
-       **Things KBUS changes in a message**
-
-       In general, KBUS leaves the content of a message alone - mostly so that an
-       individual KBUS module can *pass through* messages from another domain.
-       However, it does change:
-
-       * the message id's serial number (but only if its network id is unset)
-       * the "from" id (to indicate the Ksock this message was sent from)
-       * the WANT_YOU_TO_REPLY bit in the flags (set or cleared as appropriate)
-       * the SYNTHETIC bit, which will always be unset in a message sent by a Sender
-
-A sends a Request with that name, which gets sent to Limpet:x marked "you
-should reply", and with the "from" field set to A.
-
-Limpet:x passes it on to Limpet:y (amending the message ids network id to x,
-and amending the "from" fields network id to x as well). Limpet:x remembers
-that it has done this (by remembering the message id).
-
-Limpet:y then sends the message to its KBUS, which will:
-
-    1. ignore the "you should reply" flag, but reset it for the message
-       that gets sent to B
-    2. ignore the "from" field, and reset it to the Ksock id for Limpet:y
-
-Thus Limpet:y needs to remember the correspondence between the Request message
-it received, and the message that actually got sent to B. It can, of course,
-determine the new message id, and it knows its own Ksock id.
-
-B then receives the message, marked that *it* should reply. Presumably it does so.
-
-In that case, Limpet:y receives the message (as Sender). It can recognise what
-it is a reply to, because of the "in_reply_to" field. It sets the network id
-for the message id, and for the "from" field. It needs to replace that
-"in_reply_to" field with the saved (original) message id, and send the whole
-thing back to Limpet:x.
-
-Limpet:x is acting as Replier for this message on its side. It needs to set the
-"in reply to" field to the message id of the original Request, i.e., removing
-the network id.
-
-NB: I think the above works for "synthetic" messages as well, but of course if
-B's KBUS says that B has gone away, then the Limpet needs to do appropriate
-things (such as, for instance, forgetting about any outstanding messages - this
-may need action by both Limpets). B going away should, of course, generate a
-Replier Unbind Event.
-
-Deferred for now: Requests with the "to" field set (i.e., to Request a
-particular Ksock) - the story for this needs writing.
-
-Things to worry about
-=====================
-Status messages (KBUS synthetic messsages) and passing them over multiple
-Limpet boundaries...
-
-Remember that synthetic messages (being from KBUS itself) have message id
-[0:0] (which shows up as None when we ask for msg.id)
-
-We can't *send* a synthetic message, because we can't send a message with id
-[0:0] - once we've passed it on to KBUS, it will get assigned a "proper"
-message id.
-
-Moreover, we probably don't want to - what we need to do instead is to provoke
-a corresponding event - which normally means "going away" like the Replier
-presumably did. On the other hand, if a Replier does "go away", we should get a
-Replier Unbind Event, which causes us to unbind, which should have the same
-effect...
-"""
-
 import ctypes
 import errno
 import os
@@ -291,8 +41,6 @@ import sys
 from kbus import Ksock, Message, Reply, MessageId
 from kbus.messages import _MessageHeaderStruct, _struct_from_string
 from kbus.messages import split_replier_bind_event_data
-
-MSG_HEADER_LEN = ctypes.sizeof(_MessageHeaderStruct)
 
 class GiveUp(Exception):
     pass
@@ -311,62 +59,6 @@ class BadMessage(Exception):
     """We have read a badly formatted KBUS message.
     """
     pass
-
-def msgstr(msg):
-    """Return a short string for what we want to know of a message.
-    """
-    return str(msg)
-
-    #if msg.name == '$.KBUS.ReplierBindEvent':
-    #    is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
-    #    return '<%s %s from %s: %s for %d>'%('Bind' if is_bind else 'Unbind',
-    #                                 str(msg.id) if msg.id else '[0:0]',
-    #                                 msg.from_,
-    #                                 name, binder_id)
-
-    #if msg.is_request():
-    #    if msg.wants_us_to_reply():
-    #        what = 'Request (to us)'
-    #    else:
-    #        what = 'Request'
-    #elif msg.is_reply():
-    #    what = 'Reply (to request %s)'%str(msg.in_reply_to)
-    #else:
-    #    what = 'Message'
-
-    #if msg.is_synthetic():
-    #    flag = ' <synthetic> '
-    #elif msg.is_urgent():
-    #    flag = ' <urgent> '
-    #else:
-    #    flag = ''
-
-    #return '%s %s %s: %s%s from %s, to %s'%(what, msg.name,
-    #        str(msg.id) if msg.id else '[0:0]', flag, repr(msg.data), msg.from_, msg.to)
-
-def padded_name_len(name_len):
-    """Calculate the length of a message name, in bytes, after padding.
-
-    Matches the definition in the kernel module's header file
-    """
-    return 4 * ((name_len + 1 + 3) // 4)
-
-def padded_data_len(data_len):
-    """Calculate the length of message data, in bytes, after padding.
-
-    Matches the definition in the kernel module's header file
-    """
-    return 4 * ((data_len + 3) // 4)
-
-def entire_message_len(name_len, data_len):
-    """Calculate the "entire" message length, from the name and data lengths.
-
-    All lengths are in bytes.
-
-    Matches the definition in the kernel module's header file
-    """
-    return MSG_HEADER_LEN + padded_name_len(name_len) + \
-                            padded_data_len(data_len) + 4
 
 class Limpet(object):
     """A Limpet proxies KBUS messages to/from another Limpet.
@@ -738,7 +430,7 @@ class Limpet(object):
         limpet_hdr = '%s->%s'%(' '*len(kbus_name), limpet_name)
 
         if self.verbosity > 1:
-            print '%s %s'%(kbus_hdr, msgstr(msg)),
+            print '%s %s'%(kbus_hdr, str(msg)),
 
         if msg.name == '$.KBUS.ReplierBindEvent':
             # If this is the result of *us* binding as a replier (by proxy),
@@ -781,7 +473,7 @@ class Limpet(object):
             print
         self.write_message_to_socket(msg)
         if self.verbosity > 1:
-            print '%s %s'%(limpet_hdr, msgstr(msg))  # i.e., with amended network id
+            print '%s %s'%(limpet_hdr, str(msg))  # i.e., with amended network id
 
     def handle_message_from_socket(self, msg):
         """Do the appropriate thing with a message from the socket.
@@ -820,7 +512,7 @@ class Limpet(object):
         kbus_hdr   = '%s->%s'%(' '*len(limpet_name), kbus_name)
 
         if self.verbosity > 1:
-            print '%s %s'%(limpet_hdr, msgstr(msg))
+            print '%s %s'%(limpet_hdr, str(msg))
 
         if msg.name == '$.KBUS.ReplierBindEvent':
             # We have to bind/unbind as a Replier in proxy
@@ -893,7 +585,7 @@ class Limpet(object):
                 return
 
             if self.verbosity > 1:
-                print '%s as %s'%(' '*(len(limpet_hdr)-3), msgstr(msg))
+                print '%s as %s'%(' '*(len(limpet_hdr)-3), str(msg))
 
         elif msg.is_stateful_request() and msg.wants_us_to_reply():
             # The Request will have been marked "to" our Limpet pair
@@ -971,7 +663,7 @@ class Limpet(object):
         try:
             self.ksock.send_msg(msg)
             if self.verbosity > 1:
-                print '%s %s'%(kbus_hdr, msgstr(msg))
+                print '%s %s'%(kbus_hdr, str(msg))
         except IOError as exc:
             # If we were sending a Request, we need to fake an
             # appropriate Reply.
@@ -1074,78 +766,5 @@ def parse_address(word):
         address = word
         family = socket.AF_UNIX
     return address, family
-
-def main(args):
-    """Work out what we've been asked to do and do it.
-    """
-    is_server = None            # no default
-    address = None              # ditto
-    kbus_device = 0
-    network_id = None
-    message_name = '$.*'
-
-    if not args:
-        print __doc__
-        return
-
-    while args:
-        word = args[0]
-        args = args[1:]
-
-        if word.startswith('-'):
-            if word in ('-c', '-client'):
-                is_server = False
-            elif word in ('-s', '-server'):
-                is_server = True
-            elif word in ('-id'):
-                try:
-                    network_id = int(args[0])
-                except:
-                    raise GiveUp('-id requires an integer argument (network id)')
-                if network_id < 1:
-                    raise GiveUp('Illegal network id (-id %d), network id must'
-                                 ' be > 0'%network_id)
-                args = args[1:]
-            elif word in ('-m', '-message'):
-                try:
-                    message_name = args[0]
-                except:
-                    raise GiveUp('-message requires an argument (message name)')
-                args = args[1:]
-            elif word in ('-k', '-kbus'):
-                try:
-                    kbus_device = int(args[0])
-                except:
-                    raise GiveUp('-kbus requires an integer argument (KBUS device)')
-                args = args[1:]
-            else:
-                print __doc__
-                return
-        else:
-            # Deliberately allow multiple "address" values, using the last
-            address, family = parse_address(word)
-
-    if is_server is None:
-        raise GiveUp('Either -client or -server must be specified')
-
-    if address is None:
-        raise GiveUp('An address (either <host>:<port> or < is needed')
-
-    if network_id is None:
-        network_id = 2 if is_server else 1
-
-    # And then do whatever we've been asked to do...
-    run_a_limpet(is_server, address, family, kbus_device, network_id, message_name)
-
-if __name__ == "__main__":
-    args = sys.argv[1:]
-    try:
-        main(args)
-    except GiveUp as exc:
-        print exc
-    except OtherLimpetGoneAway as exc:
-        print 'The Limpet at the other end of the connection has closed'
-    except KeyboardInterrupt:
-        pass
 
 # vim: set tabstop=8 softtabstop=4 shiftwidth=4 expandtab:

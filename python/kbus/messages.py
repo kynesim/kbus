@@ -384,6 +384,32 @@ def _struct_from_string(struct_class, data):
     ctypes.memmove(ctypes.addressof(thing), data, ctypes.sizeof(thing))
     return thing
 
+MSG_HEADER_LEN = ctypes.sizeof(_MessageHeaderStruct)
+
+def calc_padded_name_len(name_len):
+    """Calculate the length of a message name, in bytes, after padding.
+
+    Matches the definition in the kernel module's header file
+    """
+    return 4 * ((name_len + 1 + 3) // 4)
+
+def calc_padded_data_len(data_len):
+    """Calculate the length of message data, in bytes, after padding.
+
+    Matches the definition in the kernel module's header file
+    """
+    return 4 * ((data_len + 3) // 4)
+
+def calc_entire_message_len(name_len, data_len):
+    """Calculate the "entire" message length, from the name and data lengths.
+
+    All lengths are in bytes.
+
+    Matches the definition in the kernel module's header file
+    """
+    return MSG_HEADER_LEN + padded_name_len(name_len) + \
+                            padded_data_len(data_len) + 4
+
 def message_from_parts(id, in_reply_to, to, from_, orig_from, final_to, flags, name, data):
     """Return a new Message header structure, with name and data attached.
 
@@ -447,16 +473,16 @@ def message_from_string(msg_data):
     h = _struct_from_string(_MessageHeaderStruct, msg_data)
 
     # Don't forget that the string will be terminated with a 0 byte
-    padded_name_len = 4*((h.name_len +1 + 3) / 4)
+    padded_name_len = calc_padded_name_len(h.name_len)
 
     # But not so the data
-    padded_data_len = 4*((h.data_len + 3) / 4)
+    padded_data_len = calc_padded_data_len(h.data_len)
 
-    name_offset = 72
+    name_offset = MSG_HEADER_LEN
 
     h.name = msg_data[name_offset:name_offset+h.name_len]
 
-    data_offset = name_offset+padded_name_len
+    data_offset = name_offset + padded_name_len
 
     if h.data_len == 0:
         h.data = None
@@ -701,10 +727,10 @@ def entire_message_from_string(data):
     ## ===================================
 
     # Don't forget that the string will be terminated with a 0 byte
-    padded_name_len = 4*((h.name_len +1 + 3) / 4)
+    padded_name_len = calc_padded_name_len(h.name_len)
 
     # But not so the data
-    padded_data_len = 4*((h.data_len + 3) / 4)
+    padded_data_len = calc_padded_data_len(h.data_len)
 
     local_class = _specific_entire_message_struct(padded_name_len,
                                                   padded_data_len)

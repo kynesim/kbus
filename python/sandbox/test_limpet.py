@@ -43,7 +43,7 @@ from kbus import Ksock, Message, MessageId, Announcement, \
 
 from kbus.test.test_kbus import check_IOError
 
-from limpet import run_a_limpet, GiveUp, OtherLimpetGoneAway
+from kbus.limpet import run_a_limpet, GiveUp, OtherLimpetGoneAway
 
 NUM_DEVICES = 5
 TERMINATION_MESSAGE = '$.Terminate'
