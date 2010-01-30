@@ -401,11 +401,12 @@ class Limpet(object):
         """
         kbus_name   = 'KBUS%u'%self.kbus_device
         limpet_name = 'Limpet%d'%self.other_network_id
-        kbus_hdr  = '%s->Us%s'%(kbus_name, ' '*(len(limpet_name)-2))
-        limpet_hdr = '%s->%s'%(' '*len(kbus_name), limpet_name)
+        kbus_to_us_hdr  = '%s->Us%s'%(kbus_name, ' '*(len(limpet_name)-2))
+        nowt_to_limpet_hdr = '%s->%s'%(' '*len(kbus_name), limpet_name)
+        spaces_hdr = ' '*len(kbus_to_us_hdr)
 
         if self.verbosity > 1:
-            print '%s %s'%(kbus_hdr, str(msg))
+            print '%s %s'%(kbus_to_us_hdr, str(msg))
 
         if msg.name == '$.KBUS.ReplierBindEvent':
             # If this is the result of *us* binding as a replier (by proxy),
@@ -413,7 +414,7 @@ class Limpet(object):
             is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
             if binder_id == self.ksock_id:
                 if self.verbosity > 1:
-                    print '%s Which is us -- ignore'%(' '*len(kbus_hdr))
+                    print '%s Which is us -- ignore'%(spaces_hdr)
                 return
 
         if msg.is_request() and msg.wants_us_to_reply():
@@ -431,12 +432,13 @@ class Limpet(object):
             # it), any listeners on that side would have heard it from that
             # KBUS, so we don't want to send it back to them yet again...
             if self.verbosity > 1:
-                print '%s From the other Limpet -- ignore'%(' '*len(kbus_hdr))
+                print '%s From the other Limpet -- ignore'%(spaces_hdr)
             return
 
         self.write_message_to_socket(msg)
         if self.verbosity > 1:
-            print '%s %s'%(limpet_hdr, str(msg))  # i.e., with amended network id
+            # Write out the message with its amended detals
+            print '%s %s'%(nowt_to_limpet_hdr, str(msg))
 
     def amend_reply_from_socket(self, hdr, msg):
         """Do whatever is necessary to a Reply from the other Limpet.
@@ -581,41 +583,42 @@ class Limpet(object):
         """
         kbus_name  = 'KBUS%u'%self.kbus_device
         limpet_name = 'Limpet%d'%self.other_network_id
-        limpet_hdr  = '%s->Us%s'%(limpet_name, ' '*(len(kbus_name)-2))
-        kbus_hdr   = '%s->%s'%(' '*len(limpet_name), kbus_name)
+        limpet_to_us_hdr  = '%s->Us%s'%(limpet_name, ' '*(len(kbus_name)-2))
+        nowt_to_kbus_hdr   = '%s->%s'%(' '*len(limpet_name), kbus_name)
+        spaces_hdr = ' '*len(limpet_to_us_hdr)
 
         if self.verbosity > 1:
-            print '%s %s'%(limpet_hdr, str(msg))
+            print '%s %s'%(limpet_to_us_hdr, str(msg))
 
         if msg.name == '$.KBUS.ReplierBindEvent':
             # We have to bind/unbind as a Replier in proxy
             is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
             if is_bind:
                 if self.verbosity > 1:
-                    print '%s BIND "%s'%(' '*len(limpet_hdr),name)
+                    print '%s BIND "%s'%(spaces_hdr,name)
                 self.ksock.bind(name, True)
                 self.replier_for[name] = binder_id
             else:
                 if self.verbosity > 1:
-                    print '%s UNBIND "%s'%(' '*len(limpet_hdr),name)
+                    print '%s UNBIND "%s'%(spaces_hdr,name)
                 self.ksock.unbind(name, True)
                 del self.replier_for[name]
             return
 
         if msg.is_reply():                   # a Reply (or Status)
             try:
-                msg = self.amend_reply_from_socket(limpet_hdr, msg)
+                msg = self.amend_reply_from_socket(spaces_hdr, msg)
             except KeyError:
                 return
         elif msg.is_stateful_request() and msg.wants_us_to_reply():
             try:
-                msg = self.amend_request_from_socket(kbus_hdr, msg)
+                msg = self.amend_request_from_socket(spaces_hdr, msg)
             except NoMessage:
                 return
 
         try:
             if self.verbosity > 1:
-                print '%s %s'%(kbus_hdr, str(msg))
+                print '%s %s'%(nowt_to_kbus_hdr, str(msg))
             self.ksock.send_msg(msg)
         except IOError as exc:
             # If we were sending a Request, we need to fake an
@@ -626,7 +629,7 @@ class Limpet(object):
                 except KeyError:
                     errname = '$.KBUS.RemoteError.%d'%exc.errno
                 if self.verbosity > 1:
-                    print '%s *** Remote error %s'%(kbus_hdr, errname)
+                    print '%s *** Remote error %s'%(nowt_to_kbus_hdr, errname)
                 error = Message(errname, to=msg.from_, in_reply_to=msg.id)
                 self.write_message_to_socket(error)
                 return
@@ -635,7 +638,7 @@ class Limpet(object):
             # can do anything useful...
             #
             # XXX TODO
-            print '%s send_msg: %s -- continuing'%(kbus_hdr, exc)
+            print '%s send_msg: %s -- continuing'%(nowt_to_kbus_hdr, exc)
 
 
     def run_forever(self, termination_message):
