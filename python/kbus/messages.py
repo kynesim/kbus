@@ -407,8 +407,8 @@ def calc_entire_message_len(name_len, data_len):
 
     Matches the definition in the kernel module's header file
     """
-    return MSG_HEADER_LEN + padded_name_len(name_len) + \
-                            padded_data_len(data_len) + 4
+    return MSG_HEADER_LEN + calc_padded_name_len(name_len) + \
+                            calc_padded_data_len(data_len) + 4
 
 def message_from_parts(id, in_reply_to, to, from_, orig_from, final_to, flags, name, data):
     """Return a new Message header structure, with name and data attached.

@@ -40,7 +40,8 @@ import sys
 
 from kbus import Ksock, Message, Reply, MessageId
 from kbus.messages import _MessageHeaderStruct, _struct_from_string
-from kbus.messages import split_replier_bind_event_data
+from kbus.messages import split_replier_bind_event_data, calc_entire_message_len
+from kbus.messages import MSG_HEADER_LEN
 
 class GiveUp(Exception):
     pass
@@ -322,7 +323,7 @@ class Limpet(object):
 
         header_data = start_guard + rest_of_header_data
         header = _struct_from_string(_MessageHeaderStruct, header_data)
-        overall_length = entire_message_len(header.name_len, header.data_len)
+        overall_length = calc_entire_message_len(header.name_len, header.data_len)
         rest_of_message = self.sock.recv(overall_length - MSG_HEADER_LEN, socket.MSG_WAITALL)
 
         return Message(header_data + rest_of_message)
