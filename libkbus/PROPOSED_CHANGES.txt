@@ -1,0 +1,57 @@
+Things I'd like to do in the next version of the library
+========================================================
+
+I'm allowing incompatible changes.
+
+I'd *prefer* not to end up with a libkbus2, but could be convinced this makes
+everyone's life simpler. Or, this being Unix, I could always call the new
+library libKBUS (ick).
+
+* As a point of principle, try to be influenced by the design in the Python
+  binding (in so far as that makes sense) - partly because I'm assuming the
+  Python binding will influence other OO languages. Of course, if we realise
+  the Python binding is clumsy as we work on the C binding, then this should
+  go the other way too.
+
+* kbus_open and kbus_close are probably OK without the inner _ksock_, and so
+  on for other Ksock managing functions. This keeps the function names
+  shorter.
+
+  (An alternative suggestion would be to "grab" two prefixes, so that our
+  functions, structures, typedefs and so on all start with *either* ``kbus_``
+  *or* ``ksock_``. Which would allow us to do ``ksock_open``. But I think
+  that's probably too complicated and misleading.)
+
+  And actually, names should be things like ``kbus_open_ksock`` (if we need
+  the extra verbosity), and ``kbus_create_msg``, so that they read more
+  naturally, and are more guessable.
+
+  Which, if adopted, may mean that I can have the same library support both
+  sets of function names and signatures (icky as that may be) for at least a
+  little while.
+
+* Lose 'ksock' as a typedef. Then I can (unambiguously) use it as a variable
+  name.
+
+* The kernel code rules mean we can't define a typedef for the KBUS message
+  datastructures in kbus_defn.h itself. Normal C coding rules mean we want
+  such a thing, so it does need declaring in kbus.h.
+ 
+  However, why can't ``kbus_message_t`` be a typedef for ``struct
+  kbus_message_header``, without adding an extra indirection, so that one is
+  always having to access fields as ``msg->header.id`` instead of just
+  ``msg->id``?
+
+* Be explicit that things are ``extern``, rather than defaulting it.
+
+* Functions like kbus_msg_name_ptr should return the pointer (or NULL), not
+  (always) return 0 (which is ignored) and use an output argument.
+
+* No setting of errno. Using errno as out-of-band error reporting is BAD. And
+  nasty to use. Return a proper error code instead. Really. 
+
+* Add the library documentation to the overall KBUS documentation. Check again
+  to see if I can do that via Sphinx itself (and some appropriate plugin).
+
+  If this proves possible, move away from pseudo-Doxygen comments, and towards
+  reStructuredText.

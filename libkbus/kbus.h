@@ -59,13 +59,18 @@ typedef struct kbus_msg_str {
 
 typedef struct kbus_entire_message kbus_msg_entire_t;
 
+/*
+ * TODO: I'd prefer to use this insted of the above. 
+ */
+typedef struct kbus_message_header kbus_message_t;
+
 
 /** A Ksock is just a file descriptor, an integer, as returned by 'open'.
  */
 typedef int kbus_ksock_t;
 /* For compatibility with earlier versions of the library, we retain:
  *
- * TODO: make this depracated...
+ * TODO: make this deprecated...
  */
 typedef int ksock;
 
@@ -291,8 +296,9 @@ int kbus_msg_create_short(kbus_msg_t **msg,
  *  documentation for more info.)
  *
  * @param[out] msg  on success, points to the created pointy message.
- * @param[in]  name Pointer to the name the message should have.
- * @param[in]  name_len  Length of the message name.
+ * @param[in]  in_reply_to The message that we are creating a reply
+ * to. This must be a Request to which we are the Replier (i.e., it
+ * tests true to ``kbus_msg_wants_us_to_reply()``.
  * @param[in]  data Pointer to some data for the message.
  * @param[in]  data_len  Length of the required message data.
  * @param[in]  flags  KBUS_BIT_XXX
@@ -318,8 +324,9 @@ int kbus_msg_create_reply      (kbus_msg_t **msg,
  *  funcion, use kbus_msg_create_reply instead.
  *
  * @param[out] msg  on success, points to the created entire message.
- * @param[in]  name Pointer to the name the message should have.
- * @param[in]  name_len  Length of the message name.
+ * @param[in]  in_reply_to The message that we are creating a reply
+ * to. This must be a Request to which we are the Replier (i.e., it
+ * tests true to ``kbus_msg_wants_us_to_reply()``.
  * @param[in]  data Pointer to some data for the message.
  * @param[in]  data_len  Length of the required message data.
  * @param[in]  flags  KBUS_BIT_XXX
@@ -330,6 +337,67 @@ int kbus_msg_create_short_reply(kbus_msg_t **msg,
 				const void *data, 
 				uint32_t data_len, /* bytes */
 				uint32_t flags);
+
+/** Create a stateful request.
+ *
+ * A stateful request will only succeed if the Replier identified in
+ * the 'to' (and possibly 'final_to') fields is actually the Replier
+ * that the message would be delivered to. Thus if the original Replier
+ * (the one we think we're sending to) unbinds, and another Ksock binds
+ * as Replier to the same message name, delivery will fail.
+ *
+ * The 'earlier_msg' must be either a Reply from the Replier we want
+ * to insist on, or an earlier stateful Request to the Replier we
+ * want. The 'to' and 'final_to' fields in the new message are copied
+ * appropriately from the 'earlier_msg'.
+ *
+ * We do not take copies of your name and data until the message is sent
+ * so you may not delete the passed memory until a successful call to
+ * kbus_ksock_send_msg is made. (See 'pointy' message in the kbus
+ * documentation for more info.)
+ *
+ * @param[out] msg  on success, points to the created pointy message.
+ * @param[in]  earlier_msg The Reply or Stateful Request message that we are
+ * using to determine who this new message is to.
+ * @param[in]  name The name of this new message.
+ * @param[in]  name_len The length of the name of this new message.
+ * @param[in]  data Pointer to some data for the message.
+ * @param[in]  data_len  Length of the required message data.
+ * @param[in]  flags  KBUS_BIT_XXX
+ * @return 0 on success, < 0 and set errno on failure.
+ */
+int kbus_msg_create_stateful_request(kbus_msg_t         **msg, 
+                                     const kbus_msg_t    *earlier_msg,
+                                     const char          *name,
+                                     uint32_t             name_len,
+                                     const void          *data, 
+                                     uint32_t             data_len, /* bytes */
+                                     uint32_t             flags);
+
+
+/** Create an "entire" stateful request.
+ *
+ * See the non-short version of this call for what it does, and the other
+ * "short" message creation calls for why you shouldn't use it, and what
+ * the caveats are.
+ *
+ * @param[out] msg  on success, points to the created pointy message.
+ * @param[in]  earlier_msg The Reply or Stateful Request message that we are
+ * using to determine who this new message is to.
+ * @param[in]  name The name of this new message.
+ * @param[in]  name_len The length of the name of this new message.
+ * @param[in]  data Pointer to some data for the message.
+ * @param[in]  data_len  Length of the required message data.
+ * @param[in]  flags  KBUS_BIT_XXX
+ * @return 0 on success, < 0 and set errno on failure.
+ */
+int kbus_msg_create_short_stateful_request(kbus_msg_t         **msg, 
+					   const kbus_msg_t    *earlier_msg,
+					   const char          *name,
+					   uint32_t             name_len,
+					   const void          *data, 
+					   uint32_t             data_len, /* bytes */
+					   uint32_t             flags);
 
 /** Get a pointer to the message name in the kbus message.  The data is not
  *  copied so the pointer returned points into the middle of the data in msg.
@@ -421,6 +489,47 @@ static inline int kbus_id_cmp  (const struct kbus_msg_id *a,
  */
 int   kbus_new_device(kbus_ksock_t ks, uint32_t *device_number);
 
+/** Determine if a KBUS message is a Reply.
+ *
+ * This is a convenience function, which checks the message to see
+ * if it has the 'in_reply_to' field set. If it does, then it is a Reply.
+ *
+ * It returns true if the message is a Reply.
+ */
+int kbus_msg_is_reply(const kbus_msg_t   *msg);
+
+/** Determine if a KBUS message is a Request
+ *
+ * This is a convenience function, which checks the message flags
+ * to see if it has the WANT_A_REPLY flag set.
+ *
+ * (Note that stateful requests are also requests!)
+ *
+ * It returns true if the message is a Request.
+ */
+int kbus_msg_is_request(const kbus_msg_t  *msg);
+
+/** Determine if a KBUS message is a Stateful Request
+ *
+ * This is a convenience function, which checks the message flags
+ * to see if it has the WANT_A_REPLY flag set, and then checks
+ * to see if the 'to' field is set.
+ *
+ * It returns true if the message is a Stateful Request.
+ */
+int kbus_msg_is_stateful_request(const kbus_msg_t  *msg);
+
+/** Determine if a KBUS Request message wants us (this Ksock) to reply.
+ *
+ * This is a convenience function, which checks the message flags
+ * to see if it has the WANT_A_REPLY and WANT_YOU_TO_REPLY flags set.
+ *
+ * It returns true if the message is a Request which we (this Ksock)
+ * should Reply to. It returns false if this is not a Request, or if
+ * it is a (copy of a) Request which we have received because we are
+ * bound as Listener to this message name.
+ */
+int kbus_msg_wants_us_to_reply(const kbus_msg_t  *msg);
 
 #ifdef __cplusplus
 }

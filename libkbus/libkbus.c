@@ -37,6 +37,7 @@
  */
 
 #include <stdio.h>
+#include <ctype.h>
 #include <sys/poll.h>
 #include "kbus.h"
 
@@ -443,23 +444,23 @@ int kbus_msg_create(kbus_msg_t **msg,
   return -1;
 }
 
-int kbus_msg_is_reply(kbus_msg_t    *msg)
+int kbus_msg_is_reply(const kbus_msg_t    *msg)
 {
   return msg->header.in_reply_to.network_id != 0 ||
          msg->header.in_reply_to.serial_num != 0;
 }
 
-int kbus_msg_is_request(kbus_msg_t      *msg)
+int kbus_msg_is_request(const kbus_msg_t      *msg)
 {
   return (msg->header.flags & KBUS_BIT_WANT_A_REPLY) != 0;
 }
 
-int kbus_msg_is_stateful_request(kbus_msg_t      *msg)
+int kbus_msg_is_stateful_request(const kbus_msg_t      *msg)
 {
   return (msg->header.flags & KBUS_BIT_WANT_A_REPLY) && (msg->header.to != 0);
 }
 
-int kbus_msg_wants_us_to_reply(kbus_msg_t       *msg)
+int kbus_msg_wants_us_to_reply(const kbus_msg_t       *msg)
 {
   return (msg->header.flags & KBUS_BIT_WANT_A_REPLY) &&
          (msg->header.flags & KBUS_BIT_WANT_YOU_TO_REPLY);
@@ -474,11 +475,16 @@ int kbus_msg_create_short_reply(kbus_msg_t **msg,
   char* name;
   int rv;
 
+  if (!kbus_msg_wants_us_to_reply(in_reply_to)) {
+    errno = EBADMSG;
+    return -1;
+  }
+
   kbus_msg_name_ptr(in_reply_to, &name);
   rv = kbus_msg_create_short(msg, name, in_reply_to->header.name_len, 
 			     data, data_len, flags);
 
-  if(rv) {
+  if (rv) {
     return -1;
   }
 
@@ -494,15 +500,95 @@ int kbus_msg_create_reply(kbus_msg_t **msg,
 {
   char* name;
   int rv;
+
+  if (!kbus_msg_wants_us_to_reply(in_reply_to)) {
+    errno = EBADMSG;
+    return -1;
+  }
+
   kbus_msg_name_ptr(in_reply_to, &name);
   rv = kbus_msg_create(msg, name, in_reply_to->header.name_len, data, data_len, flags);
 
-  if(rv){
+  if (rv){
     return -1;
   }
 
   (*msg)->header.to          = in_reply_to->header.from;
   (*msg)->header.in_reply_to = in_reply_to->header.id;
+  return 0;
+}
+
+int kbus_msg_create_short_stateful_request(kbus_msg_t         **msg, 
+                                           const kbus_msg_t    *earlier_msg,
+                                           const char          *name,
+                                           uint32_t             name_len,
+                                           const void          *data, 
+                                           uint32_t             data_len, /* bytes */
+                                           uint32_t             flags)
+{
+  int rv;
+
+  uint32_t              to;
+  struct kbus_orig_from final_to;
+
+  if (kbus_msg_is_reply(earlier_msg)) {
+    final_to = earlier_msg->header.orig_from;
+    to = earlier_msg->header.from;
+  }
+  else if (kbus_msg_is_stateful_request(earlier_msg)) {
+    final_to = earlier_msg->header.final_to;
+    to = earlier_msg->header.to;
+  }
+  else {
+    errno = EBADMSG;
+    return -1;
+  }
+
+  rv = kbus_msg_create_short(msg, name, name_len, data, data_len, flags);
+
+  if (rv) {
+    return -1;
+  }
+
+  (*msg)->header.final_to = final_to;
+  (*msg)->header.to       = to;
+  return 0;
+}
+
+int kbus_msg_create_stateful_request(kbus_msg_t         **msg, 
+                                     const kbus_msg_t    *earlier_msg,
+                                     const char          *name,
+                                     uint32_t             name_len,
+                                     const void          *data, 
+                                     uint32_t             data_len, /* bytes */
+                                     uint32_t             flags)
+{
+  int rv;
+
+  uint32_t              to;
+  struct kbus_orig_from final_to;
+
+  if (kbus_msg_is_reply(earlier_msg)) {
+    final_to = earlier_msg->header.orig_from;
+    to = earlier_msg->header.from;
+  }
+  else if (kbus_msg_is_stateful_request(earlier_msg)) {
+    final_to = earlier_msg->header.final_to;
+    to = earlier_msg->header.to;
+  }
+  else {
+    errno = EBADMSG;
+    return -1;
+  }
+
+  rv = kbus_msg_create(msg, name, name_len, data, data_len, flags);
+
+  if (rv) {
+    return -1;
+  }
+
+  (*msg)->header.final_to = final_to;
+  (*msg)->header.to       = to;
   return 0;
 }
 
@@ -554,13 +640,13 @@ void kbus_msg_dump(const kbus_msg_t *msg, int dump_data)
 
   printf("  start guard: %08x\n", msg->header.start_guard);
 
-  printf("  id:          {%02u, %02u}\n", msg->header.id.network_id, msg->header.id.serial_num);
-  printf("  in_reply_to: {%02u, %02u}\n", msg->header.in_reply_to.network_id, msg->header.in_reply_to.serial_num);
+  printf("  id:          {%u,%u}\n", msg->header.id.network_id, msg->header.id.serial_num);
+  printf("  in_reply_to: {%u,%u}\n", msg->header.in_reply_to.network_id, msg->header.in_reply_to.serial_num);
   printf("  to:          %u\n", msg->header.to);
   printf("  from:        %u\n", msg->header.from);
 
-  printf("  orig_from:   {%02u, %02u}\n", msg->header.orig_from.network_id, msg->header.orig_from.local_id);
-  printf("  final_to:    {%02u, %02u}\n", msg->header.final_to.network_id, msg->header.final_to.local_id);
+  printf("  orig_from:   {%u,%u}\n", msg->header.orig_from.network_id, msg->header.orig_from.local_id);
+  printf("  final_to:    {%u,%u}\n", msg->header.final_to.network_id, msg->header.final_to.local_id);
   
   printf("  flags:       %08x\n", msg->header.flags);
   printf("  name_len:    %u\n", msg->header.name_len);
@@ -587,8 +673,8 @@ void kbus_msg_dump(const kbus_msg_t *msg, int dump_data)
   printf("\n  Data (text):    ");
   char *data_cptr = (char *)data_ptr;
   for (i = 0; i < msg->header.data_len; i ++) {
-    if (isgraph(name_ptr[i]) || name_ptr[i] == ' ')
-      printf("%c", name_ptr[i]);
+    if (isgraph(data_cptr[i]) || data_cptr[i] == ' ')
+      printf("%c", data_cptr[i]);
     else 
       printf("?");
   }
