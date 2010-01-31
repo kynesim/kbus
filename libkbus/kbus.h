@@ -60,12 +60,16 @@ typedef struct kbus_msg_str {
 typedef struct kbus_entire_message kbus_msg_entire_t;
 
 
-/** Describes a KBus ksock; this is a value type so doesn't need to
- *   be explicitly deallocated.
+/** A Ksock is just a file descriptor, an integer, as returned by 'open'.
+ */
+typedef int kbus_ksock_t;
+/* For compatibility with earlier versions of the library, we retain:
+ *
+ * TODO: make this depracated...
  */
 typedef int ksock;
 
-/* KSock Functions */
+/* Ksock Functions */
 
 /** @file
  *
@@ -76,13 +80,13 @@ typedef int ksock;
 
 /** Test if this is an entire message.
  *
- * @param kms A kbus message header
+ * @param msg A kbus message header
  * @return Non-zero for an entire message, zero for pointy
  */
-#define KBUS_MSG_IS_ENTIRE(kms) (((kms)->header.name)? 0 : 1)
-#define KBUS_MSG_TO_ENTIRE(kms) ((kbus_msg_entire_t *)(kms))
-#define KBUS_MSG_TO_HEADER(kms) ((struct kbus_message_header *)(kms))
-#define KBUS_ENTIRE_TO_MSG(kms) ((kbus_msg_t *)(kms))
+#define KBUS_MSG_IS_ENTIRE(msg) (((msg)->header.name)? 0 : 1)
+#define KBUS_MSG_TO_ENTIRE(msg) ((kbus_msg_entire_t *)(msg))
+#define KBUS_MSG_TO_HEADER(msg) ((struct kbus_message_header *)(msg))
+#define KBUS_ENTIRE_TO_MSG(msg) ((kbus_msg_t *)(msg))
 
 
 /** Open a ksock
@@ -92,28 +96,28 @@ typedef int ksock;
  * @return A socket file descriptor, or < 0 on error, in which case
  *    errno contains a description of the error.
  */
-ksock kbus_ksock_open           (const char *fname, int flags);
+kbus_ksock_t kbus_ksock_open           (const char *fname, int flags);
 
 /** Close a ksock 
  *
  * @param ks  IN  ksock to close.
  */
-int   kbus_ksock_close          (ksock ks);
+int   kbus_ksock_close          (kbus_ksock_t ks);
 
 /** Bind a ksock to the given KBus name.
  *
  * @param name IN  Name to bind to. This can go away once the call returns.
  * @return 0 on success,  < 0 setting errno on failure.
  */
-int   kbus_ksock_bind           (ksock ks, const char *name, uint32_t replier);
+int   kbus_ksock_bind           (kbus_ksock_t ks, const char *name, uint32_t replier);
 
 /** Indicate/query if multiply bound messages should be received only once.
  *
- * By default, if a KSock binds a message name more than once, it will receive
+ * By default, if a Ksock binds a message name more than once, it will receive
  * a copy of a message (with that name) for each binding.
  *
  * This function can be used to request that only once copy of the message is
- * received. Note that if one of the messages is a Request to which this KSock
+ * received. Note that if one of the messages is a Request to which this Ksock
  * is bound as Replier, then it will always be the Request marked as "you must
  * reply" that will be received.
  *
@@ -122,14 +126,14 @@ int   kbus_ksock_bind           (ksock ks, const char *name, uint32_t replier);
  * to just return the current choice, without changing it.
  * @return 0 or 1 (the current state) on success, < 0 on failure.
  */
-int   kbus_ksock_only_once(ksock ks, uint32_t request);
+int   kbus_ksock_only_once(kbus_ksock_t ks, uint32_t request);
 
-/** Indicate/query if a KSock should output verbose kernel messages.
+/** Indicate/query if a Ksock should output verbose kernel messages.
  *
- * By default, a KSock does not output verbose messages to the kernel log.
+ * By default, a Ksock does not output verbose messages to the kernel log.
  *
  * This function can be used to request that verbose messages be output (or not).
- * It may be used by any "open" KSock interface to affect the whole device.
+ * It may be used by any "open" Ksock interface to affect the whole device.
  * It will only have effect if the kernel module was built with the VERBOSE_DEBUG
  * flag set.
  *
@@ -138,7 +142,7 @@ int   kbus_ksock_only_once(ksock ks, uint32_t request);
  * current choice, without changing it.
  * @return 0 or 1 (the current state) on success, < 0 on failure.
  */
-int   kbus_ksock_kernel_module_verbose(ksock ks, uint32_t request);
+int   kbus_ksock_kernel_module_verbose(kbus_ksock_t ks, uint32_t request);
 
 /** Return a number describing this ksock endpoint uniquely for this
  *  (local) kbus instance; can be used to decide if two distinct fds
@@ -148,7 +152,7 @@ int   kbus_ksock_kernel_module_verbose(ksock ks, uint32_t request);
  * @param[out] ksock_id  On success, filled with a number describing this ksock
  * @return 0 on success , <0 setting errno on failure.
  */
-int   kbus_ksock_id             (ksock ks, uint32_t *ksock_id);
+int   kbus_ksock_id             (kbus_ksock_t ks, uint32_t *ksock_id);
 
 #define KBUS_KSOCK_READABLE 1
 #define KBUS_KSOCK_WRITABLE 2
@@ -160,7 +164,7 @@ int   kbus_ksock_id             (ksock ks, uint32_t *ksock_id);
  * @return An OR of KBUS_KSOCK_READABLE and KBUS_KSOCK_WRITABLE , < 0 on
  *   failure and set errno
  */
-int kbus_wait_for_message       (ksock ks, int wait_for);
+int kbus_wait_for_message       (kbus_ksock_t ks, int wait_for);
 
 /** Move on to the next message waiting on this ksock, returning its
  *  length.
@@ -170,29 +174,29 @@ int kbus_wait_for_message       (ksock ks, int wait_for);
  * @return 0 if there isn't a next message, 1 if there is, < 0 and sets errno
  *         on error.
  */
-int   kbus_ksock_next_msg       (ksock ks, uint32_t *len);
+int   kbus_ksock_next_msg       (kbus_ksock_t ks, uint32_t *len);
 
 /** If there is a message waiting, read and return it. Otherwise just
  *  return. Note that we assume that the current message has been 
  *  processed (the first thing we do is to call next_msg()).
  *
  * @param[in] ks     The ksock to query.
- * @param[out] kms   On success, filled in with the next message on this ksock in
+ * @param[out] msg   On success, filled in with the next message on this ksock in
  *                   malloc()'d storage. Filled in with NULL otherwise.
  * @return 0 if there wasn't a message waiting, 1 if one has been delivered in 
- *    (*kms), < 0 and fills in errno on failure.
+ *    (*msg), < 0 and fills in errno on failure.
  */
-int   kbus_ksock_read_next_msg  (ksock ks, kbus_msg_t **kms);
+int   kbus_ksock_read_next_msg  (kbus_ksock_t ks, kbus_msg_t **msg);
 
 /** Read the current message on the ksock, given its length.
  *
  * @param[in] ks    The ksock to query.
- * @param[out] kms  On success, filled in with the next message on this ksock.
+ * @param[out] msg  On success, filled in with the next message on this ksock.
  *                   Otherwise filled in with NULL.
- * @return 1 if (*kms) now contains your message, 0 if it doesn't, < 0 and 
+ * @return 1 if (*msg) now contains your message, 0 if it doesn't, < 0 and 
  *             set errno on failure.
  */
-int   kbus_ksock_read_msg       (ksock ks, kbus_msg_t **kms, 
+int   kbus_ksock_read_msg       (kbus_ksock_t ks, kbus_msg_t **msg, 
                                  size_t len);
 
 /** Write a message (but do not send it yet). A copy of the message is
@@ -203,24 +207,24 @@ int   kbus_ksock_read_msg       (ksock ks, kbus_msg_t **kms,
  *  function.
  *
  * @param[in]   ks   The ksock to send the message with.
- * @param[in]   kms  The message to send.
+ * @param[in]   msg  The message to send.
  * @return 0 on success, < 0 and sets errno on failure.
  */
-int   kbus_ksock_write_msg      (ksock ks, 
-				 const kbus_msg_t *kms);
+int   kbus_ksock_write_msg      (kbus_ksock_t ks, 
+				 const kbus_msg_t *msg);
 
 /** Send a message and get its message-id back.
  *
  * This is the function you probably wanted to use.
  *
  * @param[in]   ks   The ksock to send the message with.
- * @param[in]   kms  The message to send.
+ * @param[in]   msg  The message to send.
  * @param[out]  msg_id On success, filled in with the message id for
  *                      the sent message.
  * @return 0 on success, < 0 on error and set errno.
  */
-int   kbus_ksock_send_msg       (ksock ks, 
-				 const kbus_msg_t *kms, 
+int   kbus_ksock_send_msg       (kbus_ksock_t ks, 
+				 const kbus_msg_t *msg, 
 				 struct kbus_msg_id *msg_id);
 
 /** Send a message written by kbus_ksock_write_msg()
@@ -231,7 +235,7 @@ int   kbus_ksock_send_msg       (ksock ks,
  * @param[out] msg_id On success, the message-id of the message we sent.
  * @return 0 on success, < 0 on failure and sets errno.
  */
-int   kbus_ksock_send           (ksock ks, struct kbus_msg_id *msg_id);
+int   kbus_ksock_send           (kbus_ksock_t ks, struct kbus_msg_id *msg_id);
 
 
 /* Message Functions*/
@@ -241,7 +245,7 @@ int   kbus_ksock_send           (ksock ks, struct kbus_msg_id *msg_id);
  *  a successful call to kbus_ksock_send_msg is made. (See 'pointy' 
  *  message in the kbus documentation for more info.)
  *
- * @param[out] kms  on success, points to the created message.
+ * @param[out] msg  on success, points to the created message.
  * @param[in]  name Pointer to the name the message should have.
  * @param[in]  name_len  Length of the message name.
  * @param[in]  data Pointer to some data for the message.
@@ -249,7 +253,7 @@ int   kbus_ksock_send           (ksock ks, struct kbus_msg_id *msg_id);
  * @param[in]  flags  KBUS_BIT_XXX
  * @return 0 on success, < 0 and set errno on failure.
  */
-int kbus_msg_create            (kbus_msg_t **kms, 
+int kbus_msg_create            (kbus_msg_t **msg, 
 		                const char *name, uint32_t name_len, /* bytes */
                                 const void *data, uint32_t data_len, /* bytes */
 		                uint32_t flags);
@@ -265,7 +269,7 @@ int kbus_msg_create            (kbus_msg_t **kms,
  *  are guaranteed to be sending short enough messages, please do not use this
  *  funcion, use kbus_msg_create instead.
  *
- * @param[out] kms  on success, points to the created entire message.
+ * @param[out] msg  on success, points to the created entire message.
  * @param[in]  name Pointer to the name the message should have.
  * @param[in]  name_len  Length of the message name.
  * @param[in]  data Pointer to some data for the message.
@@ -273,7 +277,7 @@ int kbus_msg_create            (kbus_msg_t **kms,
  * @param[in]  flags  KBUS_BIT_XXX
  * @return 0 on success, < 0 and set errno on failure.
  */
-int kbus_msg_create_short(kbus_msg_t **kms, 
+int kbus_msg_create_short(kbus_msg_t **msg, 
 			  const char *name, uint32_t name_len,/*bytes*/
 			  const void *data, uint32_t data_len,/*bytes*/
 			  uint32_t flags);
@@ -286,7 +290,7 @@ int kbus_msg_create_short(kbus_msg_t **kms,
  *  kbus_ksock_send_msg is made. (See 'pointy' message in the kbus
  *  documentation for more info.)
  *
- * @param[out] kms  on success, points to the created pointy message.
+ * @param[out] msg  on success, points to the created pointy message.
  * @param[in]  name Pointer to the name the message should have.
  * @param[in]  name_len  Length of the message name.
  * @param[in]  data Pointer to some data for the message.
@@ -294,7 +298,7 @@ int kbus_msg_create_short(kbus_msg_t **kms,
  * @param[in]  flags  KBUS_BIT_XXX
  * @return 0 on success, < 0 and set errno on failure.
  */
-int kbus_msg_create_reply      (kbus_msg_t **kms, 
+int kbus_msg_create_reply      (kbus_msg_t **msg, 
 			        const kbus_msg_t *in_reply_to,
 	                        const void *data, uint32_t data_len,
 			        uint32_t flags);
@@ -313,7 +317,7 @@ int kbus_msg_create_reply      (kbus_msg_t **kms,
  *  are guaranteed to be sending short enough messages, please do not use this
  *  funcion, use kbus_msg_create_reply instead.
  *
- * @param[out] kms  on success, points to the created entire message.
+ * @param[out] msg  on success, points to the created entire message.
  * @param[in]  name Pointer to the name the message should have.
  * @param[in]  name_len  Length of the message name.
  * @param[in]  data Pointer to some data for the message.
@@ -321,28 +325,28 @@ int kbus_msg_create_reply      (kbus_msg_t **kms,
  * @param[in]  flags  KBUS_BIT_XXX
  * @return 0 on success, < 0 and set errno on failure.
  */
-int kbus_msg_create_short_reply(kbus_msg_t **kms, 
+int kbus_msg_create_short_reply(kbus_msg_t **msg, 
 				const kbus_msg_t *in_reply_to,
 				const void *data, 
 				uint32_t data_len, /* bytes */
 				uint32_t flags);
 
 /** Get a pointer to the message name in the kbus message.  The data is not
- *  copied so the pointer returned points into the middle of the data in kms.
+ *  copied so the pointer returned points into the middle of the data in msg.
  *
- * @param[in]  kms Pointer to a kbus message.
+ * @param[in]  msg Pointer to a kbus message.
  * @param[out] name Points to the messsage name
  */
-int kbus_msg_name_ptr          (const kbus_msg_t *kms, 
+int kbus_msg_name_ptr          (const kbus_msg_t *msg, 
 				char **name);
 
 /** Get a pointer to the message data in the kbus message.  The data is not
- *  copied so the pointer returned points into the middle of the data in kms.
+ *  copied so the pointer returned points into the middle of the data in msg.
  *
- * @param[in]  kms Pointer to a kbus message.
+ * @param[in]  msg Pointer to a kbus message.
  * @param[out] name Points to the messsage name
  */
-int kbus_msg_data_ptr          (const kbus_msg_t *kms, 
+int kbus_msg_data_ptr          (const kbus_msg_t *msg, 
 				void **data);
 
 
@@ -354,19 +358,19 @@ void kbus_msg_dispose          (kbus_msg_t **kms_p);
 
 /**  Dump a message to stdout.
  *
- * @param[in] kms  KBus message to dump
+ * @param[in] msg  KBus message to dump
  * @param[in] dump_data Dump the data too?
  */
-void kbus_msg_dump             (const kbus_msg_t *kms, 
+void kbus_msg_dump             (const kbus_msg_t *msg, 
 				int dump_data);
 
 /**  Find out the size of a kbus message include any name/data in an
  *   entire message. 
  *
- * @param[in] kms  KBus message
+ * @param[in] msg  KBus message
  * @return size in bytes.
  */
-int kbus_msg_sizeof            (const kbus_msg_t *kms);
+int kbus_msg_sizeof            (const kbus_msg_t *msg);
 
 
 /** Compare two kbus message ids and return < 0 if a < b, 0 if a==b, 1 if a > b
@@ -415,7 +419,7 @@ static inline int kbus_id_cmp  (const struct kbus_msg_id *a,
  * @param[out] new_device  On success, the new device number (<n>).
  * @return 0 on success , <0 setting errno on failure.
  */
-int   kbus_new_device(ksock ks, uint32_t *device_number);
+int   kbus_new_device(kbus_ksock_t ks, uint32_t *device_number);
 
 
 #ifdef __cplusplus

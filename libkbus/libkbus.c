@@ -42,7 +42,7 @@
 
 #define DEBUG 0
 
-ksock kbus_ksock_open(const char *fname, int flags) 
+kbus_ksock_t kbus_ksock_open(const char *fname, int flags) 
 {
   int mask  = O_RDONLY | O_WRONLY | O_RDWR;
   flags = flags & mask;
@@ -50,12 +50,12 @@ ksock kbus_ksock_open(const char *fname, int flags)
   return open(fname, flags);
 }
 
-int kbus_ksock_close(ksock ks) 
+int kbus_ksock_close(kbus_ksock_t ks) 
 {
   return close(ks);
 }
 
-int kbus_ksock_bind(ksock ks, const char *name, uint32_t replier)
+int kbus_ksock_bind(kbus_ksock_t ks, const char *name, uint32_t replier)
 {
   struct  kbus_bind_request kbs;
   int rv;
@@ -70,7 +70,7 @@ int kbus_ksock_bind(ksock ks, const char *name, uint32_t replier)
   return rv;
 }
 
-int kbus_ksock_only_once(ksock ks, uint32_t request)
+int kbus_ksock_only_once(kbus_ksock_t ks, uint32_t request)
 {
   int           rv;
   uint32_t      array[1];
@@ -93,7 +93,7 @@ int kbus_ksock_only_once(ksock ks, uint32_t request)
     return array[0];
 }
 
-int kbus_ksock_kernel_module_verbose(ksock ks, uint32_t request)
+int kbus_ksock_kernel_module_verbose(kbus_ksock_t ks, uint32_t request)
 {
   int           rv;
   uint32_t      array[1];
@@ -116,7 +116,7 @@ int kbus_ksock_kernel_module_verbose(ksock ks, uint32_t request)
     return array[0];
 }
 
-int kbus_ksock_id(ksock ks, uint32_t *ksock_id) 
+int kbus_ksock_id(kbus_ksock_t ks, uint32_t *ksock_id) 
 {
   int rv;
   rv = ioctl(ks, KBUS_IOC_KSOCKID, ksock_id);
@@ -124,7 +124,7 @@ int kbus_ksock_id(ksock ks, uint32_t *ksock_id)
   return rv;
 }
 
-int kbus_wait_for_message(ksock ks, int wait_for)
+int kbus_wait_for_message(kbus_ksock_t ks, int wait_for)
 {
   struct pollfd fds[1];
   int rv;
@@ -149,7 +149,7 @@ int kbus_wait_for_message(ksock ks, int wait_for)
     }
 }
 
-int kbus_ksock_next_msg(ksock ks, uint32_t *len) 
+int kbus_ksock_next_msg(kbus_ksock_t ks, uint32_t *len) 
 {
   int rv;
   rv = ioctl(ks, KBUS_IOC_NEXTMSG, len);
@@ -161,16 +161,16 @@ int kbus_ksock_next_msg(ksock ks, uint32_t *len)
 /* With the advent of pointy messages this seems a bit defunct :-(
  * should probably breath some life into it at some point. - gb
  */
-static int check_message_sanity(const kbus_msg_t *kms)
+static int check_message_sanity(const kbus_msg_t *msg)
 {
   int rv = 0;
   
-  if (kms->header.start_guard != KBUS_MSG_START_GUARD || 
-      kms->header.end_guard != KBUS_MSG_END_GUARD )
+  if (msg->header.start_guard != KBUS_MSG_START_GUARD || 
+      msg->header.end_guard != KBUS_MSG_END_GUARD )
     rv = -1;
   
-  if (KBUS_MSG_IS_ENTIRE(kms)) {
-    kbus_msg_entire_t *k = (kbus_msg_entire_t *)kms;
+  if (KBUS_MSG_IS_ENTIRE(msg)) {
+    kbus_msg_entire_t *k = (kbus_msg_entire_t *)msg;
     uint32_t *eg = kbus_end_ptr(k);
 
     if (*eg != KBUS_MSG_END_GUARD) {
@@ -184,7 +184,7 @@ static int check_message_sanity(const kbus_msg_t *kms)
   return rv;
 }
 
-int kbus_ksock_read_msg(ksock ks, kbus_msg_t **kms, 
+int kbus_ksock_read_msg(kbus_ksock_t ks, kbus_msg_t **msg, 
                         size_t len) 
 {
   int rv = 0;
@@ -217,9 +217,9 @@ int kbus_ksock_read_msg(ksock ks, kbus_msg_t **kms,
     }
   }
 
-  *kms = (kbus_msg_t *)buf;
+  *msg = (kbus_msg_t *)buf;
 
-  if (check_message_sanity(*kms)) {
+  if (check_message_sanity(*msg)) {
 
 #if DEBUG
     printf("Read a non valid message\n");
@@ -234,12 +234,12 @@ int kbus_ksock_read_msg(ksock ks, kbus_msg_t **kms,
 
  fail:
   free(buf);
-  *kms = NULL;
+  *msg = NULL;
 
   return -1;
 }
 
-int kbus_ksock_read_next_msg(ksock ks, kbus_msg_t **kms)
+int kbus_ksock_read_next_msg(kbus_ksock_t ks, kbus_msg_t **msg)
 {
   int rv;
   uint32_t m_stat = 0;
@@ -251,10 +251,10 @@ int kbus_ksock_read_next_msg(ksock ks, kbus_msg_t **kms)
     }  
 
   if (rv && m_stat > 0) {
-    rv = kbus_ksock_read_msg(ks, kms, m_stat);
+    rv = kbus_ksock_read_msg(ks, msg, m_stat);
 
 #if DEBUG
-    kbus_msg_dump(*kms,1);
+    kbus_msg_dump(*msg,1);
 #endif
 
     /* kbus_ksock_read_msg() returns 0 on success, so ..
@@ -262,7 +262,7 @@ int kbus_ksock_read_next_msg(ksock ks, kbus_msg_t **kms)
     if (!rv) { rv = 1; }
 
   } else {
-    (*kms) = NULL;
+    (*msg) = NULL;
     rv = 0;
   }
     
@@ -287,59 +287,59 @@ static int write_out(int fd, char *data, size_t length ) {
   return 0;
 }
 
-static int kbus_ksock_write_entire_msg(ksock ks, const kbus_msg_entire_t *kms)
+static int kbus_ksock_write_entire_msg(kbus_ksock_t ks, const kbus_msg_entire_t *msg)
 {
   /* We don't support sending a "pointy" message */
-  if (!KBUS_MSG_IS_ENTIRE(kms)) {
+  if (!KBUS_MSG_IS_ENTIRE(msg)) {
     errno = EBADMSG;
     return -1;
   }
 
-  return write_out(ks, (char *)kms, KBUS_ENTIRE_MSG_LEN(kms->header.name_len,
-							kms->header.data_len));
+  return write_out(ks, (char *)msg, KBUS_ENTIRE_MSG_LEN(msg->header.name_len,
+							msg->header.data_len));
 }
 
 
-static int kbus_ksock_write_pointy_msg(ksock ks, const kbus_msg_t *kms)
+static int kbus_ksock_write_pointy_msg(kbus_ksock_t ks, const kbus_msg_t *msg)
 {
   /* We don't support sending an "entire" message */
-  if (KBUS_MSG_IS_ENTIRE(kms)) {
+  if (KBUS_MSG_IS_ENTIRE(msg)) {
     errno = EBADMSG;
     return -1;
   }
 
-  return write_out(ks, (char *)kms, sizeof(*kms));
+  return write_out(ks, (char *)msg, sizeof(*msg));
 }
 
-int kbus_ksock_write_msg(ksock ks, const kbus_msg_t *kms)
+int kbus_ksock_write_msg(kbus_ksock_t ks, const kbus_msg_t *msg)
 {
   int rv;
 
-  if (check_message_sanity(kms)) {
+  if (check_message_sanity(msg)) {
     errno = EBADMSG;
     return -1;
   }
 
-  if (KBUS_MSG_IS_ENTIRE(kms)) {
-    rv = kbus_ksock_write_entire_msg(ks, KBUS_MSG_TO_ENTIRE(kms));
+  if (KBUS_MSG_IS_ENTIRE(msg)) {
+    rv = kbus_ksock_write_entire_msg(ks, KBUS_MSG_TO_ENTIRE(msg));
   } else {
-    rv = kbus_ksock_write_pointy_msg(ks, kms);
+    rv = kbus_ksock_write_pointy_msg(ks, msg);
   }
 
   return rv;
 }
 
-int kbus_ksock_send(ksock ks, struct kbus_msg_id *msg_id) {
+int kbus_ksock_send(kbus_ksock_t ks, struct kbus_msg_id *msg_id) {
   int rv;
   rv = ioctl(ks, KBUS_IOC_SEND, msg_id);
 
   return rv;
 }
 
-int kbus_ksock_send_msg(ksock ks, const kbus_msg_t *kms, struct kbus_msg_id *msg_id)
+int kbus_ksock_send_msg(kbus_ksock_t ks, const kbus_msg_t *msg, struct kbus_msg_id *msg_id)
 {
   int rv;
-  rv = kbus_ksock_write_msg(ks, kms);
+  rv = kbus_ksock_write_msg(ks, msg);
 
   if (rv)
     return rv;
@@ -352,7 +352,7 @@ int kbus_ksock_send_msg(ksock ks, const kbus_msg_t *kms, struct kbus_msg_id *msg
 #define KBUS_BYTE_TO_WORD_LENGTH(x) ((x + 3) / 4)
 
 
-int kbus_msg_create_short(kbus_msg_t **kms, 
+int kbus_msg_create_short(kbus_msg_t **msg, 
 			  const char *name, uint32_t name_len, /* bytes  */
 			  const void *data, uint32_t data_len, /* bytes */
 			  uint32_t flags) 
@@ -362,7 +362,7 @@ int kbus_msg_create_short(kbus_msg_t **kms,
   kbus_msg_entire_t *buf;
   size_t length = KBUS_ENTIRE_MSG_LEN(name_len, data_len);
 
-  *kms = NULL;
+  *msg = NULL;
 
   if (length > KBUS_MAX_ENTIRE_LEN) {
     errno = EMSGSIZE;
@@ -389,10 +389,10 @@ int kbus_msg_create_short(kbus_msg_t **kms,
 
   buf->rest[eg] = KBUS_MSG_END_GUARD;
 
-  *kms = KBUS_ENTIRE_TO_MSG(buf);
+  *msg = KBUS_ENTIRE_TO_MSG(buf);
 
   /* We don't want to build dodgy messages... */
-  assert(!check_message_sanity(*kms));
+  assert(!check_message_sanity(*msg));
 
   return 0;
 
@@ -403,12 +403,12 @@ int kbus_msg_create_short(kbus_msg_t **kms,
   return -1;
 }
 
-int kbus_msg_create(kbus_msg_t **kms, 
+int kbus_msg_create(kbus_msg_t **msg, 
 		    const char *name, uint32_t name_len, /* bytes  */
 		    const void *data, uint32_t data_len, /* bytes */
 		    uint32_t flags) 
 {
-  *kms = NULL;
+  *msg = NULL;
 
   kbus_msg_t *buf;
  
@@ -429,7 +429,7 @@ int kbus_msg_create(kbus_msg_t **kms,
   buf->header.data = (void *) data;
   buf->header.end_guard = KBUS_MSG_END_GUARD;
   
-  *kms = buf;
+  *msg = buf;
 
   /* We don't want to build dodgy messages... */
   assert(!check_message_sanity(buf));
@@ -443,7 +443,29 @@ int kbus_msg_create(kbus_msg_t **kms,
   return -1;
 }
 
-int kbus_msg_create_short_reply(kbus_msg_t **kms, 
+int kbus_msg_is_reply(kbus_msg_t    *msg)
+{
+  return msg->header.in_reply_to.network_id != 0 ||
+         msg->header.in_reply_to.serial_num != 0;
+}
+
+int kbus_msg_is_request(kbus_msg_t      *msg)
+{
+  return (msg->header.flags & KBUS_BIT_WANT_A_REPLY) != 0;
+}
+
+int kbus_msg_is_stateful_request(kbus_msg_t      *msg)
+{
+  return (msg->header.flags & KBUS_BIT_WANT_A_REPLY) && (msg->header.to != 0);
+}
+
+int kbus_msg_wants_us_to_reply(kbus_msg_t       *msg)
+{
+  return (msg->header.flags & KBUS_BIT_WANT_A_REPLY) &&
+         (msg->header.flags & KBUS_BIT_WANT_YOU_TO_REPLY);
+}
+
+int kbus_msg_create_short_reply(kbus_msg_t **msg, 
 				const kbus_msg_t *in_reply_to,
 				const void *data, 
 				uint32_t data_len, /* bytes */
@@ -453,19 +475,19 @@ int kbus_msg_create_short_reply(kbus_msg_t **kms,
   int rv;
 
   kbus_msg_name_ptr(in_reply_to, &name);
-  rv = kbus_msg_create_short(kms, name, in_reply_to->header.name_len, 
+  rv = kbus_msg_create_short(msg, name, in_reply_to->header.name_len, 
 			     data, data_len, flags);
 
   if(rv) {
     return -1;
   }
 
-  (*kms)->header.to          = in_reply_to->header.from;
-  (*kms)->header.in_reply_to = in_reply_to->header.id;
+  (*msg)->header.to          = in_reply_to->header.from;
+  (*msg)->header.in_reply_to = in_reply_to->header.id;
   return 0;
 }
 
-int kbus_msg_create_reply(kbus_msg_t **kms, 
+int kbus_msg_create_reply(kbus_msg_t **msg, 
 			  const kbus_msg_t *in_reply_to,
 			  const void *data, uint32_t data_len, /* bytes */
 			  uint32_t flags)
@@ -473,136 +495,126 @@ int kbus_msg_create_reply(kbus_msg_t **kms,
   char* name;
   int rv;
   kbus_msg_name_ptr(in_reply_to, &name);
-  rv = kbus_msg_create(kms, name, in_reply_to->header.name_len, data, data_len, flags);
+  rv = kbus_msg_create(msg, name, in_reply_to->header.name_len, data, data_len, flags);
 
   if(rv){
     return -1;
   }
 
-  (*kms)->header.to          = in_reply_to->header.from;
-  (*kms)->header.in_reply_to = in_reply_to->header.id;
+  (*msg)->header.to          = in_reply_to->header.from;
+  (*msg)->header.in_reply_to = in_reply_to->header.id;
   return 0;
 }
 
 void kbus_msg_dispose(kbus_msg_t **kms_p) {
   if (!kms_p || !*kms_p) { return; }
 
-  kbus_msg_t *kms = (kbus_msg_t *)(*kms_p);
+  kbus_msg_t *msg = (kbus_msg_t *)(*kms_p);
 
   /* We allocated enough space all in one go so just free */
-  free(kms);
+  free(msg);
   (*kms_p) = NULL;
   
   return;
 }
 
-int kbus_msg_name_ptr(const kbus_msg_t *kms, char **name) {
+int kbus_msg_name_ptr(const kbus_msg_t *msg, char **name) {
 
-  struct kbus_message_header *khead =  KBUS_MSG_TO_HEADER(kms);
+  struct kbus_message_header *khead =  KBUS_MSG_TO_HEADER(msg);
   *name = kbus_name_ptr(khead);
 
   return 0;
 }
 
-int kbus_msg_data_ptr(const kbus_msg_t *kms, void **data) {
-  struct kbus_message_header *khead =  KBUS_MSG_TO_HEADER(kms);
+int kbus_msg_data_ptr(const kbus_msg_t *msg, void **data) {
+  struct kbus_message_header *khead =  KBUS_MSG_TO_HEADER(msg);
   *data = (char *)(kbus_data_ptr(khead));
 
   return 0;
 }
 
-int kbus_msg_sizeof(const kbus_msg_t *kms) {
+int kbus_msg_sizeof(const kbus_msg_t *msg) {
   int len;
 
-  if (KBUS_MSG_IS_ENTIRE(kms)) {
-    len = KBUS_ENTIRE_MSG_LEN(kms->header.data_len, kms->header.name_len);
+  if (KBUS_MSG_IS_ENTIRE(msg)) {
+    len = KBUS_ENTIRE_MSG_LEN(msg->header.data_len, msg->header.name_len);
   } else {
-    len = sizeof(*kms);
+    len = sizeof(*msg);
   }
 
   return len;
 }
 
 
-void kbus_msg_dump(const kbus_msg_t *kms, int dump_data) 
+void kbus_msg_dump(const kbus_msg_t *msg, int dump_data) 
 {
   int i;
 
-  printf("Dumping message: %p\n", kms);
+  printf("Message: %p\n", msg);
 
-  printf("\tStart Guard:\t%08x\n\tEnd Guard:\t%08x\n",
-	 kms->header.start_guard, 
-	 kms->header.end_guard);
+  printf("  start guard: %08x\n", msg->header.start_guard);
 
-  printf("\tId:\t\t{%02d, %02d}\n", kms->header.id.network_id, kms->header.id.serial_num);
+  printf("  id:          {%02u, %02u}\n", msg->header.id.network_id, msg->header.id.serial_num);
+  printf("  in_reply_to: {%02u, %02u}\n", msg->header.in_reply_to.network_id, msg->header.in_reply_to.serial_num);
+  printf("  to:          %u\n", msg->header.to);
+  printf("  from:        %u\n", msg->header.from);
 
-  printf("\tin_reply_to:\t{%02d, %02d}\n", 
-	 kms->header.in_reply_to.network_id, 
-	 kms->header.in_reply_to.serial_num);
-
+  printf("  orig_from:   {%02u, %02u}\n", msg->header.orig_from.network_id, msg->header.orig_from.local_id);
+  printf("  final_to:    {%02u, %02u}\n", msg->header.final_to.network_id, msg->header.final_to.local_id);
   
-  printf("\tTo:\t\t%d\n", kms->header.to);
-  printf("\tFrom:\t\t%d\n", kms->header.from);
-  printf("\tFlags:\t\t%08x\n", kms->header.flags);
-  printf("\tName length:\t%d\n", kms->header.name_len);
-  printf("\tData length:\t%d\n", kms->header.data_len);
-  printf("\tName pointer:\t%p\n", kms->header.name);
-  printf("\tData pointer:\t%p\n", kms->header.data);
+  printf("  flags:       %08x\n", msg->header.flags);
+  printf("  name_len:    %u\n", msg->header.name_len);
+  printf("  data_len:    %u\n", msg->header.data_len);
+  printf("  name (ptr):  %p\n", msg->header.name);
+  printf("  data (ptr):  %p\n", msg->header.data);
+  printf("  end guard:   %08x\n", msg->header.end_guard);
   printf("\n");
-  printf("\tDumping name:\n\t");
+  printf("  Message name:   ");
 
   char *name_ptr;
-  char *data_ptr; 
+  kbus_msg_name_ptr(msg, &name_ptr);
 
-  kbus_msg_name_ptr(kms, &name_ptr);
-  kbus_msg_data_ptr(kms, (void *)&data_ptr);
-
-  for (i = 0; i < kms->header.name_len; i ++) {
-    if (name_ptr[i] > ' ' && name_ptr[i] < '~')
+  for (i = 0; i < msg->header.name_len; i ++) {
+    if (isgraph(name_ptr[i]) || name_ptr[i] == ' ')
       printf("%c", name_ptr[i]);
     else 
-      printf(".");
+      printf("?");
   }
-  printf("\n");    
 
-  printf("\n\tDumping data:\n\t");
+  char *data_ptr; 
+  kbus_msg_data_ptr(msg, (void *)&data_ptr);
 
-  printf("\n\tAs uint8_t .. \n\t");
-  int data_limit = (kms->header.data_len);
+  printf("\n  Data (text):    ");
+  char *data_cptr = (char *)data_ptr;
+  for (i = 0; i < msg->header.data_len; i ++) {
+    if (isgraph(name_ptr[i]) || name_ptr[i] == ' ')
+      printf("%c", name_ptr[i]);
+    else 
+      printf("?");
+  }
+
+  printf("\n  Data (bytes):   ");
+  int data_limit = (msg->header.data_len);
   for (i = 0; i < data_limit; i ++) {
-    if (!(i % 16)) {
-      printf("\n\t");
+    if (i != 0 && !(i % 16)) {
+      printf("\n  ");
     }
     printf("%02x ",data_ptr[i]);
   }
-  printf("\n\t");
 
-  printf("\n\tAs text .. \n\t");
-
-  char *data_cptr = (char *)data_ptr;
-  for (i = 0; i < kms->header.data_len; i ++) {
-    if (data_cptr[i] >= ' ' && data_cptr[i] <= '~')
-      printf("%c", data_cptr[i]);
-    else 
-      printf(".");
-  }
-  printf("\n");
-
-  printf("\n\tDumping whole message (raw uint8_t) .. \n\t");
-  uint8_t *dptr = (uint8_t *)kms;
-  for (i = 0; i < kbus_msg_sizeof(kms); i ++) {
-    if (!(i % 16)) {
-      printf("\n\t");
+  printf("\n  Whole message (bytes):");
+  uint8_t *dptr = (uint8_t *)msg;
+  for (i = 0; i < kbus_msg_sizeof(msg); i ++) {
+    if (!(i % 26)) {
+      printf("\n  ");
     }
     printf("%02x ", dptr[i]);
 
   }
   printf("\n");
-
-
 }
 
-int kbus_new_device(ksock ks, uint32_t *device_number) 
+int kbus_new_device(kbus_ksock_t ks, uint32_t *device_number) 
 {
   int rv;
   rv = ioctl(ks, KBUS_IOC_NEWDEVICE, device_number);
