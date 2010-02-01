@@ -322,12 +322,12 @@ struct kbus_entire_message {
 #define KBUS_ENTIRE_MSG_END_GUARD_INDEX(name_len,data_len)  ((name_len+1+3)/4 + (data_len+3)/4)
 
 /*
- * Find a pointer to the name.
+ * Find a pointer to the message's name.
  *
  * It's either the given name pointer, or just after the header (if the pointer
  * is NULL)
  */
-static inline char *kbus_name_ptr(const struct kbus_message_header  *hdr)
+static inline char *kbus_msg_name_ptr(const struct kbus_message_header  *hdr)
 {
 	if (hdr->name) {
 		return hdr->name;
@@ -339,12 +339,12 @@ static inline char *kbus_name_ptr(const struct kbus_message_header  *hdr)
 }
 
 /*
- * Find a pointer to the data.
+ * Find a pointer to the message's data.
  *
  * It's either the given data pointer, or just after the name (if the pointer
  * is NULL)
  */
-static inline void *kbus_data_ptr(const struct kbus_message_header  *hdr)
+static inline void *kbus_msg_data_ptr(const struct kbus_message_header  *hdr)
 {
 	if (hdr->data) {
 		return hdr->data;
@@ -359,9 +359,9 @@ static inline void *kbus_data_ptr(const struct kbus_message_header  *hdr)
 }
 
 /*
- * Find a pointer to the (second/final) end guard.
+ * Find a pointer to the message's (second/final) end guard.
  */
-static inline uint32_t *kbus_end_ptr(struct kbus_entire_message  *entire)
+static inline uint32_t *kbus_msg_end_ptr(struct kbus_entire_message  *entire)
 {
 	uint32_t	end_guard_idx;
 	end_guard_idx = KBUS_ENTIRE_MSG_END_GUARD_INDEX(entire->header.name_len,

@@ -1024,7 +1024,7 @@ static int kbus_check_message(struct kbus_message_header	*msg)
 		uint32_t	*end_guard_ptr;
 
 		entire = (struct kbus_entire_message *)msg;
-		end_guard_ptr = kbus_end_ptr(entire);
+		end_guard_ptr = kbus_msg_end_ptr(entire);
 
 #if VERBOSE_DEBUG
 		if (*end_guard_ptr != KBUS_MSG_END_GUARD) {
@@ -1898,7 +1898,7 @@ static int kbus_reply_needed(struct kbus_private_data   *priv,
 		kfree(item);
 		return -ENOMEM;
 	}
-	strncpy(item->name, kbus_name_ptr(msg), msg->name_len);
+	strncpy(item->name, kbus_msg_name_ptr(msg), msg->name_len);
 	item->name[msg->name_len] = 0;
 
 	item->id = msg->id;
@@ -4494,7 +4494,7 @@ static int kbus_wrap_data(struct kbus_private_data	 *priv,
 		 * a very large amount of data - definitely less than
 		 * a page - so this can be simple.
 		 */
-		data_ptr = (unsigned long) kbus_data_ptr(msg);
+		data_ptr = (unsigned long) kbus_msg_data_ptr(msg);
 		for (ii=0; ii<num_parts; ii++) {
 			unsigned len;
 			if (ii == num_parts-1)
@@ -4557,7 +4557,7 @@ static int kbus_make_message_pointy(struct kbus_private_data	  *priv,
 		if (!new_name) {
 			return -ENOMEM;
 		}
-		strncpy(new_name, kbus_name_ptr(msg), msg->name_len);
+		strncpy(new_name, kbus_msg_name_ptr(msg), msg->name_len);
 		new_name[msg->name_len] = 0;
 		original_is_pointy = false;
 	} else {
