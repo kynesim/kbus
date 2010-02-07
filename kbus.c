@@ -4637,8 +4637,7 @@ static int kbus_make_message_pointy(struct kbus_private_data	  *priv,
 }
 
 /*
- * Return: negative for bad message, etc., 0 for "general success",
- * and 1 for "we happen to know it got added to the target Ksock queues"
+ * Returns 0 for success, and a negative value if there's an error.
  */
 static int kbus_send(struct kbus_private_data	*priv,
 		     struct kbus_dev		*dev,
@@ -5083,17 +5082,7 @@ static int kbus_ioctl(struct inode *inode, struct file *filp,
 		 * Send the curent message, we've finished writing it.
 		 *
 		 * arg in: <ignored>
-		 * arg out: the message id of said message, and an additional
-		 *          return value, containing:
-		 *
-		 *          * 0 for we know nothing extra
-		 *          * 1 for we know it got sent (i.e., we know it got
-		 *            added to the target message queues)
-		 *          * 2 for we know it didn't get sent (i.e., we know
-		 *            something went wrong, probably adding it to the
-		 *            target message queues). There will be an error
-		 *            message waiting to be read.
-		 *          * <other values to be determined>
+		 * arg out: the message id of said message
 		 * retval: negative for bad message, etc., 0 otherwise
 		 */
 		retval = kbus_send(priv,dev, arg);

@@ -554,7 +554,7 @@ struct kbus_replier_bind_event_data {
  * REPLIER - determine the Ksock id of the replier for a message name
  * arg: struct kbus_bind_query
  *
- *    - on input, specify the message name and replier flag to ask about
+ *    - on input, specify the message name to ask about.
  *    - on output, KBUS fills in the relevant Ksock id in the return_value,
  *      or 0 if there is no bound replier
  *
