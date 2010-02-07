@@ -46,7 +46,7 @@
 static void usage(void);
 
 
-static int create_kbus_message(kbus_msg_t **out_hdr,
+static int create_kbus_message(kbus_message_t **out_hdr,
 			       const char *msg_name, const char *fmt, 
 			       const char *data, int expect_reply);
 
@@ -126,7 +126,7 @@ static void usage(void)
 
 static int do_listen(const char *msg_name, int bus_number)
 {
-  ksock the_socket;
+  kbus_ksock_t the_socket;
   int rv;
 
 
@@ -149,7 +149,7 @@ static int do_listen(const char *msg_name, int bus_number)
 
   while (1)
     {
-      kbus_msg_t *msg = NULL;
+      kbus_message_t *msg = NULL;
 
       rv = kbus_wait_for_message(the_socket, KBUS_KSOCK_READABLE);
       if (rv < 0)
@@ -194,7 +194,7 @@ static int hex_to_value(char c)
     }
 }
 
-static int create_kbus_message(kbus_msg_t **out_hdr,
+static int create_kbus_message(kbus_message_t **out_hdr,
 			       const char *msg_name, const char *fmt, 
 			       const char *data, int expect_reply)
 {
@@ -257,7 +257,7 @@ static int do_send(const char *msg_name, const char *fmt,
 		   const char *data, int expect_reply, int bus_number)
 {
   int rv;
-  kbus_msg_t *kmsg;
+  kbus_message_t *kmsg;
 
   rv = create_kbus_message(&kmsg, msg_name, fmt, data, expect_reply);
   if (rv)
@@ -298,7 +298,7 @@ static int do_send(const char *msg_name, const char *fmt,
     {
       while (1)
 	{
-	  kbus_msg_t *inmsg = NULL;
+	  kbus_message_t *inmsg = NULL;
 	  
 
 	  rv = kbus_wait_for_message(ks, KBUS_KSOCK_READABLE);
@@ -317,9 +317,10 @@ static int do_send(const char *msg_name, const char *fmt,
 	      return 20;
 	    }
 	  
+          kbus_msg_print(stdout, inmsg); fprintf(stdout,"\n");
 	  kbus_msg_dump(inmsg, 1);
 	  
-	  if (!kbus_id_cmp(&(inmsg->header.in_reply_to), &id))
+	  if (!kbus_id_cmp(&(inmsg->in_reply_to), &id))
 	    {
 	      fprintf(stderr, "> Got Reply!\n");
 	      break;

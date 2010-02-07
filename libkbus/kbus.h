@@ -91,6 +91,10 @@ typedef int kbus_ksock_t;
  * If you haven't read kbus_defns.h, you *are* missing important information.
  */
 
+// The following are used in kbus_wait_for_message.
+#define KBUS_KSOCK_READABLE 1
+#define KBUS_KSOCK_WRITABLE 2
+
 /* Ksock Functions */
 
 /** @file
@@ -99,6 +103,8 @@ typedef int kbus_ksock_t;
  * thing as a synchronous kbus socket (though there are wait() functions here
  * to emulate one).
  */
+
+#if 0   // Disable the following which are now wrong
 
 /** Open a ksock
  *
@@ -165,9 +171,6 @@ int   kbus_ksock_kernel_module_verbose(kbus_ksock_t ksock, uint32_t request);
  */
 int   kbus_ksock_id             (kbus_ksock_t ksock, uint32_t *ksock_id);
 
-#define KBUS_KSOCK_READABLE 1
-#define KBUS_KSOCK_WRITABLE 2
-
 /** Wait until there is something to read on this kbus socket and/or
  *  we can write.
  *
@@ -222,7 +225,7 @@ int   kbus_ksock_read_msg       (kbus_ksock_t ksock, kbus_message_t **msg,
  * @return 0 on success, < 0 and sets errno on failure.
  */
 int   kbus_ksock_write_msg      (kbus_ksock_t ksock, 
-				 const kbus_message_t *msg);
+                                 const kbus_message_t *msg);
 
 /** Send a message and get its message-id back.
  *
@@ -235,8 +238,8 @@ int   kbus_ksock_write_msg      (kbus_ksock_t ksock,
  * @return 0 on success, < 0 on error and set errno.
  */
 int   kbus_ksock_send_msg       (kbus_ksock_t ksock, 
-				 const kbus_message_t *msg, 
-				 struct kbus_msg_id *msg_id);
+                                 const kbus_message_t *msg, 
+                                 struct kbus_msg_id *msg_id);
 
 /** Send a message written by kbus_ksock_write_msg()
  *
@@ -265,9 +268,9 @@ int   kbus_ksock_send           (kbus_ksock_t ksock, struct kbus_msg_id *msg_id)
  * @return 0 on success, < 0 and set errno on failure.
  */
 int kbus_msg_create            (kbus_message_t **msg, 
-		                const char *name, uint32_t name_len, /* bytes */
+                                const char *name, uint32_t name_len, /* bytes */
                                 const void *data, uint32_t data_len, /* bytes */
-		                uint32_t flags);
+                                uint32_t flags);
 
 /** Create a short "entire" message. We *do* take copies of your name and data,
  *  you may free it staight away if you want.
@@ -289,48 +292,9 @@ int kbus_msg_create            (kbus_message_t **msg,
  * @return 0 on success, < 0 and set errno on failure.
  */
 int kbus_msg_create_short(kbus_message_t **msg, 
-			  const char *name, uint32_t name_len,/*bytes*/
-			  const void *data, uint32_t data_len,/*bytes*/
-			  uint32_t flags);
-
-/** Check if a message is "entire".
- *
- * Returns true if the message is "entire", false if it is "pointy".
- * Strongly assumes the message is well-structured.
- */
-static inline int kbus_msg_is_entire(const kbus_message_t     *msg)
-{
-  return msg->name == NULL;
-}
-
-static inline int kbus_msg_is_reply(const kbus_message_t    *msg)
-{
-  return msg->in_reply_to.network_id != 0 ||
-         msg->in_reply_to.serial_num != 0;
-}
-
-static inline int kbus_msg_is_request(const kbus_message_t      *msg)
-{
-  return (msg->flags & KBUS_BIT_WANT_A_REPLY) != 0;
-}
-
-static inline int kbus_msg_is_stateful_request(const kbus_message_t      *msg)
-{
-  return (msg->flags & KBUS_BIT_WANT_A_REPLY) && (msg->to != 0);
-}
-
-static inline int kbus_msg_wants_us_to_reply(const kbus_message_t       *msg)
-{
-  return (msg->flags & KBUS_BIT_WANT_A_REPLY) &&
-         (msg->flags & KBUS_BIT_WANT_YOU_TO_REPLY);
-}
-
-/** 'Cast' a message as an entire message datastructure.
- */
-static inline const kbus_entire_message_t *kbus_msg_as_entire(const kbus_message_t  *msg)
-{
-  return (const kbus_entire_message_t *)msg;
-}
+                          const char *name, uint32_t name_len,/*bytes*/
+                          const void *data, uint32_t data_len,/*bytes*/
+                          uint32_t flags);
 
 /** Create a reply to a kbus message.  Behaves like kbus_msg_create, 
  *  but the message name is taken from the original (in_reply_to)
@@ -350,9 +314,9 @@ static inline const kbus_entire_message_t *kbus_msg_as_entire(const kbus_message
  * @return 0 on success, < 0 and set errno on failure.
  */
 int kbus_msg_create_reply      (kbus_message_t **msg, 
-			        const kbus_message_t *in_reply_to,
-	                        const void *data, uint32_t data_len,
-			        uint32_t flags);
+                                const kbus_message_t *in_reply_to,
+                                const void *data, uint32_t data_len,
+                                uint32_t flags);
 
 /** Create a short "entire" reply to a kbus message. Behaves like 
  *  kbus_msg_create_reply but returns a pointer to an entire message.
@@ -378,10 +342,10 @@ int kbus_msg_create_reply      (kbus_message_t **msg,
  * @return 0 on success, < 0 and set errno on failure.
  */
 int kbus_msg_create_short_reply(kbus_message_t **msg, 
-				const kbus_message_t *in_reply_to,
-				const void *data, 
-				uint32_t data_len, /* bytes */
-				uint32_t flags);
+                                const kbus_message_t *in_reply_to,
+                                const void *data, 
+                                uint32_t data_len, /* bytes */
+                                uint32_t flags);
 
 /** Create a stateful request.
  *
@@ -437,12 +401,12 @@ int kbus_msg_create_stateful_request(kbus_message_t         **msg,
  * @return 0 on success, < 0 and set errno on failure.
  */
 int kbus_msg_create_short_stateful_request(kbus_message_t         **msg, 
-					   const kbus_message_t    *earlier_msg,
-					   const char          *name,
-					   uint32_t             name_len,
-					   const void          *data, 
-					   uint32_t             data_len, /* bytes */
-					   uint32_t             flags);
+                                           const kbus_message_t    *earlier_msg,
+                                           const char          *name,
+                                           uint32_t             name_len,
+                                           const void          *data, 
+                                           uint32_t             data_len, /* bytes */
+                                           uint32_t             flags);
 
 /** Dispose of a message, releasing all associated memory.
  *
@@ -456,7 +420,7 @@ void kbus_msg_dispose          (kbus_message_t **kms_p);
  * @param[in] dump_data Dump the data too?
  */
 void kbus_msg_dump             (const kbus_message_t *msg, 
-				int dump_data);
+                                int dump_data);
 
 /**  Find out the size of a kbus message include any name/data in an
  *   entire message. 
@@ -470,7 +434,7 @@ int kbus_msg_sizeof            (const kbus_message_t *msg);
 /** Compare two kbus message ids and return < 0 if a < b, 0 if a==b, 1 if a > b
   */
 static inline int kbus_id_cmp  (const struct kbus_msg_id *a, 
-				const struct kbus_msg_id *b)
+                                const struct kbus_msg_id *b)
 {
   if (!a && !b) { return 0; }
   if (!a) { return -1; }
@@ -557,8 +521,56 @@ int kbus_msg_is_stateful_request(const kbus_message_t  *msg);
  */
 int kbus_msg_wants_us_to_reply(const kbus_message_t  *msg);
 
+#endif      // End of disabling of things
+
+/** Check if a message is "entire".
+ *
+ * Returns true if the message is "entire", false if it is "pointy".
+ * Strongly assumes the message is well-structured.
+ */
+static inline int kbus_msg_is_entire(const kbus_message_t     *msg)
+{
+  return msg->name == NULL;
+}
+
+static inline int kbus_msg_is_reply(const kbus_message_t    *msg)
+{
+  return msg->in_reply_to.network_id != 0 ||
+         msg->in_reply_to.serial_num != 0;
+}
+
+static inline int kbus_msg_is_request(const kbus_message_t      *msg)
+{
+  return (msg->flags & KBUS_BIT_WANT_A_REPLY) != 0;
+}
+
+static inline int kbus_msg_is_stateful_request(const kbus_message_t      *msg)
+{
+  return (msg->flags & KBUS_BIT_WANT_A_REPLY) && (msg->to != 0);
+}
+
+static inline int kbus_msg_wants_us_to_reply(const kbus_message_t       *msg)
+{
+  return (msg->flags & KBUS_BIT_WANT_A_REPLY) &&
+         (msg->flags & KBUS_BIT_WANT_YOU_TO_REPLY);
+}
+
+/** 'Cast' a message as an entire message datastructure.
+ */
+static inline const kbus_entire_message_t *kbus_msg_as_entire(const kbus_message_t  *msg)
+{
+  return (const kbus_entire_message_t *)msg;
+}
+
 #ifdef __cplusplus
 }
 #endif 
 
 #endif /* _LKBUS_H_INCLUDED_ */
+
+// Local Variables:
+// tab-width: 8
+// indent-tabs-mode: nil
+// c-basic-offset: 2
+// End:
+// vim: set tabstop=8 shiftwidth=2 softtabstop=2 expandtab:
