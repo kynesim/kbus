@@ -44,10 +44,19 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if 0
-static int run_client(char *hostname,
-                      int   port)
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/un.h>     // for sockaddr_un
+#include <netinet/in.h> // for sockaddr_in
+
+static int run_client(uint32_t  kbus_device,
+                      char     *message_name,
+                      char     *address,
+                      int       port,
+                      uint32_t  network_id,
+                      bool      verbose)
 {
+#if 0
   int output;
   int result;
   struct hostent *hp;
@@ -61,11 +70,11 @@ static int run_client(char *hostname,
     return -1;
   }
 
-  hp = gethostbyname(hostname);
+  hp = gethostbyname(address);
   if (hp == NULL)
   {
     fprintf(stderr,"### Unable to resolve host %s: %s\n",
-            hostname,strerror(h_errno));
+            address,strerror(h_errno));
     return -1;
   }
   memcpy(&ipaddr.sin_addr.s_addr, hp->h_addr, hp->h_length);
@@ -80,76 +89,110 @@ static int run_client(char *hostname,
   if (result < 0)
   {
     fprintf(stderr,"### Unable to connect to host %s: %s\n",
-            hostname,strerror(errno));
+            address,strerror(errno));
     return -1;
   }
-  printf("Connected  to %s on socket %d\n",hostname,output);
+  printf("Connected  to %s on socket %d\n",address,output);
   return output;
+#endif
 }
 
-static int run_server(int    port,
-                      int    listen_port)
+static int run_server(uint32_t  kbus_device,
+                      char     *message_name,
+                      char     *address,
+                      int       port,
+                      uint32_t  network_id,
+                      bool      verbose)
 {
   int    err;
-  SOCKET server_socket;
-  SOCKET client_socket;
-  struct sockaddr_in ipaddr;
-  byte  *data;
+  int    family;
+  int    server_socket;
+  int    client_socket;
+  int    opt[1];
 
-  server_socket = socket(AF_INET, SOCK_STREAM, 0);
+  if (port == 0)
+      family = AF_UNIX;
+  else
+      family = AF_INET;
+
+  server_socket = socket(family, SOCK_STREAM, 0);
   if (server_socket == -1)
   {
     fprintf(stderr,"### Unable to create socket: %s\n",strerror(errno));
     return 1;
   }
 
-  // Bind it to port `listen_port` on this machine
-  memset(&ipaddr,0,sizeof(ipaddr));
-#if !defined(__linux__)
-  // On BSD, the length is defined in the datastructure
-  ipaddr.sin_len = sizeof(struct sockaddr_in);
-#endif
-  ipaddr.sin_family = AF_INET;
-  ipaddr.sin_port = htons(listen_port);
-  ipaddr.sin_addr.s_addr = INADDR_ANY;  // any interface
+  // Try to allow address reuse as soon as possible after we've finished
+  // with it
+  opt[0] = 1;
+  (void) setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, opt, sizeof(int));
 
-  err = bind(server_socket,(struct sockaddr*)&ipaddr,sizeof(ipaddr));
+  if (family == AF_UNIX)
+  {
+      struct sockaddr_un  unaddr = {0};
+      socklen_t           length;
+      unaddr.sun_family = AF_UNIX;
+      if (strlen(address) > 104)                // apparently 104 is the limit
+          printf("!!! Address '%s' is too long, truncated\n",address);
+      strncpy(unaddr.sun_path, address, 104);   // yes, really, 104
+      unaddr.sun_path[104] = 0;                 // that number again
+      // If the file with that name already exists, then we will fail.
+      // But I'd rather not delete the file if we've not created it
+      // - that would be something of a Bad Thing to do to someone!
+      length = sizeof(unaddr.sun_family) + strlen(unaddr.sun_path);
+
+      err = bind(server_socket, (struct sockaddr *)&unaddr, length);
+      if (err == -1)
+      {
+        fprintf(stderr,"### Unable to bind to %s: %s\n",
+                address,strerror(errno));
+        return 1;
+      }
+  }
+  else
+  {
+      struct sockaddr_in  ipaddr;
+#if !defined(__linux__)
+      // On BSD, the length is defined in the datastructure
+      ipaddr.sin_len = sizeof(struct sockaddr_in);
+#endif
+      ipaddr.sin_family = AF_INET;
+      ipaddr.sin_port = htons(port);        // this port
+      ipaddr.sin_addr.s_addr = INADDR_ANY;  // any interface
+
+      err = bind(server_socket, (struct sockaddr*)&ipaddr, sizeof(ipaddr));
+      if (err == -1)
+      {
+        fprintf(stderr,"### Unable to bind to port %d: %s\n",
+                port,strerror(errno));
+        return 1;
+      }
+  }
+
+  printf("Listening for a connection\n");
+
+  // Listen for someone to connect to it, just one someone
+  err = listen(server_socket,1);
   if (err == -1)
   {
-    fprintf(stderr,"### Unable to bind to port %d: %s\n",
-            listen_port,strerror(errno));
-    return 1;
-  }
-
-  for (;;)
-  {
-    printf("Listening for a connection on port %d\n",listen_port);
-
-    // Listen for someone to connect to it
-    err = listen(server_socket,1);
-    if (err == -1)
-    {
       fprintf(stderr,"### Error listening for client: %s\n",strerror(errno));
-      free(data);
       return 1;
-    }
-
-    // Accept the connection
-    client_socket = accept(server_socket,NULL,NULL);
-    if (client_socket == -1)
-    {
-      fprintf(stderr,"### Error accepting connection: %s\n",strerror(errno));
-      free(data);
-      return 1;
-    }
-
-    // And presumably do something with it...
-
-    close(client_socket);
   }
+
+  // Accept the connection
+  client_socket = accept(server_socket,NULL,NULL);
+  if (client_socket == -1)
+  {
+      fprintf(stderr,"### Error accepting connection: %s\n",strerror(errno));
+      return 1;
+  }
+
+  // And presumably do something with it...
+  // ... XXX ...
+
+  close(client_socket);
   return 0;
 }
-#endif
 
 static int int_value(char *cmd,
                      char *arg,
@@ -204,56 +247,41 @@ static int int_value(char *cmd,
   return 0;
 }
 
-static int host_value(char  *cmd,
-                      char  *arg,
-                      char **hostname,
-                      int   *port)
+static int parse_address(char  *arg,
+                         char **address,
+                         int   *port)
 {
-  char *p = strchr(arg,':');
-
-  *hostname = arg;
-
-  if (p != NULL)
-  {
     char *ptr;
-    p[0] = '\0';  // yep, modifying argv[ii+1]
+    char *colon_ptr = strchr(arg,':');
+
+    *address = arg;
+
+    if (colon_ptr == NULL) {
+        // There is no port number
+        *port = 0;
+        return 0;
+    }
+
     errno = 0;
-    *port = strtol(p+1,&ptr,10);
+    *port = strtol(colon_ptr+1,&ptr,10);
     if (errno)
     {
-      p[0] = ':';
-      printf("### ");
-      if (cmd)
-        printf("Cannot read port number in %s %s (%s)\n",
-               cmd,arg,strerror(errno));
-      else
-        printf("Cannot read port number in %s (%s)\n",
+        printf("### Cannot read port number in %s (%s)\n",
                arg,strerror(errno));
-      return 1;
+        return 1;
     }
     if (ptr[0] != '\0')
     {
-      p[0] = ':';
-      printf("### ");
-      if (cmd)
-        printf("Unexpected characters in port number in %s %s\n",
-               cmd,arg);
-      else
-        printf("Unexpected characters in port number in %s\n",arg);
-      return 1;
+        printf("### Unexpected characters in port number in %s\n",arg);
+        return 1;
     }
     if (*port < 0)
     {
-      p[0] = ':';
-      printf("### ");
-      if (cmd)
-        printf("Negative port number in %s %s\n",cmd,arg);
-      else
-        printf("Negative port number in %s\n",arg);
-      return 1;
+        printf("### Negative port number in %s\n",arg);
+        return 1;
     }
-  }
-  return 0;
+    colon_ptr[0] = '\0';  // yep, modifying arg
+    return 0;
 }
 
 static void print_usage(void)
@@ -298,6 +326,7 @@ static void print_usage(void)
 
 int main(int argc, char **argv)
 {
+    int          err;
     int          port = 0;               // meaning "no port"
     char        *address = NULL;
     bool         had_address = false;
@@ -305,7 +334,7 @@ int main(int argc, char **argv)
     bool         had_server_or_client = false;
     int          kbus_device = 0;
     int          network_id = -1;       // unset
-    char        *message_name = NULL;
+    char        *message_name = "$.*";
     bool         verbose = false;
     int          ii = 1;
 
@@ -329,20 +358,18 @@ int main(int argc, char **argv)
             {
                 is_server = true;
                 had_server_or_client = true;
-                ii++;
             }
             else if (!strcmp("-c",argv[ii]) || !strcmp("-client",argv[ii]))
             {
                 is_server = false;
                 had_server_or_client = true;
-                ii++;
             }
             else if (!strcmp("-id",argv[ii]))
             {
                 long  val;
                 if (ii+1 == argc)
                 {
-                    fprintf(stderr,"### Missing argument to %s\n",argv[ii]);
+                    fprintf(stderr,"### %s requires an integer argument (network id)\n",argv[ii]);
                     return 1;
                 }
                 if (int_value(argv[ii], argv[ii+1], true, 10, &val))
@@ -355,7 +382,7 @@ int main(int argc, char **argv)
                 long  val;
                 if (ii+1 == argc)
                 {
-                    fprintf(stderr,"### Missing argument to %s\n",argv[ii]);
+                    fprintf(stderr,"### %s requires an integer argument (KBUS device)\n",argv[ii]);
                     return 1;
                 }
                 if (int_value(argv[ii], argv[ii+1], true, 10, &val))
@@ -367,10 +394,10 @@ int main(int argc, char **argv)
             {
                 if (ii+1 == argc)
                 {
-                    fprintf(stderr,"### Missing argument to %s\n",argv[ii]);
+                    fprintf(stderr,"### %s requires an argument (message name)\n",argv[ii]);
                     return 1;
                 }
-                message_name = argv[ii+1];      // NB: not a copy
+                message_name = argv[ii+1];
                 ii++;
             }
             else if (!strcmp("-verbose",argv[ii]) || !strcmp("-v",argv[ii]))
@@ -385,7 +412,7 @@ int main(int argc, char **argv)
         }
         else
         {
-            int err = host_value(argv[ii],argv[ii+1],&address,&port);
+            int err = parse_address(argv[ii],&address,&port);
             if (err) return 1;
             had_address = true;
         }
@@ -406,8 +433,22 @@ int main(int argc, char **argv)
         network_id = is_server ? 2 : 1;
     }
 
-    printf("Limpet: %s via %s for KBUS %d, using network id %d\n",
-           is_server?"Server":"Client", address, kbus_device, network_id);
+    printf("Limpet: %s via %s '%s'",
+           is_server?"Server":"Client",
+           port==0?"Unix domain socket":"TCP/IP, address",
+           address);
+    if (port != 0)
+        printf(" port %d",port);
+    printf(" for KBUS %d, using network id %d, listening for '%s'\n",
+           kbus_device, network_id, message_name);
+
+    if (is_server)
+        err = run_server(kbus_device, message_name, address, port, network_id, verbose);
+    else
+        err = run_client(kbus_device, message_name, address, port, network_id, verbose);
+
+    if (err)
+        return 1;
 
     return 0;
 }
