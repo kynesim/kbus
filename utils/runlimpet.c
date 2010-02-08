@@ -36,6 +36,15 @@
  * ***** END LICENSE BLOCK *****
  */
 
+#include <errno.h>
+#include <limits.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#if 0
 static int run_client(char *hostname,
                       int   port)
 {
@@ -140,6 +149,7 @@ static int run_server(int    port,
   }
   return 0;
 }
+#endif
 
 static int int_value(char *cmd,
                      char *arg,
@@ -290,13 +300,13 @@ int main(int argc, char **argv)
 {
     int          port = 0;               // meaning "no port"
     char        *address = NULL;
-    int          had_address = false;
+    bool         had_address = false;
     int          is_server;
-    int          had_server_or_client = false;
-    int          kbus_device_number = 0;
+    bool         had_server_or_client = false;
+    int          kbus_device = 0;
     int          network_id = -1;       // unset
     char        *message_name = NULL;
-    int          verbose = FALSE;
+    bool         verbose = false;
     int          ii = 1;
 
     if (argc < 2)
@@ -350,7 +360,7 @@ int main(int argc, char **argv)
                 }
                 if (int_value(argv[ii], argv[ii+1], true, 10, &val))
                     return 1;
-                kbus_device_number = val;
+                kbus_device = val;
                 ii++;
             }
             else if (!strcmp("-m",argv[ii]) || !strcmp("-message",argv[ii]))
@@ -365,7 +375,7 @@ int main(int argc, char **argv)
             }
             else if (!strcmp("-verbose",argv[ii]) || !strcmp("-v",argv[ii]))
             {
-                verbose = TRUE;
+                verbose = true;
             }
             else
             {
@@ -375,9 +385,9 @@ int main(int argc, char **argv)
         }
         else
         {
-            err = host_value(argv[ii],argv[ii+1],&output_name,&port);
+            int err = host_value(argv[ii],argv[ii+1],&address,&port);
             if (err) return 1;
-            had_output_name = TRUE; // more or less
+            had_address = true;
         }
         ii++;
     }
@@ -395,6 +405,9 @@ int main(int argc, char **argv)
     if (network_id == -1) {
         network_id = is_server ? 2 : 1;
     }
+
+    printf("Limpet: %s via %s for KBUS %d, using network id %d\n",
+           is_server?"Server":"Client", address, kbus_device, network_id);
 
     return 0;
 }

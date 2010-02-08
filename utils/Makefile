@@ -1,4 +1,4 @@
-# A useful utility for testing kbus
+# Build kmsg and runlimpet
 #
 # Use ``O=<destination>`` for a remote build, ``STATIC=1`` for a static build,
 # ``STATIC=0`` for a shared build. Static builds are default for local builds,
@@ -34,16 +34,20 @@ else
 	LIBDEPEND=$(LIBKBUSDIR)/libkbus.so
 endif
 
-TARGET=$(TGTDIR)/kmsg
+RUNLIMPET=$(TGTDIR)/runlimpet
+KMSG=$(TGTDIR)/kmsg
 
 .PHONY: all
-all: dirs $(TARGET)
+all: dirs $(KMSG) $(RUNLIMPET)
 
 .PHONY: dirs
 dirs:
 	-mkdir -p $(TGTDIR)
 
-$(TARGET): kmsg.c $(LIBDEPEND)
+$(RUNLIMPET): runlimpet.c $(LIBDEPEND)
+	$(CC) runlimpet.c -o $@ $(CFLAGS) $(LDFLAGS) $(LIBS)
+
+$(KMSG): kmsg.c $(LIBDEPEND)
 	$(CC) kmsg.c -o $@ $(CFLAGS) $(LDFLAGS) $(LIBS)
 
 $(LIBDEPEND):
@@ -53,7 +57,7 @@ $(LIBDEPEND):
 # the source directory!
 .PHONY: clean
 clean:
-	rm -rf $(TGTDIR)/*.o $(TGTDIR)/kmsg
+	rm -rf $(TGTDIR)/*.o $(TGTDIR)/kmsg $(TGTDIR)/runlimpet
 
 .PHONY: distclean
 distclean: clean
@@ -62,3 +66,4 @@ distclean: clean
 install:
 	-mkdir -p $(DESTDIR)/bin
 	install -m 0755 $(TGTDIR)/kmsg $(DESTDIR)/bin/kmsg
+	install -m 0755 $(TGTDIR)/runlimpet $(DESTDIR)/bin/runlimpet
