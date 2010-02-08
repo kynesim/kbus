@@ -873,6 +873,74 @@ extern int kbus_msg_create_short(kbus_message_t        **msg,
 }
 
 /*
+ * Create a Request (specifically, a "pointy" Request message).
+ *
+ * Note that the message name and data are not copied, and thus should not be
+ * freed until the message has been sent (with ``kbus_ksock_send_msg()``).
+ *
+ * `msg` is the new message, as created by this function.
+ *
+ * `name` is the name for the message, and `name_len` the length of the name
+ * (the number of characters in the name). A message name is required.
+ *
+ * 'data' is the data for this message, or NULL if there is no data. `data_len`
+ * is then the length of the data, in bytes.
+ *
+ * `flags` may be any KBUS message flags required. These will be set on the
+ * message, and then (after that) the KBUS_BIT_WANT_A_REPLY flag will be set
+ * to make the new message a Request.
+ *
+ * Returns 0 for success, or a negative number (``-errno``) for failure.
+ */
+extern int kbus_msg_create_request(kbus_message_t **msg, 
+                                   const char *name,
+                                   uint32_t name_len, /* bytes  */
+                                   const void *data,
+                                   uint32_t data_len, /* bytes */
+                                   uint32_t flags) 
+{
+  int rv = kbus_msg_create(msg, name, name_len, data, data_len, flags);
+  if (rv) return rv;
+
+  (*msg)->flags |= KBUS_BIT_WANT_A_REPLY;
+
+  return 0;
+}
+
+/*
+ * Create a short ("entire") Request message.
+ *
+ * "Entire" messages are limited in size (currently to 2048 bytes). That size
+ * includes both the message header and the message data. Thus they are only
+ * suitable for "short" messages.
+ *
+ * Unless you really, really need the "copying the name/data" functionality,
+ * and are guaranteed to be sending short enough messages, please do not use
+ * this function, use ``kbus_msg_create()`` instead.
+ *
+ * This is identical in behaviour to ``kbus_msg_create_request()``, except
+ * that an "entire" message is created, and thus both the message name and data
+ * are copied. This means that the original `name` and `data` may be freed as
+ * soon as the `msg` has been created.
+ *
+ * Returns 0 for success, or a negative number (``-errno``) for failure.
+ */
+extern int kbus_msg_create_short_request(kbus_message_t        **msg, 
+                                         const char             *name,
+                                         uint32_t                name_len, /* bytes  */
+                                         const void             *data,
+                                         uint32_t                data_len, /* bytes */
+                                         uint32_t                flags)
+{
+  int rv = kbus_msg_create_short(msg, name, name_len, data, data_len, flags);
+  if (rv) return rv;
+
+  (*msg)->flags |= KBUS_BIT_WANT_A_REPLY;
+
+  return 0;
+}
+
+/*
  * Create a Reply message, based on a previous Request.
  *
  * This is a convenience mechanism for creating the Reply to a previous
@@ -1152,11 +1220,12 @@ extern int kbus_msg_split_bind_event(const kbus_message_t  *msg,
   struct kbus_replier_bind_event_data  *event_data;
   char                                 *orig_name;
   char                                 *this_name;
+  void *data = kbus_msg_data_ptr(msg);
 
   // This is the barest of plausibility checks
-  if (!msg->data || msg->data_len==0) return -EBADMSG;
+  if (!data || msg->data_len==0) return -EBADMSG;
 
-  event_data = (struct kbus_replier_bind_event_data *)msg->data;
+  event_data = (struct kbus_replier_bind_event_data *)data;
   orig_name = (char *)event_data->rest;
 
   this_name = malloc(event_data->name_len + 1);
@@ -1183,11 +1252,13 @@ extern void kbus_msg_print(FILE                 *stream,
                            const kbus_message_t *msg)
 {
   int is_bind_event = false;
+  char *name = kbus_msg_name_ptr(msg);
+  char *data = kbus_msg_data_ptr(msg);
 
   fprintf(stream,"<");
 
   if (kbus_msg_is_reply(msg)) {
-    if (msg->name_len > 7 && !strncmp("$.KBUS.", msg->name, 7))
+    if (msg->name_len > 7 && !strncmp("$.KBUS.", name, 7))
       fprintf(stream,"Status");
     else
       fprintf(stream,"Reply");
@@ -1195,7 +1266,7 @@ extern void kbus_msg_print(FILE                 *stream,
     fprintf(stream,"Request");
   } else {
     if (msg->name_len == strlen(KBUS_MSG_NAME_REPLIER_BIND_EVENT) &&
-        !strncmp(KBUS_MSG_NAME_REPLIER_BIND_EVENT, msg->name,
+        !strncmp(KBUS_MSG_NAME_REPLIER_BIND_EVENT, name,
                  strlen(KBUS_MSG_NAME_REPLIER_BIND_EVENT))) {
       fprintf(stream,"ReplierBindEvent");
       is_bind_event = true;
@@ -1232,19 +1303,18 @@ extern void kbus_msg_print(FILE                 *stream,
     if (msg->flags & KBUS_BIT_ALL_OR_WAIT) fprintf(stream," aWT");
   }
 
-  if (msg->data) {
+  if (msg->data_len > 0) {
     fprintf(stream," data=");
     if (is_bind_event) {
       uint32_t  is_bind, binder;
-      char     *name = NULL;
-      (void) kbus_msg_split_bind_event(msg, &is_bind, &binder, &name);
+      char     *bind_name = NULL;
+      (void) kbus_msg_split_bind_event(msg, &is_bind, &binder, &bind_name);
 
-      fprintf(stream," [%s '%s' for %u]",(is_bind?"Bind":"Unbind"), name, binder);
+      fprintf(stream," [%s '%s' for %u]",(is_bind?"Bind":"Unbind"), bind_name, binder);
 
-      if (name) free(name);
+      if (bind_name) free(bind_name);
     } else {
       int ii, minlen = msg->data_len<20?msg->data_len:20;
-      char *data = (char *)msg->data;
       for (ii=0; ii<minlen; ii++) {
         char  ch = data[ii];
         if (isprint(ch))
