@@ -48,6 +48,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>     // for sockaddr_un
 #include <netinet/in.h> // for sockaddr_in
+#include <netdb.h>
 
 static int run_client(uint32_t  kbus_device,
                       char     *message_name,
@@ -56,45 +57,85 @@ static int run_client(uint32_t  kbus_device,
                       uint32_t  network_id,
                       bool      verbose)
 {
-#if 0
-  int output;
-  int result;
-  struct hostent *hp;
-  struct sockaddr_in ipaddr;
+  int    err;
+  int    family;
+  int    client_socket;
+  int    opt[1];
 
-  // SOCK_DGRAM => UDP
-  output = socket(AF_INET, SOCK_DGRAM, 0);
-  if (output == -1)
+  if (port == 0)
+      family = AF_UNIX;
+  else
+      family = AF_INET;
+
+  client_socket = socket(family, SOCK_STREAM, 0);
+  if (client_socket == -1)
   {
     fprintf(stderr,"### Unable to create socket: %s\n",strerror(errno));
-    return -1;
+    return 1;
   }
 
-  hp = gethostbyname(address);
-  if (hp == NULL)
+  // Try to allow address reuse as soon as possible after we've finished
+  // with it
+  opt[0] = 1;
+  (void) setsockopt(client_socket, SOL_SOCKET, SO_REUSEADDR, opt, sizeof(int));
+
+  if (family == AF_UNIX)
   {
-    fprintf(stderr,"### Unable to resolve host %s: %s\n",
-            address,strerror(h_errno));
-    return -1;
+      struct sockaddr_un  unaddr = {0};
+      socklen_t           length;
+      unaddr.sun_family = AF_UNIX;
+      if (strlen(address) > 104)                // apparently 104 is the limit
+          printf("!!! Address '%s' is too long, truncated\n",address);
+      strncpy(unaddr.sun_path, address, 104);   // yes, really, 104
+      unaddr.sun_path[104] = 0;                 // that number again
+      // If the file with that name already exists, then we will fail.
+      // But I'd rather not delete the file if we've not created it
+      // - that would be something of a Bad Thing to do to someone!
+      length = sizeof(unaddr.sun_family) + strlen(unaddr.sun_path);
+
+      err = connect(client_socket, (struct sockaddr *)&unaddr, length);
+      if (err == -1)
+      {
+        fprintf(stderr,"### Unable to connect to %s: %s\n",
+                address,strerror(errno));
+        return 1;
+      }
+      printf("Connected  to %s on socket %d\n",address,client_socket);
   }
-  memcpy(&ipaddr.sin_addr.s_addr, hp->h_addr, hp->h_length);
-  ipaddr.sin_family = hp->h_addrtype;
+  else
+  {
+      struct hostent     *hp;
+      struct sockaddr_in  ipaddr;
+      hp = gethostbyname(address);
+      if (hp == NULL)
+      {
+          fprintf(stderr,"### Unable to resolve host %s: %s\n",
+                  address,strerror(h_errno));
+          return -1;
+      }
+      memcpy(&ipaddr.sin_addr.s_addr, hp->h_addr, hp->h_length);
+      ipaddr.sin_family = AF_INET;
 #if !defined(__linux__)
-  // On BSD, the length is defined in the datastructure
-  ipaddr.sin_len = sizeof(struct sockaddr_in);
+      // On BSD, the length is defined in the datastructure
+      ipaddr.sin_len = sizeof(struct sockaddr_in);
 #endif // __linux__
-  ipaddr.sin_port = htons(port);
-
-  result = connect(output,(struct sockaddr*)&ipaddr,sizeof(ipaddr));
-  if (result < 0)
-  {
-    fprintf(stderr,"### Unable to connect to host %s: %s\n",
-            address,strerror(errno));
-    return -1;
+      ipaddr.sin_port = htons(port);
+      err = connect(client_socket, (struct sockaddr*)&ipaddr, sizeof(ipaddr));
+      if (err == -1)
+      {
+        fprintf(stderr,"### Unable to connect to port %d: %s\n",
+                port,strerror(errno));
+        return 1;
+      }
+      printf("Connected  to %s port %d on socket %d\n",address,port,
+             client_socket);
   }
-  printf("Connected  to %s on socket %d\n",address,output);
-  return output;
-#endif
+
+  // And presumably do something with it...
+  // ... XXX ...
+
+  close(client_socket);
+  return 0;
 }
 
 static int run_server(uint32_t  kbus_device,
@@ -186,6 +227,8 @@ static int run_server(uint32_t  kbus_device,
       fprintf(stderr,"### Error accepting connection: %s\n",strerror(errno));
       return 1;
   }
+
+  printf("Connected  via port %d on socket %d\n",port,client_socket);
 
   // And presumably do something with it...
   // ... XXX ...
