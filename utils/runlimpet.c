@@ -50,16 +50,14 @@
 #include <netinet/in.h> // for sockaddr_in
 #include <netdb.h>
 
-static int run_client(uint32_t  kbus_device,
-                      char     *message_name,
-                      char     *address,
-                      int       port,
-                      uint32_t  network_id,
-                      bool      verbose)
+#include "libkbus/kbus.h"
+
+static int open_client_socket(char     *address,
+                              int       port,
+                              int      *client_socket)
 {
   int    err;
   int    family;
-  int    client_socket;
   int    opt[1];
 
   if (port == 0)
@@ -67,8 +65,8 @@ static int run_client(uint32_t  kbus_device,
   else
       family = AF_INET;
 
-  client_socket = socket(family, SOCK_STREAM, 0);
-  if (client_socket == -1)
+  *client_socket = socket(family, SOCK_STREAM, 0);
+  if (*client_socket == -1)
   {
     fprintf(stderr,"### Unable to create socket: %s\n",strerror(errno));
     return 1;
@@ -77,7 +75,7 @@ static int run_client(uint32_t  kbus_device,
   // Try to allow address reuse as soon as possible after we've finished
   // with it
   opt[0] = 1;
-  (void) setsockopt(client_socket, SOL_SOCKET, SO_REUSEADDR, opt, sizeof(int));
+  (void) setsockopt(*client_socket, SOL_SOCKET, SO_REUSEADDR, opt, sizeof(int));
 
   if (family == AF_UNIX)
   {
@@ -93,14 +91,14 @@ static int run_client(uint32_t  kbus_device,
       // - that would be something of a Bad Thing to do to someone!
       length = sizeof(unaddr.sun_family) + strlen(unaddr.sun_path);
 
-      err = connect(client_socket, (struct sockaddr *)&unaddr, length);
+      err = connect(*client_socket, (struct sockaddr *)&unaddr, length);
       if (err == -1)
       {
         fprintf(stderr,"### Unable to connect to %s: %s\n",
                 address,strerror(errno));
         return 1;
       }
-      printf("Connected  to %s on socket %d\n",address,client_socket);
+      printf("Connected  to %s on socket %d\n",address,*client_socket);
   }
   else
   {
@@ -120,7 +118,7 @@ static int run_client(uint32_t  kbus_device,
       ipaddr.sin_len = sizeof(struct sockaddr_in);
 #endif // __linux__
       ipaddr.sin_port = htons(port);
-      err = connect(client_socket, (struct sockaddr*)&ipaddr, sizeof(ipaddr));
+      err = connect(*client_socket, (struct sockaddr*)&ipaddr, sizeof(ipaddr));
       if (err == -1)
       {
         fprintf(stderr,"### Unable to connect to port %d: %s\n",
@@ -128,27 +126,18 @@ static int run_client(uint32_t  kbus_device,
         return 1;
       }
       printf("Connected  to %s port %d on socket %d\n",address,port,
-             client_socket);
+             *client_socket);
   }
-
-  // And presumably do something with it...
-  // ... XXX ...
-
-  close(client_socket);
   return 0;
 }
 
-static int run_server(uint32_t  kbus_device,
-                      char     *message_name,
-                      char     *address,
-                      int       port,
-                      uint32_t  network_id,
-                      bool      verbose)
+static int open_server_socket(char     *address,
+                              int       port,
+                              int      *client_socket,
+                              int      *server_socket)
 {
   int    err;
   int    family;
-  int    server_socket;
-  int    client_socket;
   int    opt[1];
 
   if (port == 0)
@@ -156,8 +145,8 @@ static int run_server(uint32_t  kbus_device,
   else
       family = AF_INET;
 
-  server_socket = socket(family, SOCK_STREAM, 0);
-  if (server_socket == -1)
+  *server_socket = socket(family, SOCK_STREAM, 0);
+  if (*server_socket == -1)
   {
     fprintf(stderr,"### Unable to create socket: %s\n",strerror(errno));
     return 1;
@@ -166,7 +155,7 @@ static int run_server(uint32_t  kbus_device,
   // Try to allow address reuse as soon as possible after we've finished
   // with it
   opt[0] = 1;
-  (void) setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, opt, sizeof(int));
+  (void) setsockopt(*server_socket, SOL_SOCKET, SO_REUSEADDR, opt, sizeof(int));
 
   if (family == AF_UNIX)
   {
@@ -182,7 +171,7 @@ static int run_server(uint32_t  kbus_device,
       // - that would be something of a Bad Thing to do to someone!
       length = sizeof(unaddr.sun_family) + strlen(unaddr.sun_path);
 
-      err = bind(server_socket, (struct sockaddr *)&unaddr, length);
+      err = bind(*server_socket, (struct sockaddr *)&unaddr, length);
       if (err == -1)
       {
         fprintf(stderr,"### Unable to bind to %s: %s\n",
@@ -201,7 +190,7 @@ static int run_server(uint32_t  kbus_device,
       ipaddr.sin_port = htons(port);        // this port
       ipaddr.sin_addr.s_addr = INADDR_ANY;  // any interface
 
-      err = bind(server_socket, (struct sockaddr*)&ipaddr, sizeof(ipaddr));
+      err = bind(*server_socket, (struct sockaddr*)&ipaddr, sizeof(ipaddr));
       if (err == -1)
       {
         fprintf(stderr,"### Unable to bind to port %d: %s\n",
@@ -213,7 +202,7 @@ static int run_server(uint32_t  kbus_device,
   printf("Listening for a connection\n");
 
   // Listen for someone to connect to it, just one someone
-  err = listen(server_socket,1);
+  err = listen(*server_socket,1);
   if (err == -1)
   {
       fprintf(stderr,"### Error listening for client: %s\n",strerror(errno));
@@ -221,20 +210,66 @@ static int run_server(uint32_t  kbus_device,
   }
 
   // Accept the connection
-  client_socket = accept(server_socket,NULL,NULL);
-  if (client_socket == -1)
+  *client_socket = accept(*server_socket,NULL,NULL);
+  if (*client_socket == -1)
   {
       fprintf(stderr,"### Error accepting connection: %s\n",strerror(errno));
       return 1;
   }
 
-  printf("Connected  via port %d on socket %d\n",port,client_socket);
-
-  // And presumably do something with it...
-  // ... XXX ...
-
-  close(client_socket);
+  printf("Connected  via port %d on socket %d\n",port,*client_socket);
   return 0;
+}
+
+static int limpet(uint32_t  kbus_device,
+                  char     *message_name,
+                  bool      is_server,
+                  char     *address,
+                  int       port,
+                  uint32_t  network_id,
+                  char     *termination_message,
+                  bool      verbose)
+{
+    int             rv;
+    int             limpet_socket;
+    int             listen_socket;
+    int             fd;
+    kbus_ksock_t    ksock;
+
+    if (network_id < 1) {
+        printf("### Limpet network id must be > 0, not %d\n",network_id);
+        return -1;
+    }
+
+    fd = kbus_ksock_open(kbus_device, O_RDWR);
+    if (fd < 0) {
+        printf("### Cannot open KBUS device %u: %s\n",kbus_device,strerror(errno));
+        return rv;
+    }
+
+    printf("Opened KBUS device %u\n",kbus_device);
+
+    if (is_server)
+        rv = open_server_socket(address, port, &limpet_socket, &listen_socket);
+    else
+        rv = open_client_socket(address, port, &limpet_socket);
+    if (rv) {
+        printf("### Cannot open socket\n");
+        return rv;
+    }
+
+    printf("...and do stuff\n");
+
+    close(limpet_socket);
+    if (is_server) {
+        close(listen_socket);
+        if (port == 0)
+            unlink(address);
+    }
+
+    (void) kbus_ksock_close(kbus_device);
+
+    return 0;
 }
 
 static int int_value(char *cmd,
@@ -381,6 +416,8 @@ int main(int argc, char **argv)
     bool         verbose = false;
     int          ii = 1;
 
+    char        *termination_message = NULL;
+
     if (argc < 2)
     {
         print_usage();
@@ -485,13 +522,9 @@ int main(int argc, char **argv)
     printf(" for KBUS %d, using network id %d, listening for '%s'\n",
            kbus_device, network_id, message_name);
 
-    if (is_server)
-        err = run_server(kbus_device, message_name, address, port, network_id, verbose);
-    else
-        err = run_client(kbus_device, message_name, address, port, network_id, verbose);
-
-    if (err)
-        return 1;
+    err = limpet(kbus_device, message_name, is_server, address, port,
+                 network_id, termination_message, verbose);
+    if (err) return 1;
 
     return 0;
 }
