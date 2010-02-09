@@ -312,16 +312,16 @@ static int limpet(uint32_t  kbus_device,
         rv = open_client_socket(address, port, &limpet_socket);
     if (rv) {
         printf("### Cannot open socket\n");
-        return rv;
+        if (rv) goto tidyup;
     }
 
     printf("Sending our network id, %u\n", network_id);
     rv = send_network_id(limpet_socket, network_id);
-    if (rv) return -1;
+    if (rv) goto tidyup;
 
     printf("Reading the other limpet's network id\n");
     rv = read_network_id(limpet_socket, &other_network_id);
-    if (rv) return -1;
+    if (rv) goto tidyup;
 
     printf("The other limpet's network id is %u\n", other_network_id);
 
