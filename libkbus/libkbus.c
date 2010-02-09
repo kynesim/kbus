@@ -63,8 +63,8 @@
  * Returns the file descriptor for the new Ksock, or a negative value on error.
  * The negative value will be ``-errno``.
  */
-extern kbus_ksock_t kbus_ksock_open(unsigned int device_number,
-                                    int          flags) 
+extern kbus_ksock_t kbus_ksock_open(uint32_t device_number,
+                                    int      flags) 
 {
   int   rv;
   int   mask  = O_RDONLY | O_WRONLY | O_RDWR;

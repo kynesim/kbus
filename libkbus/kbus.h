@@ -133,8 +133,8 @@ typedef int kbus_ksock_t;
  * Returns the file descriptor for the new Ksock, or a negative value on error.
  * The negative value will be ``-errno``.
  */
-extern kbus_ksock_t kbus_ksock_open(unsigned int device_number,
-                                    int          flags);
+extern kbus_ksock_t kbus_ksock_open(uint32_t device_number,
+                                    int      flags);
 
 /*
  * Open a Ksock by device name. Since KBUS currrently only supports devices

@@ -52,6 +52,63 @@
 
 #include "libkbus/kbus.h"
 
+/*
+ * Read the other limpet's network id.
+ */
+static int read_network_id(int       limpet_socket,
+                           uint32_t *network_id)
+{
+    char        hello[5];
+    uint32_t    value = 0;
+    ssize_t     length;
+
+    length = recv(limpet_socket, hello, 4, MSG_WAITALL);
+    if (length != 4) {             // perhaps a little optimistic...
+        printf("### Unable to read 'HELO' from other Limpet: %s\n",strerror(errno));
+        return -1;
+    }
+
+    if (strncmp("HELO", hello, 4)) {
+        printf("### Read '%.4s' from other Limpet, instead of 'HELO'\n",hello);
+        return -1;
+    }
+
+    length = recv(limpet_socket, &value, 4, MSG_WAITALL);
+    if (length != 4) {
+        printf("### Unable to read network id from other Limpet: %s\n",strerror(errno));
+        return -1;
+    }
+
+    *network_id = ntohl(value);
+
+    return 0;
+}
+
+/*
+ * Send the other limpet our network id.
+ */
+static int send_network_id(int      limpet_socket,
+                           uint32_t network_id)
+{
+    char        *hello = "HELO";
+    uint32_t     value = htonl(network_id);
+    ssize_t      written;
+
+    written = send(limpet_socket, hello, 4, 0);
+    if (written != 4) {             // perhaps a little optimistic...
+        printf("### Unable to write 'HELO' to other Limpet: %s\n",strerror(errno));
+        return -1;
+    }
+
+    written = send(limpet_socket, &value, 4, 0);
+    if (written != 4) {
+        printf("### Unable to write network id to other Limpet: %s\n",strerror(errno));
+        return -1;
+    }
+
+    return 0;
+}
+
 static int open_client_socket(char     *address,
                               int       port,
                               int      *client_socket)
@@ -230,21 +287,21 @@ static int limpet(uint32_t  kbus_device,
                   char     *termination_message,
                   bool      verbose)
 {
-    int             rv;
-    int             limpet_socket;
-    int             listen_socket;
-    int             fd;
-    kbus_ksock_t    ksock;
+    int             rv = 0;
+    int             limpet_socket = -1;
+    int             listen_socket = -1;
+    kbus_ksock_t    ksock = -1;
+    uint32_t        other_network_id;
 
     if (network_id < 1) {
         printf("### Limpet network id must be > 0, not %d\n",network_id);
         return -1;
     }
 
-    fd = kbus_ksock_open(kbus_device, O_RDWR);
-    if (fd < 0) {
+    ksock = kbus_ksock_open(kbus_device, O_RDWR);
+    if (ksock < 0) {
         printf("### Cannot open KBUS device %u: %s\n",kbus_device,strerror(errno));
-        return rv;
+        return -1;
     }
 
     printf("Opened KBUS device %u\n",kbus_device);
@@ -258,18 +315,31 @@ static int limpet(uint32_t  kbus_device,
         return rv;
     }
 
+    printf("Sending our network id, %u\n", network_id);
+    rv = send_network_id(limpet_socket, network_id);
+    if (rv) return -1;
+
+    printf("Reading the other limpet's network id\n");
+    rv = read_network_id(limpet_socket, &other_network_id);
+    if (rv) return -1;
+
+    printf("The other limpet's network id is %u\n", other_network_id);
+
     printf("...and do stuff\n");
 
-    close(limpet_socket);
+tidyup:
+    if (limpet_socket != -1)
+        close(limpet_socket);
     if (is_server) {
-        close(listen_socket);
-        if (port == 0)
-            unlink(address);
+        if (listen_socket != -1) {
+            close(listen_socket);
+            if (port == 0)
+                unlink(address);
+        }
     }
-
-    (void) kbus_ksock_close(kbus_device);
-
-    return 0;
+    if (ksock != -1)
+        (void) kbus_ksock_close(ksock);
+    return rv;
 }
 
 static int int_value(char *cmd,

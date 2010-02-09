@@ -178,7 +178,7 @@ class Limpet(object):
         """Send our pair Limpet our network id.
         """
         sock.sendall('HELO')
-        value = socket.ntohl(self.network_id)
+        value = socket.htonl(self.network_id)
         data = struct.pack('!L', value)   # unsigned long, network order
         sock.sendall(data)
 
