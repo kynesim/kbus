@@ -53,14 +53,113 @@
 
 #include "libkbus/kbus.h"
 
+// Quick to code, slow to execute, should do for now
+struct replier_for {
+    char                *name;      // the message name
+    uint32_t             binder;    // who is bound as a replier for it
+    struct replier_for  *next;      // and another of us...
+};
+typedef struct replier_for replier_for_t;
+
+
 struct limpet_context {
-    int              socket;             // Connection to the other limpet
-    kbus_ksock_t     ksock;              // Connection to KBUS
+    int              socket;             // Our connection to the other limpet
+    kbus_ksock_t     ksock;              // Our connection to KBUS
+    uint32_t         ksock_id;           // Our own ksock id
     uint32_t         network_id;         // Our network id
     uint32_t         other_network_id;   // The other limpet's network id
     char            *termination_message;// The message name that stops us
+    replier_for_t   *replier_for;        // Message repliers
 };
 typedef struct limpet_context limpet_context_t;
+
+static void print_replier_for(limpet_context_t    *context)
+{
+    replier_for_t    *this = context->replier_for;
+    while (this) {
+        printf(".. %4u is replier for '%s'\n", this->binder, this->name);
+        this = this->next;
+    }
+}
+
+// Return the binder id, or 0 if we can't find one.
+static uint32_t find_replier_for(limpet_context_t    *context,
+                                 char                *name)
+{
+    replier_for_t    *this = context->replier_for;
+    while (this) {
+        if (!strcmp(name, this->name)) {
+            return this->binder;
+        }
+        this = this->next;
+    }
+    return 0;
+}
+
+static int forget_replier_for(limpet_context_t  *context,
+                              char              *name)
+{
+    replier_for_t    *prev = NULL;
+    replier_for_t    *this = context->replier_for;
+
+    while (this) {
+        if (!strcmp(name, this->name)) {
+
+            if (prev == NULL)
+                context->replier_for = this->next;
+            else
+                prev->next = this->next;
+
+            free(this->name);
+            free(this);
+            return 0;
+        }
+        prev = this;
+        this = this->next;
+    }
+    printf("!!! Unable to find entry for replier binding '%s' to delete\n",
+           name);
+    return -1;
+}
+
+// If we succeed, then we "own" the name, and the caller should not free it
+static int remember_replier_for(limpet_context_t    *context,
+                                char                *name,
+                                uint32_t             binder)
+{
+    replier_for_t    *new = NULL;
+
+    if (find_replier_for(context, name)) {
+        // We decide that it's an error to already have an entry
+        printf("### Attempt to remember another binder for '%s'\n",name);
+        return -1;
+    }
+
+    new = malloc(sizeof(*new));
+    if (!new) {
+        printf("### Cannot allocate memory for remembering a binding\n");
+        return -1;
+    }
+
+    new->name = name;
+    new->binder = binder;
+    new->next = context->replier_for;
+
+    context->replier_for = new;
+
+    return 0;
+}
+
+static void forget_all_replier_for(limpet_context_t *context)
+{
+    replier_for_t   *ptr = context->replier_for;
+    while (ptr) {
+        replier_for_t   *next = ptr->next;
+        free(ptr->name);
+        free(ptr);
+        ptr = next;
+    }
+}
 
 // Length of an array sufficient to hold the parts of a message header that
 // we need to send over the network
@@ -137,6 +236,37 @@ static int send_message_to_other_limpet(limpet_context_t  *context,
     name = kbus_msg_name_ptr(msg);
     data = kbus_msg_data_ptr(msg);
 
+    // If KBUS gave us a message with an unset network id, then it is a local
+    // message, and we set its network id to our own before we pass it on.
+    // This combination of (network id, local id) should then be unique across
+    // our whole network of Limpets and KBUSes.
+    if (msg->id.network_id == 0)
+        msg->id.network_id = context->network_id;
+
+    // Limpets are responsible for setting the 'orig_from' field, which
+    // indicates:
+    //
+    // 1. The ksock_id of the original sender of the message
+    // 2. The network_id of the first Limpet to pass the message on to its
+    //    pair.
+    //
+    // When the message gets *back* to this Limpet, we will be able to
+    // recognise it (its network id will be the same as ours), and thus we will
+    // know the ksock_id of its original sender, if we care.
+    //
+    // Moreover, we can use this information when setting up a stateful request
+    // - the orig_from can be copied to the stateful request's final_to field,
+    // the network/ksock we want to assert must handle the far end of the
+    // dialogue.
+    //
+    // So, if we are the first Limpet to handle this message from KBUS, then we
+    // give it our network id.
+    if (msg->orig_from.network_id == 0) {
+        msg->orig_from.network_id = context->network_id;
+        msg->orig_from.local_id   = msg->from;
+    }
+
+    // And, since we're going to throw it onto the network...
     serialise_message_header(msg, array);
 
     rv = send(context->socket, array, sizeof(array), 0);
@@ -190,6 +320,7 @@ static int handle_message_from_kbus(limpet_context_t    *context)
 {
     int                  rv;
     kbus_message_t      *msg;
+    char                *name;
     
     rv = kbus_ksock_read_next_msg(context->ksock, &msg);
     if (rv < 0) {
@@ -201,13 +332,31 @@ static int handle_message_from_kbus(limpet_context_t    *context)
     kbus_msg_print(stdout, msg);
     printf("\n");
 
+    name = kbus_msg_name_ptr(msg);
+
+    if (!strncmp(name, KBUS_MSG_NAME_REPLIER_BIND_EVENT, msg->name_len)) {
+
+        void                            *data = kbus_msg_data_ptr(msg);
+        kbus_replier_bind_event_data_t  *event;
+        event = (kbus_replier_bind_event_data_t *)data;
+
+        if (event->binder == context->ksock_id) {
+            // This is the result of *us* binding as a proxy, so we don't
+            // want to send it to the other limpet!
+            printf(".. Ignoring our own BIND event\n");
+            kbus_msg_delete(&msg);
+            return 0;
+        }
+    }
+
     rv = send_message_to_other_limpet(context, msg);
 
     kbus_msg_delete(&msg);
     return rv;
 }
 
-static int handle_message_from_other_limpet(limpet_context_t    *context)
+static int read_message_from_other_limpet(limpet_context_t     *context,
+                                          kbus_message_t      **msg)
 {
     int         rv;
     uint32_t    array[KBUS_SERIALISED_HDR_LEN];
@@ -215,84 +364,74 @@ static int handle_message_from_other_limpet(limpet_context_t    *context)
     ssize_t     length;
     uint32_t    final_end_guard;
 
-    kbus_message_t      *msg = NULL;
+    kbus_message_t      *new_msg = NULL;
     char                *name = NULL;
     void                *data = NULL;
 
     length = recv(context->socket, array, wanted, MSG_WAITALL);
     if (length == 0) {
         printf("!!! Trying to read message: other Limpet has gone away\n");
-        rv = -1;
-        goto tidyup;
+        goto error_return;
     } else if (length != wanted) {
         printf("### Unable to read whole message header from other Limpet: %s\n",
                strerror(errno));
-        rv = -1;
-        goto tidyup;
+        goto error_return;
     }
 
-    msg = malloc(sizeof(*msg));
-    if (msg == NULL) {
+    new_msg = malloc(sizeof(*new_msg));
+    if (new_msg == NULL) {
         printf("### Unable to allocate message header\n");
-        return -1;
+        goto error_return;
     }
 
-    unserialise_message_header(array, msg);
+    unserialise_message_header(array, new_msg);
 
-    if (msg->start_guard != KBUS_MSG_START_GUARD) {
+    if (new_msg->start_guard != KBUS_MSG_START_GUARD) {
         printf("Message start guard from other limpet is %08x, not %08x\n",
-               msg->start_guard, KBUS_MSG_START_GUARD);
-        rv = -1;
-        goto tidyup;
-    } else if (msg->end_guard != KBUS_MSG_END_GUARD) {
+               new_msg->start_guard, KBUS_MSG_START_GUARD);
+        goto error_return;
+    } else if (new_msg->end_guard != KBUS_MSG_END_GUARD) {
         printf("Message end guard from other limpet is %08x, not %08x\n",
-               msg->end_guard, KBUS_MSG_END_GUARD);
-        rv = -1;
-        goto tidyup;
+               new_msg->end_guard, KBUS_MSG_END_GUARD);
+        goto error_return;
     }
 
-    name = malloc(msg->name_len + 1);
+    name = malloc(new_msg->name_len + 1);
     if (name == NULL) {
         printf("### Unable to allocate message name\n");
-        rv = -1;
-        goto tidyup;
+        goto error_return;
     }
-    length = recv(context->socket, name, msg->name_len, MSG_WAITALL);
+    length = recv(context->socket, name, new_msg->name_len, MSG_WAITALL);
     if (length == 0) {
         printf("!!! Trying to read message name: other Limpet has gone away\n");
-        rv = -1;
-        goto tidyup;
-    } else if (length != msg->name_len) {
+        goto error_return;
+    } else if (length != new_msg->name_len) {
         printf("### Unable to read whole message name from other Limpet: %s\n",
                strerror(errno));
-        rv = -1;
-        goto tidyup;
+        goto error_return;
     }
-    name[msg->name_len] = 0;
-    msg->name = name;
+    name[new_msg->name_len] = 0;
+    new_msg->name = name;
 
-    if (msg->data_len) {
-        data = malloc(msg->data_len);
+    if (new_msg->data_len) {
+        data = malloc(new_msg->data_len);
         if (name == NULL) {
             printf("### Unable to allocate message data\n");
-            rv = -1;
-            goto tidyup;
+            goto error_return;
         }
-        length = recv(context->socket, data, msg->data_len, MSG_WAITALL);
+        length = recv(context->socket, data, new_msg->data_len, MSG_WAITALL);
         if (length == 0) {
             printf("!!! Trying to read message data: other Limpet has gone away\n");
-            rv = -1;
-            goto tidyup;
-        } else if (length != msg->data_len) {
+            goto error_return;
+        } else if (length != new_msg->data_len) {
             printf("### Unable to read whole message data from other Limpet: %s\n",
                    strerror(errno));
-            rv = -1;
-            goto tidyup;
+            goto error_return;
         }
 
         // We know the structure of Replier Bind Event data, and can mangle
         // it appropriately for having come from the network
-        if (!strncmp(name, KBUS_MSG_NAME_REPLIER_BIND_EVENT, msg->name_len)) {
+        if (!strncmp(name, KBUS_MSG_NAME_REPLIER_BIND_EVENT, new_msg->name_len)) {
 
             kbus_replier_bind_event_data_t  *event;
 
@@ -302,7 +441,7 @@ static int handle_message_from_other_limpet(limpet_context_t    *context)
             event->name_len = ntohl(event->name_len);
         }
 
-        msg->data = data;
+        new_msg->data = data;
     }
 
     // And read a final end guard
@@ -310,35 +449,76 @@ static int handle_message_from_other_limpet(limpet_context_t    *context)
     length = recv(context->socket, &final_end_guard, wanted, MSG_WAITALL);
     if (length == 0) {
         printf("!!! Trying to read message end guard: other Limpet has gone away\n");
-        rv = -1;
-        goto tidyup;
+        goto error_return;
     } else if (length != wanted) {
         printf("### Unable to read message end guard from other Limpet: %s\n",
                strerror(errno));
-        rv = -1;
-        goto tidyup;
+        goto error_return;
     }
     final_end_guard = ntohl(final_end_guard);
     if (final_end_guard != KBUS_MSG_END_GUARD) {
         printf("### Message final end guard from other limpet is %08x, not %08x\n",
                final_end_guard, KBUS_MSG_END_GUARD);
-        rv = -1;
-        goto tidyup;
+        goto error_return;
     }
+
+    *msg = new_msg;
+    return 0;
+
+error_return:
+    if (new_msg)  free(new_msg);
+    if (name) free(name);
+    if (data) free(data);
+    return -1;
+}
+
+static int handle_message_from_other_limpet(limpet_context_t    *context)
+{
+    int              rv;
+    kbus_message_t  *msg = NULL;
+    char            *bind_name = NULL;
+
+    rv = read_message_from_other_limpet(context, &msg);
+    if (rv) return -1;
 
     printf("Limpet->Us: ");
     kbus_msg_print(stdout, msg);
     printf("\n");
 
-    // And, notionally, do something with it...
-    //
-    //
+    if (!strncmp(msg->name, KBUS_MSG_NAME_REPLIER_BIND_EVENT, msg->name_len)) {
+        // We have to bind/unbind as a Replier in proxy
+        uint32_t     is_bind, binder;
+        rv = kbus_msg_split_bind_event(msg, &is_bind, &binder, &bind_name);
+        if (rv) goto tidyup;
+
+        if (is_bind) {
+            printf("BIND '%s'\n",bind_name);
+            rv = kbus_ksock_bind(context->ksock, bind_name, true);
+            if (rv) goto tidyup;
+            rv = remember_replier_for(context, bind_name, binder);
+            if (rv) goto tidyup;
+            // The "replier for" datastructure is now using the name, so we
+            // must take care not to free it...
+            bind_name = NULL;
+        } else {
+            printf("UNBIND '%s'\n",bind_name);
+            rv = kbus_ksock_bind(context->ksock, bind_name, false);
+            if (rv) goto tidyup;
+            rv = forget_replier_for(context, bind_name);
+            if (rv) goto tidyup;
+        }
+        print_replier_for(context);
+    }
+
+
+
+
+
     rv = 0;
 
 tidyup:
+    if (bind_name) free(bind_name);
     if (msg)  free(msg);
-    if (name) free(name);
-    if (data) free(data);
     return rv;
 }
 
@@ -636,9 +816,10 @@ static int kbus_limpet(uint32_t  kbus_device,
     int             listen_socket = -1;
     kbus_ksock_t    ksock = -1;
     uint32_t        other_network_id;
+    uint32_t        ksock_id;
     struct pollfd   fds[2];
 
-    limpet_context_t    context;
+    limpet_context_t    context = {0};
 
     if (network_id < 1) {
         printf("### Limpet network id must be > 0, not %d\n",network_id);
@@ -681,12 +862,17 @@ static int kbus_limpet(uint32_t  kbus_device,
 
     rv = setup_kbus(ksock, message_name);
     if (rv) goto tidyup;
+    
+    rv = kbus_ksock_id(ksock, &ksock_id);
+    if (rv) goto tidyup;
 
     context.socket = limpet_socket;
     context.ksock = ksock;
     context.network_id = network_id;
     context.other_network_id = other_network_id;
     context.termination_message = termination_message;
+    context.replier_for = NULL;
+    context.ksock_id = ksock_id;
 
     printf("...and do stuff\n");
 
@@ -736,6 +922,10 @@ tidyup:
     }
     if (ksock != -1)
         (void) kbus_ksock_close(ksock);
+
+    if (context.replier_for)
+        forget_all_replier_for(&context);
+
     return rv;
 }
 
