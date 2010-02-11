@@ -1275,6 +1275,9 @@ extern void kbus_msg_print(FILE                 *stream,
     }
   }
 
+  if (!is_bind_event)
+    fprintf(stream," '%.*s'",msg->name_len,name);
+
   if (msg->id.network_id != 0 || msg->id.serial_num != 0)
     fprintf(stream," id=[%u:%u]", msg->id.network_id, msg->id.serial_num);
 
