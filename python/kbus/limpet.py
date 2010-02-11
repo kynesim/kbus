@@ -38,8 +38,11 @@ import socket
 import struct
 import sys
 
+from socket import ntohl, htonl
+
 from kbus import Ksock, Message, Reply, MessageId
-from kbus.messages import _MessageHeaderStruct, _struct_from_string
+from kbus.messages import _MessageHeaderStruct, _ReplierBindEventHeader
+from kbus.messages import message_from_parts, _struct_from_string
 from kbus.messages import split_replier_bind_event_data, calc_entire_message_len
 from kbus.messages import MSG_HEADER_LEN
 
@@ -60,6 +63,9 @@ class BadMessage(Exception):
     """We have read a badly formatted KBUS message.
     """
     pass
+
+_SERIALISED_MESSAGE_HEADER_LEN = 16
+_SerialisedMessageHeaderType = ctypes.c_uint32 * _SERIALISED_MESSAGE_HEADER_LEN
 
 class Limpet(object):
     """A Limpet proxies KBUS messages to/from another Limpet.
@@ -155,6 +161,10 @@ class Limpet(object):
         # talking about
 
         try:
+            # Swap network ids with our pair
+            self._send_network_id()
+            self._read_network_id()
+
             # Note that we only want one copy of a message, even if we were
             # registered as (for instance) both Replier and Listener
             self.ksock.want_messages_once(True)
@@ -178,16 +188,31 @@ class Limpet(object):
         """Send our pair Limpet our network id.
         """
         sock.sendall('HELO')
-        value = socket.htonl(self.network_id)
+        value = htonl(self.network_id)
         data = struct.pack('!L', value)   # unsigned long, network order
         sock.sendall(data)
 
     def _read_network_id(self):
         """Read our pair Limpet's network id.
         """
+        hello = self.sock.recv(4, socket.MSG_WAITALL)
+        if hello == '':
+          raise OtherLimpetGoneAway()
+        elif hello != 'HELO':
+            raise BadMessage("Expected 'HELO' to announce other limpet,"
+                             " got '%s'"%hello)
+
         data = self.sock.recv(4, socket.MSG_WAITALL)
         value = struct.unpack('!L', data)   # unsigned long, network order
-        return socket.ntohl(value[0])
+        self.other_network_id = ntohl(value[0])
+
+        if self.other_network_id == self.network_id:
+            # We rather rely on unique network ids, and *in particular*
+            # that this pair have different ids
+            raise GiveUp('This Limpet and its pair both have'
+                         ' network id %d'%self.network_id)
+        if self.verbosity > 1:
+            print 'Other Limpet has network id',self.other_network_id
 
     def setup_as_server(self, address, family):
         """Set ourselves up as a server Limpet.
@@ -294,39 +319,94 @@ class Limpet(object):
         return 'Limpet from KBUS %d Ksock %u via %s'%(self.kbus_device,
                 self.ksock_id, self.sock_address)
 
+    def serialise_message_header(self, msg):
+        """Serialise a message header as integers for writing to the network.
+        """
+        array = _SerialisedMessageHeaderType()
+        array[0]  = msg.start_guard;
+        array[1]  = msg.id.network_id;
+        array[2]  = msg.id.serial_num;
+        array[3]  = msg.in_reply_to.network_id;
+        array[4]  = msg.in_reply_to.serial_num;
+        array[5]  = msg.to;
+        array[6]  = msg.from_;
+        array[7]  = msg.orig_from.network_id;
+        array[8]  = msg.orig_from.local_id;
+        array[9]  = msg.final_to.network_id;
+        array[10] = msg.final_to.local_id;
+        array[11] = msg.extra;                # to save adding it in the future
+        array[12] = msg.flags;
+        array[13] = msg.name_len;
+        array[14] = msg.data_len;
+        # There's no point in sending the name and data pointers - since we must
+        # be sending an "entire" message, they must be NULL, and anyway they're
+        # pointers...
+        array[15] = msg.end_guard;
+
+        for ii in len(array):
+            array[ii] = htonl(array[ii])
+
+        return array
+
+    def unserialise_message_header(self, data):
+        """Unserialise a message header from integers read from the network.
+        """
+        array = _struct_from_string(_SerialisedMessageHeaderType, data)
+        for ii in len(array):
+            array[ii] = ntohl(array[ii])
+        return array
+
     def read_message_from_socket(self):
         """Read a message from the other Limpet.
 
         Returns the corresponding Message instance.
         """
 
-        # All KBUS messages start with the start guard:
-        start_guard = self.sock.recv(4, socket.MSG_WAITALL)
-        if start_guard == '':
-          raise OtherLimpetGoneAway()
-        elif start_guard == 'HELO':
-            # It's the other Limpet telling us its network id
-            self.other_network_id = self._read_network_id()
-            if self.other_network_id == self.network_id:
-                # We rather rely on unique network ids, and *in particular*
-                # that this pair have different ids
-                raise GiveUp('This Limpet and its pair both have'
-                             ' network id %d'%self.network_id)
-            if self.verbosity > 1:
-                print 'Other Limpet has network id',self.other_network_id
-            raise NoMessage
-        elif start_guard != 'Kbus': # This is perhaps a bit naughty, relying on byte order
-          raise BadMessage('Data read starts with "%s", not "Kbus"'%start_guard)
+        # First, read the message header
+        header = self.sock.recv(_SERIALISED_MESSAGE_HEADER_LEN*4,
+                                socket.MSG_WAITALL)
+        if header == '':
+            raise OtherLimpetGoneAway()
 
-        # So we start with the message header - this is always the same length
-        rest_of_header_data = self.sock.recv(MSG_HEADER_LEN-4, socket.MSG_WAITALL)
+        array = self.unserialise_message_header(header)
 
-        header_data = start_guard + rest_of_header_data
-        header = _struct_from_string(_MessageHeaderStruct, header_data)
-        overall_length = calc_entire_message_len(header.name_len, header.data_len)
-        rest_of_message = self.sock.recv(overall_length - MSG_HEADER_LEN, socket.MSG_WAITALL)
+        if array[0] != Message.START_GUARD:
+            raise GiveUp('Message data start guard is %08x,'
+                         ' not %08x'%(array[0],Message.START_GUARD))
 
-        return Message(header_data + rest_of_message)
+        if array[-1] != Message.END_GUARD:
+            raise GiveUp('Message data end guard is %08x,'
+                         ' not %08x'%(array[-1],Message.END_GUARD))
+
+        name_len = array[13]
+        data_len = array[14]
+
+        name = self.sock.recv(name_len, socket.MSG_WAITALL)
+        if name == '':
+            raise OtherLimpetGoneAway()
+
+        if date_len:
+            data = self.sock.recv(data_len, socket.MSG_WAITALL)
+            if data == '':
+                raise OtherLimpetGoneAway()
+        else:
+            data = None
+
+        end = self.sock.recv(4, socket.MSG_WAITALL)
+        value = struct.unpack('!L', end)   # unsigned long, network order
+        end = ntohl(value[0])
+        if end != Message.END_GUARD:
+            raise GiveUp('Final message data end guard is %08x,'
+                         ' not %08x'%(end,Message.END_GUARD))
+        
+        return message_from_parts(id=(array[1],array[2]),
+                                  in_reply_to=(array[3],array[4]),
+                                  to=array[5],
+                                  from_=array[6],
+                                  orig_from=(array[7],array[8]),
+                                  final_to=(array[9],array[10]),
+                                  flags=array[12],
+                                  name=name, data=data)
 
     def write_message_to_socket(self, msg):
         """Write a Message to the other Limpet.
@@ -369,8 +449,21 @@ class Limpet(object):
             msg._orig_from.network_id = self.network_id
             msg._orig_from.local_id = msg.from_
 
-        data = msg.to_string()
+        # We know enough to sort out the network order of the integers in
+        # the Replier Bind Event's data
+        if msg.name == '$.KBUS.ReplierBindEvent':
+            hdr = _struct_from_string(_ReplierBindEventHeader, msg.data)
+            hdr.is_bind = htonl(hdr.is_bind)
+            hdr.binder  = htonl(hdr.is_bind)
+            # And just replace the original with the amended version 
+            msg.data = hdr
+
+
+        header = self.serialise_message_header(msg)
+        self.sock.sendall(header)
+        self.sock.sendall(name)
         self.sock.sendall(data)
+        self.sock.sendall(header[-1])       # end guard again
 
     def handle_message_from_kbus(self, msg):
         """Do the appropriate thing with a message from KBUS.
@@ -593,6 +686,8 @@ class Limpet(object):
         if msg.name == '$.KBUS.ReplierBindEvent':
             # We have to bind/unbind as a Replier in proxy
             is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
+            is_bind = ntohl(is_bind)
+            binder_id = ntohl(binder_id)
             if is_bind:
                 if self.verbosity > 1:
                     print '%s BIND "%s'%(spaces_hdr,name)
