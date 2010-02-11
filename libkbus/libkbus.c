@@ -40,7 +40,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <ctype.h>
-#include <sys/poll.h>
+#include <poll.h>
 #include "kbus.h"
 
 #define DEBUG 0
@@ -580,7 +580,7 @@ extern int kbus_wait_for_message(kbus_ksock_t  ksock,
   fds[0].revents =0;
   rv = poll(fds, 1, -1);
   if (rv < 0)
-    return rv;
+    return -errno;
   else 
     return ((fds[0].revents & POLLIN)  ? KBUS_KSOCK_READABLE : 0) |
            ((fds[0].revents & POLLOUT) ? KBUS_KSOCK_WRITABLE : 0);
