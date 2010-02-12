@@ -68,10 +68,8 @@ extern "C" {
  * be used. Note that the Limpet will also listen for Replier Bind Events (and
  * act on them).
  *
- * If `termination_message` is non-NULL, then this Limpet will exit when it is
- * sent a message with that name, either by KBUS or its pair Limpet.
- *
- *     XXX: This is not yet implemented for C Limpets.
+ * If `termination_message` is non-NULL, then this Limpet will exit when it read
+ * a message with that name from KBUS.
  *
  * `verbosity` determines how much information a Limpet will write to standard
  * output. 0 means to be quiet, 1 means a moderate amount of output, 2 will

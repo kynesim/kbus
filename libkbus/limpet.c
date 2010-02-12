@@ -442,23 +442,33 @@ static int send_message_to_other_limpet(limpet_context_t  *context,
     return 0;
 }
 
-static int handle_message_from_kbus(limpet_context_t    *context)
+static int handle_message_from_kbus(limpet_context_t    *context,
+                                    bool                *terminate)
 {
     int                  rv;
     kbus_message_t      *msg;
     char                *name;
     
+    *terminate = false;
+
     rv = kbus_ksock_read_next_msg(context->ksock, &msg);
     if (rv < 0) {
         printf("### Error reading message from KBUS: %d/%s\n",-rv,strerror(-rv));
         return rv;
     }
 
-    printf("KBUS->Us: ");
+    printf("%u KBUS->Us:   ", context->network_id);
     kbus_msg_print(stdout, msg);
     printf("\n");
 
     name = kbus_msg_name_ptr(msg);
+
+    if (context->termination_message != NULL &&
+        !strncmp(context->termination_message, name, msg->name_len)) {
+        kbus_msg_delete(&msg);
+        *terminate = true;
+        return 0;
+    }
 
     if (!strncmp(name, KBUS_MSG_NAME_REPLIER_BIND_EVENT, msg->name_len)) {
 
@@ -499,7 +509,9 @@ static int handle_message_from_kbus(limpet_context_t    *context)
         return 0;
     }
 
-    printf("Us->Limpet: "); kbus_msg_print(stdout, msg); printf("\n");
+    printf("%u Us->Limpet: ",context->network_id);
+    kbus_msg_print(stdout, msg);
+    printf("\n");
 
     rv = send_message_to_other_limpet(context, msg);
 
@@ -710,7 +722,9 @@ static int amend_request_from_socket(limpet_context_t   *context,
         error->to = msg->from;
         error->in_reply_to = msg->id;
 
-        printf("Us->KBUS: "); kbus_msg_print(stdout, error); printf("\n");
+        printf("%u Us->KBUS:   ",context->network_id);
+        kbus_msg_print(stdout, error);
+        printf("\n");
 
         rv = kbus_ksock_send_msg(context->ksock, error, &msg_id);
         if (rv) {
@@ -722,6 +736,39 @@ static int amend_request_from_socket(limpet_context_t   *context,
     }
 
     printf(".. %s KBUS replier %u\n", is_local?"Local":"NonLocal", replier_id);
+
+    if (is_local) {
+        // The KBUS we're going to write the message to is the final KBUS.
+        // Thus the replier id must match that of the original Replier.
+        if (replier_id != msg->final_to.local_id) {
+            kbus_message_t      *error;
+            kbus_msg_id_t        msg_id;
+            char                 errname[] = "$.KBUS.Replier.NotSameKsock";
+            // Oops - wrong replier - someone rebound
+            printf("XXX Replier is %u, wanted %u - Replier gone away\n",
+                   replier_id, msg->final_to.local_id);
+            rv = kbus_msg_create(&error, errname, strlen(errname),
+                                 NULL, 0, 0);
+            if (rv) {
+                printf("XXX Unable to create (and send) ReplierGoneAway message\n");
+                return -1;
+            }
+            error->to = msg->from;
+            error->in_reply_to = msg->id;
+
+            printf("%u Us->KBUS:   ",context->network_id);
+            kbus_msg_print(stdout, error);
+            printf("\n");
+
+            rv = kbus_ksock_send_msg(context->ksock, error, &msg_id);
+            if (rv) {
+                printf("XXX Unable to send Replier.NotSameKsock message\n");
+                return -1;
+            }
+            *ignore = true;
+            return 0;
+        }
+    }
 
     // Regardless, we believe the message is OK, so need to
     // adjust who it is meant to go to (locally)
@@ -759,7 +806,7 @@ static int handle_message_from_other_limpet(limpet_context_t    *context)
     rv = read_message_from_other_limpet(context, &msg);
     if (rv) return -1;
 
-    printf("Limpet->Us: ");
+    printf("%u Limpet->Us: ", context->network_id);
     kbus_msg_print(stdout, msg);
     printf("\n");
 
@@ -770,7 +817,7 @@ static int handle_message_from_other_limpet(limpet_context_t    *context)
         if (rv) goto tidyup;
 
         if (is_bind) {
-            printf("BIND '%s'\n",bind_name);
+            printf("%u BIND '%s'\n", context->network_id, bind_name);
             rv = kbus_ksock_bind(context->ksock, bind_name, true);
             if (rv) {
                 printf("### Error binding as replier to '%s': %u/%s\n",
@@ -786,7 +833,7 @@ static int handle_message_from_other_limpet(limpet_context_t    *context)
             // must take care not to free it...
             bind_name = NULL;
         } else {
-            printf("UNBIND '%s'\n",bind_name);
+            printf("%u UNBIND '%s'\n", context->network_id, bind_name);
             rv = kbus_ksock_unbind(context->ksock, bind_name, true);
             if (rv) {
                 printf("### Error unbinding as replier to '%s': %u/%s\n",
@@ -813,7 +860,9 @@ static int handle_message_from_other_limpet(limpet_context_t    *context)
         goto tidyup;    // No need to send a message
     }
 
-    printf("Us->KBUS: "); kbus_msg_print(stdout, msg); printf("\n");
+    printf("%u Us->KBUS:   ", context->network_id);
+    kbus_msg_print(stdout, msg);
+    printf("\n");
 
     rv = kbus_ksock_send_msg(context->ksock, msg, &msg_id);
     if (rv) {
@@ -831,7 +880,9 @@ static int handle_message_from_other_limpet(limpet_context_t    *context)
             } else {
                 errmsg->to = msg->from;
                 errmsg->in_reply_to = msg->id;
-                printf("Us->KBUS: "); kbus_msg_print(stdout, errmsg); printf("\n");
+                printf("%u Us->KBUS:   ", context->network_id);
+                kbus_msg_print(stdout, errmsg);
+                printf("\n");
                 rv = kbus_ksock_send_msg(context->ksock, errmsg, &msg_id);
                 free(errmsg);
                 if (rv) {
@@ -976,10 +1027,8 @@ static int setup_kbus(kbus_ksock_t       ksock,
  * be used. Note that the Limpet will also listen for Replier Bind Events (and
  * act on them).
  *
- * If `termination_message` is non-NULL, then this Limpet will exit when it is
- * sent a message with that name, either by KBUS or its pair Limpet.
- *
- *     XXX: This is not yet implemented for C Limpets.
+ * If `termination_message` is non-NULL, then this Limpet will exit when it read
+ * a message with that name from KBUS.
  *
  * `verbosity` determines how much information a Limpet will write to standard
  * output. 0 means to be quiet, 1 means a moderate amount of output, 2 will
@@ -1066,13 +1115,14 @@ extern int kbus_limpet(kbus_ksock_t     ksock,
         printf("\n");
 
         if (fds[0].revents & POLLIN) {
-            printf("----------------- Message from KBUS\n");
-            rv = handle_message_from_kbus(&context);
-            if (rv < 0) goto tidyup;
+            bool  terminate;
+            printf("%u ----------------- Message from KBUS\n", network_id);
+            rv = handle_message_from_kbus(&context, &terminate);
+            if (rv < 0 || terminate) goto tidyup;
         }
 
         if (fds[1].revents & POLLIN) {
-            printf("----------------- Message from other Limpet\n");
+            printf("%u ----------------- Message from other Limpet\n", network_id);
             rv = handle_message_from_other_limpet(&context);
             if (rv < 0) goto tidyup;
         }

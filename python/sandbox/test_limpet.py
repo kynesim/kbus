@@ -71,8 +71,8 @@ def system(command):
     except OSError as e:
         print "Execution of '%s' failed: %s"%(command, e)
 
-def our_limpet(is_server, sock_address, sock_family, kbus_device, network_id):
-    """Run a standardised Limpet.
+def python_limpet(is_server, sock_address, sock_family, kbus_device, network_id):
+    """Run a standardised Python Limpet.
     """
     try:
         run_a_limpet(is_server, sock_address, sock_family, kbus_device,
@@ -87,6 +87,23 @@ def our_limpet(is_server, sock_address, sock_family, kbus_device, network_id):
         print 'KBUS %d %s'%(kbus_device, exc)
         traceback.print_exc()
 
+def c_limpet(is_server, sock_address, sock_family, kbus_device, network_id):
+    """Run a C Limpet.
+    """
+    parts = ['../../utils/runlimpet']
+    if is_server:
+        parts.append('-s')
+    else:
+        parts.append('-c')
+    parts.append(sock_address)
+    parts.append('-k %u'%kbus_device)
+    parts.append('-id %u'%network_id)
+    parts.append('-t %s'%TERMINATION_MESSAGE)
+    parts.append('-v 2')
+    cmd = ' '.join(parts)
+
+    system(cmd)
+
 # The "normal" KBUS test code uses a single KBUS, and tests open Ksocks
 # on it to send/receive messages.
 #
@@ -96,16 +113,21 @@ def our_limpet(is_server, sock_address, sock_family, kbus_device, network_id):
 # This "blackbox" is actually a pair of Limpets, running as separate
 # processes...
 
-def run_limpets(sock_address, sock_family):
+def run_limpets(sock_address, sock_family, use_python):
     """Run the Limpets for our "blackbox" KBUS communications.
 
     Returns the server and client
     """
 
+    if use_python:
+        process = python_limpet
+    else:
+        process = c_limpet
+
     kbus_devices = network_ids  = (KBUS_SENDER, KBUS_LISTENER)
 
     # First, start the server Limpet
-    server = Process(target=our_limpet,
+    server = Process(target=process,
                      args=(True, sock_address, sock_family, kbus_devices[0],
                            network_ids[0]))
     server.start()
@@ -114,7 +136,7 @@ def run_limpets(sock_address, sock_family):
     time.sleep(0.5)
 
     # And then *start* the client
-    client = Process(target=our_limpet,
+    client = Process(target=process,
                      args=(False, sock_address, sock_family, kbus_devices[1],
                            network_ids[1]))
     client.start()
@@ -124,7 +146,7 @@ def run_limpets(sock_address, sock_family):
 
     return (server, client)
 
-def setup_module():
+def setup_module(use_python):
     # This path assumes that we are running the tests in the ``kbus/python/sandbox``
     # directory, and that the KBUS kernel module has been built in ``kbus/kbus``.
     retcode = system('sudo insmod ../../kbus/kbus.ko kbus_num_devices=%d'%NUM_DEVICES)
@@ -140,7 +162,7 @@ def setup_module():
         assert mode == 020666
 
         global g_server, g_client
-        g_server, g_client = run_limpets('fred', socket.AF_UNIX)
+        g_server, g_client = run_limpets('fred', socket.AF_UNIX, use_python)
 
         # Debug output may be useful...
         for devno in range(3):
@@ -436,6 +458,17 @@ import traceback
     
 if __name__ == '__main__':
 
+    if len(sys.argv) == 1:
+        use_python = True
+    else:
+        if sys.argv[1] == 'P':
+            use_python = True
+        elif sys.argv[1] == 'C':
+            use_python = False
+        else:
+            print './test_limpet [P|C]'
+            sys.exit()
+
     num_tests = 0
 
     def announce(index, name):
@@ -444,7 +477,7 @@ if __name__ == '__main__':
         print '%s %s %s'%('-'*10, name, '-'*(50 - len(name)))
 
     announce(None, 'SETUP')
-    setup_module()
+    setup_module(use_python)
 
     t = TestLimpets()
 

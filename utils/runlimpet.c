@@ -433,6 +433,9 @@ static void print_usage(void)
         "                    Change the level of log message output. The default\n"
         "                    is 1. 0 means be quiet, 1 is normal, 2 means output\n"
         "                    information about each message as it is processed.\n"
+        "\n"
+        "    -t <name>       When the Limpet reads a message named <name> from\n"
+        "                    KBUS, it should terminate.\n"
         );
 }
 
@@ -504,6 +507,16 @@ int main(int argc, char **argv)
                 kbus_device = val;
                 ii++;
             }
+            else if (!strcmp("-t",argv[ii]))
+            {
+                if (ii+1 == argc)
+                {
+                    fprintf(stderr,"### %s requires an argument (message name)\n",argv[ii]);
+                    return 1;
+                }
+                termination_message = argv[ii+1];
+                ii++;
+            }
             else if (!strcmp("-m",argv[ii]) || !strcmp("-message",argv[ii]))
             {
                 if (ii+1 == argc)
@@ -556,7 +569,7 @@ int main(int argc, char **argv)
         network_id = is_server ? 2 : 1;
     }
 
-    printf("Limpet: %s via %s '%s'",
+    printf("C Limpet: %s via %s '%s'",
            is_server?"Server":"Client",
            port==0?"Unix domain socket":"TCP/IP, address",
            address);

@@ -651,7 +651,7 @@ class Limpet(object):
 
 
     def run_forever(self, termination_message):
-        """Or until we're interrupted, or receive the termination message.
+        """Or until we're interrupted, or read the termination message from KBUS.
 
         If an exception is raised, then the Limpet is closed as the method
         is exited.
@@ -779,6 +779,8 @@ def run_a_limpet(is_server, address, family, kbus_device, network_id,
       than zero.
     - message_name is the name of the message (presumably a wildcard)
       we are forwarding
+    - if termination_message is not None, then we will stop when a message
+      with that name is read from KBUS
     - if verbosity is 0, we don't output any "useful" messages, if it is
       1 we just announce ourselves, if it is 2 (or higher) we output
       information about each message as it is processed.
