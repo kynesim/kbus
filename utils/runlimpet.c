@@ -172,32 +172,89 @@ static void forget_all_replier_for(limpet_context_t *context)
 
 static void print_request_from(limpet_context_t    *context)
 {
-    // XXX
+    request_from_t    *this = context->request_from;
+    while (this) {
+        printf(".. message [%u:%u] was from\n", this->id.network_id,
+               this->id.serial_num, this->from);
+        this = this->next;
+    }
 }
 
 // Return the 'from' id, or 0 if we can't find one.
 static uint32_t find_request_from(limpet_context_t    *context,
                                   kbus_msg_id_t        id)
 {
-    // XXX
+    request_from_t    *this = context->request_from;
+    while (this) {
+        if (!kbus_msg_compare_ids(&id, &this->id)) {
+            return this->from;
+        }
+        this = this->next;
+    }
+    return 0;
 }
 
 static int forget_request_from(limpet_context_t  *context,
                                kbus_msg_id_t      id)
 {
-    // XXX
+    request_from_t    *prev = NULL;
+    request_from_t    *this = context->request_from;
+
+    while (this) {
+        if (!kbus_msg_compare_ids(&id, &this->id)) {  // Assume just one match
+
+            if (prev == NULL)
+                context->request_from = this->next;
+            else
+                prev->next = this->next;
+
+            free(this);
+            return 0;
+        }
+        prev = this;
+        this = this->next;
+    }
+    printf("!!! Unable to find entry for request from [%u:%u] to delete\n",
+           id.network_id, id.serial_num);
+    return -1;
 }
 
 static int remember_request_from(limpet_context_t    *context,
                                  kbus_msg_id_t        id,
                                  uint32_t             from)
 {
-    // XXX
+    request_from_t    *new = NULL;
+
+    if (find_request_from(context, id)) {
+        // We decide that it's an error to already have an entry
+        printf("### Attempt to remember another request 'from' for [%u:%u]\n",
+               id.network_id, id.serial_num);
+        return -1;
+    }
+
+    new = malloc(sizeof(*new));
+    if (!new) {
+        printf("### Cannot allocate memory for remembering a binding\n");
+        return -1;
+    }
+
+    new->id = id;
+    new->from = from;
+    new->next = context->request_from;
+
+    context->request_from = new;
+
+    return 0;
 }
 
 static void forget_all_request_from(limpet_context_t *context)
 {
-    // XXX
+    request_from_t   *ptr = context->request_from;
+    while (ptr) {
+        request_from_t   *next = ptr->next;
+        free(ptr);
+        ptr = next;
+    }
 }
 
 // Length of an array sufficient to hold the parts of a message header that
@@ -405,7 +462,7 @@ static int handle_message_from_kbus(limpet_context_t    *context)
         if (event->binder == context->ksock_id) {
             // This is the result of *us* binding as a proxy, so we don't
             // want to send it to the other limpet!
-            printf(".. Ignoring our own BIND event\n");
+            printf(".. Ignoring our own [UN]BIND event\n");
             kbus_msg_delete(&msg);
             return 0;
         }
@@ -428,6 +485,8 @@ static int handle_message_from_kbus(limpet_context_t    *context)
         kbus_msg_delete(&msg);
         return 0;
     }
+
+    printf("Us->Limpet: "); kbus_msg_print(stdout, msg); printf("\n");
 
     rv = send_message_to_other_limpet(context, msg);
 
@@ -618,7 +677,11 @@ static int amend_request_from_socket(limpet_context_t   *context,
 
     // Find out who KBUS thinks is replying to this message name
     rv = kbus_ksock_find_replier(context->ksock, msg->name, &replier_id);
-    if (rv) return rv;
+    if (rv) {
+        printf("### Error finding replier for '%s': %u/%s\n", msg->name,
+               -rv, strerror(-rv));
+        return -1;
+    }
 
     if (replier_id == 0) {
         kbus_message_t      *error;
@@ -634,6 +697,9 @@ static int amend_request_from_socket(limpet_context_t   *context,
         }
         error->to = msg->from;
         error->in_reply_to = msg->id;
+
+        printf("Us->KBUS: "); kbus_msg_print(stdout, error); printf("\n");
+
         rv = kbus_ksock_send_msg(context->ksock, error, &msg_id);
         if (rv) {
             printf("XXX Unable to send ReplierGoneAway message\n");
@@ -676,7 +742,7 @@ static int handle_message_from_other_limpet(limpet_context_t    *context)
     kbus_message_t  *msg = NULL;
     char            *bind_name = NULL;
     kbus_msg_id_t    msg_id;
-    bool             ignore;
+    bool             ignore = false;
 
     rv = read_message_from_other_limpet(context, &msg);
     if (rv) return -1;
@@ -694,18 +760,32 @@ static int handle_message_from_other_limpet(limpet_context_t    *context)
         if (is_bind) {
             printf("BIND '%s'\n",bind_name);
             rv = kbus_ksock_bind(context->ksock, bind_name, true);
-            if (rv) goto tidyup;
+            if (rv) {
+                printf("### Error binding as replier to '%s': %u/%s\n",
+                       bind_name, -rv, strerror(-rv));
+                goto tidyup;
+            }
             rv = remember_replier_for(context, bind_name, binder);
-            if (rv) goto tidyup;
+            if (rv) {
+                printf("### Error remembering replier for '%s'\n", bind_name);
+                goto tidyup;
+            }
             // The "replier for" datastructure is now using the name, so we
             // must take care not to free it...
             bind_name = NULL;
         } else {
             printf("UNBIND '%s'\n",bind_name);
-            rv = kbus_ksock_bind(context->ksock, bind_name, false);
-            if (rv) goto tidyup;
+            rv = kbus_ksock_unbind(context->ksock, bind_name, true);
+            if (rv) {
+                printf("### Error unbinding as replier to '%s': %u/%s\n",
+                       bind_name, -rv, strerror(-rv));
+                goto tidyup;
+            }
             rv = forget_replier_for(context, bind_name);
-            if (rv) goto tidyup;
+            if (rv) {
+                printf("### Error forgetting replier for '%s'\n", bind_name);
+                goto tidyup;
+            }
         }
         print_replier_for(context);
     }
@@ -720,6 +800,8 @@ static int handle_message_from_other_limpet(limpet_context_t    *context)
     if (ignore) {
         goto tidyup;    // No need to send a message
     }
+
+    printf("Us->KBUS: "); kbus_msg_print(stdout, msg); printf("\n");
 
     rv = kbus_ksock_send_msg(context->ksock, msg, &msg_id);
     if (rv) {
@@ -737,6 +819,7 @@ static int handle_message_from_other_limpet(limpet_context_t    *context)
             } else {
                 errmsg->to = msg->from;
                 errmsg->in_reply_to = msg->id;
+                printf("Us->KBUS: "); kbus_msg_print(stdout, errmsg); printf("\n");
                 rv = kbus_ksock_send_msg(context->ksock, errmsg, &msg_id);
                 free(errmsg);
                 if (rv) {
@@ -1129,14 +1212,16 @@ static int kbus_limpet(uint32_t  kbus_device,
             goto tidyup;
         }
 
+        printf("\n");
+
         if (fds[0].revents & POLLIN) {
-            printf("Message from KBUS\n");
+            printf("----------------- Message from KBUS\n");
             rv = handle_message_from_kbus(&context);
             if (rv < 0) goto tidyup;
         }
 
         if (fds[1].revents & POLLIN) {
-            printf("Message from other Limpet\n");
+            printf("----------------- Message from other Limpet\n");
             rv = handle_message_from_other_limpet(&context);
             if (rv < 0) goto tidyup;
         }

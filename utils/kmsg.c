@@ -60,6 +60,7 @@ static const char *bus_device_name(int bus_number);
 int main(int argn, char *args[])
 {
   int bus_number = 0;
+  int verbose = 0;
 
   if (argn < 2)
     {
@@ -125,14 +126,18 @@ int main(int argn, char *args[])
 
 static void usage(void)
 {
-  fprintf(stderr, "Syntax: kmsg <-bus NN> [send|listen] [name] <[data]>\n"
+  fprintf(stderr, "Syntax: kmsg [-bus <NN>] [-v] listen|reply|send|call <name> [<fmt> <data>]\n"
 	  "\n"
-	  "kmsg listen [name]  - bind to a ksock as Listener and print every message you receive.\n"
-	  "kmsg reply [name]  - bind to a ksock as Replier and print/reply to every message you receive.\n"
-	  "kmsg send [name] [fmt] [data]  - Send the given message.\n"
-	  "kmsg call [name] [fmt] [data] - Send the given message and wait for a reply.\n"
+	  "    kmsg listen <name>  - Bind as Listener for <name>, print every message you receive.\n"
+	  "    kmsg reply  <name>  - Bind as Replier  for <name>, print every message you receive,\n"
+          "                          and then reply to it.\n"
 	  "\n"
-	  " [fmt] can be 's'tring or 'h'ex.\n"
+	  "    kmsg send   <name> <fmt> <data> - Send the given message.\n"
+	  "    kmsg call   <name> <fmt> <data> - Send the given message, wait for a reply.\n"
+	  "\n"
+	  "<fmt> can be 's'tring or 'h'ex.\n"
+          "\n"
+          "-bus <NN> may be used to choose the KBUS device. The default is 0.\n"
 	  "\n");
 }
 
@@ -150,7 +155,7 @@ static int do_listen(const char *msg_name, int bus_number)
       return 10;
     }
 
-  /* Bind .. */
+  printf("Binding as Listener to '%s'\n", msg_name);
   rv = kbus_ksock_bind(the_socket, msg_name, 0);
   if (rv < 0)
     {
@@ -158,6 +163,9 @@ static int do_listen(const char *msg_name, int bus_number)
 	      msg_name, strerror(errno), errno);
       return 11;
     }
+  uint32_t  ksock_id;
+  (void) kbus_ksock_id(the_socket, &ksock_id);
+  printf("..bound on ksock id %u\n",ksock_id);
 
   while (1)
     {
@@ -180,7 +188,7 @@ static int do_listen(const char *msg_name, int bus_number)
 	}
       
       kbus_msg_print(stdout, msg); fprintf(stdout,"\n");
-      kbus_msg_dump(msg, 1);
+      //kbus_msg_dump(msg, 1);
       kbus_msg_delete(&msg);
     }
 
@@ -201,7 +209,7 @@ static int do_reply(const char *msg_name, int bus_number)
       return 10;
     }
 
-  /* Bind .. */
+  printf("Binding as Replier to '%s'\n", msg_name);
   rv = kbus_ksock_bind(the_socket, msg_name, 1);
   if (rv < 0)
     {
@@ -209,6 +217,10 @@ static int do_reply(const char *msg_name, int bus_number)
 	      msg_name, strerror(errno), errno);
       return 11;
     }
+
+  uint32_t  ksock_id;
+  (void) kbus_ksock_id(the_socket, &ksock_id);
+  printf("..bound on ksock id %u\n",ksock_id);
 
   while (1)
     {
@@ -233,7 +245,7 @@ static int do_reply(const char *msg_name, int bus_number)
 	}
       
       kbus_msg_print(stdout, msg); fprintf(stdout,"\n");
-      kbus_msg_dump(msg, 1);
+      //kbus_msg_dump(msg, 1);
 
       rv = kbus_msg_create_reply_to(&reply, msg, NULL, 0, 0);
       if (rv < 0)
@@ -374,7 +386,7 @@ static int do_send(const char *msg_name, const char *fmt,
 
 
   kbus_msg_print(stdout, kmsg); fprintf(stdout,"\n");
-  kbus_msg_dump(kmsg, 1);
+  //kbus_msg_dump(kmsg, 1);
   rv = kbus_ksock_send_msg(ks, kmsg, &id);
   if (rv < 0)
     {
@@ -411,7 +423,7 @@ static int do_send(const char *msg_name, const char *fmt,
 	    }
 	  
           kbus_msg_print(stdout, inmsg); fprintf(stdout,"\n");
-	  kbus_msg_dump(inmsg, 1);
+	  //kbus_msg_dump(inmsg, 1);
 	  
 	  if (!kbus_msg_compare_ids(&(inmsg->in_reply_to), &id))
 	    {
