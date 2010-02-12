@@ -181,7 +181,7 @@ static void print_request_from(limpet_context_t    *context)
 {
     request_from_t    *this = context->request_from;
     while (this) {
-        printf(".. message [%u:%u] was from\n", this->id.network_id,
+        printf(".. message [%u:%u] was from %u\n", this->id.network_id,
                this->id.serial_num, this->from);
         this = this->next;
     }
@@ -479,6 +479,12 @@ static int handle_message_from_kbus(limpet_context_t    *context)
         // Remember who this Request message was from, so that when we
         // get a Reply we can set *its* 'from' field correctly
         rv = remember_request_from(context, msg->id, msg->from);
+        if (rv) {                       // what else can we do...
+            kbus_msg_delete(&msg);
+            return rv;
+        }
+        if (context->verbosity > 1)
+            print_request_from(context);
     }
 
     if (msg->id.network_id == context->other_network_id) {
@@ -504,7 +510,6 @@ static int handle_message_from_kbus(limpet_context_t    *context)
 static int read_message_from_other_limpet(limpet_context_t     *context,
                                           kbus_message_t      **msg)
 {
-    int         rv;
     uint32_t    array[KBUS_SERIALISED_HDR_LEN];
     ssize_t     wanted = sizeof(array);
     ssize_t     length;
@@ -633,10 +638,7 @@ static int amend_reply_from_socket(limpet_context_t     *context,
                                    kbus_message_t       *msg,
                                    bool                 *ignore)
 {
-    int          rv;
     uint32_t     from;
-    char        *name = kbus_msg_name_ptr(msg);
-    void        *data = kbus_msg_data_ptr(msg);
 
     // If this message is in reply to a message from our network,
     // revert to the original message id
@@ -653,6 +655,9 @@ static int amend_reply_from_socket(limpet_context_t     *context,
         return 0;
     }
     msg->to = from;
+
+    // And now we've dealt with it...
+    (void) forget_request_from(context, msg->in_reply_to);
 
     printf(".. amended Reply: ");
     kbus_msg_print(stdout, msg);
@@ -961,15 +966,15 @@ static int setup_kbus(kbus_ksock_t       ksock,
  * `limpet_socket` is the socket to use to communicate with the other Limpet of
  * this pair.
  *
- * `message_name` is what this Limpet will "listen" to -- all messages matching
- * this will be forwarded to the other Limpet. If it is NULL, then "$.*" will
- * be used. Note that the Limpet will also listen for Replier Bind Events (and
- * act on them).
- *
  * `network_id` is a positive, non-negative integer identifying this Limpet.
  * All Limpets that can rech each other (i.e., by passing messages via other
  * Limpets and other KBUS devives) must have distinct network ids. This Limpet
  * will check that it has a different network id than its pair.
+ *
+ * `message_name` is what this Limpet will "listen" to -- all messages matching
+ * this will be forwarded to the other Limpet. If it is NULL, then "$.*" will
+ * be used. Note that the Limpet will also listen for Replier Bind Events (and
+ * act on them).
  *
  * If `termination_message` is non-NULL, then this Limpet will exit when it is
  * sent a message with that name, either by KBUS or its pair Limpet.
@@ -987,8 +992,8 @@ static int setup_kbus(kbus_ksock_t       ksock,
  */
 extern int kbus_limpet(kbus_ksock_t     ksock,
                        int              limpet_socket,
-                       char            *message_name,
                        uint32_t         network_id,
+                       char            *message_name,
                        char            *termination_message,
                        int              verbosity)
 {

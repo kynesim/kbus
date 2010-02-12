@@ -56,7 +56,7 @@
 #include <poll.h>
 
 #include "libkbus/kbus.h"
-#include "limpet.h"
+#include "libkbus/limpet.h"
 
 static int open_client_socket(char     *address,
                               int       port,
@@ -273,7 +273,7 @@ static int run_limpet(uint32_t  kbus_device,
         if (rv) goto tidyup;
     }
 
-    rv = kbus_limpet(ksock, limpet_socket, message_name, network_id,
+    rv = kbus_limpet(ksock, limpet_socket, network_id, message_name,
                      termination_message, verbosity);
 
     if (rv) goto tidyup;

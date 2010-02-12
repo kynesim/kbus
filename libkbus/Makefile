@@ -47,9 +47,9 @@ else
 	TGTDIR=$(O)/libkbus
 endif
 
-SRCS=libkbus.c
+SRCS=libkbus.c limpet.c
 OBJS=$(SRCS:%.c=$(TGTDIR)/%.o)
-DEPS=kbus.h
+DEPS=kbus.h limpet.h
 
 SHARED_NAME=libkbus.so
 STATIC_NAME=libkbus.a

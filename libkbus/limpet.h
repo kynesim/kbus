@@ -58,15 +58,15 @@ extern "C" {
  * `limpet_socket` is the socket to use to communicate with the other Limpet of
  * this pair.
  *
- * `message_name` is what this Limpet will "listen" to -- all messages matching
- * this will be forwarded to the other Limpet. If it is NULL, then "$.*" will
- * be used. Note that the Limpet will also listen for Replier Bind Events (and
- * act on them).
- *
  * `network_id` is a positive, non-negative integer identifying this Limpet.
  * All Limpets that can rech each other (i.e., by passing messages via other
  * Limpets and other KBUS devives) must have distinct network ids. This Limpet
  * will check that it has a different network id than its pair.
+ *
+ * `message_name` is what this Limpet will "listen" to -- all messages matching
+ * this will be forwarded to the other Limpet. If it is NULL, then "$.*" will
+ * be used. Note that the Limpet will also listen for Replier Bind Events (and
+ * act on them).
  *
  * If `termination_message` is non-NULL, then this Limpet will exit when it is
  * sent a message with that name, either by KBUS or its pair Limpet.
@@ -84,8 +84,8 @@ extern "C" {
  */
 extern int kbus_limpet(kbus_ksock_t     ksock,
                        int              limpet_socket,
-                       char            *message_name,
                        uint32_t         network_id,
+                       char            *message_name,
                        char            *termination_message,
                        int              verbosity);
 

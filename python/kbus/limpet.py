@@ -84,36 +84,28 @@ class Limpet(object):
        as such a proxy Replier for.
 
     And probably some other things I've not yet thought of.
+
+    Note that the Limpet sets various things (including requesting Replier Bind
+    Events from its KBUS) when it starts up, and makes no attempt to restore
+    any changes when (if) it closes.
     """
 
-    def __init__(self, kbus_device, network_id, socket_addresss,
-            is_server, socket_family, message_name='$.*', verbosity=1):
+    def __init__(self, ksock, sock, network_id, message_name='$.*', verbosity=1):
         """A Limpet has two "ends":
 
-        1. 'kbus_device' specifies which KBUS device it should communicate
-           with, via ``ksock = Ksock(kbus_device, 'rw')``.
-
-        2. 'socket_addresss' is the address for the socket used to
-           communicate with its paired Limpet. This should generally be a
-           path name (if communication is with another Limpet on the same
-           machine, via Unix domain sockets), or a ``(host, port)`` tuple (for
-           communication with a Limpet on another machine, via the internet).
+        1. 'ksock' specifies which KBUS device it should communicate
+           with. This should have been opened for read and write.
+        2. 'sock' is the socket used to communicate with its paired Limpet.
 
         Messages received from KBUS get sent to the other Limpet.
 
         Messages sent from the other Limpet get sent to KBUS.
 
-        - kbus_device is which KBUS to open
+        - ksock is the KBUS connection
+        - sock is the socket to the other Limpet
         - network_id is the network id to set in message ids when we are
           forwarding a message to the other Limpet. It must be greater
           than zero.
-        - socket_addresss is the socket address we use to talk to the
-          other Limpet
-        - is_server is true if we are the "server" of the Limpet pair, false
-          if we are the "client"
-        - socket_family is AF_UNIX or AF_INET, determining what sort of
-          address we want -- a pathname for the former, a <host>:<port>
-          string for the latter
         - message_name is the name of the message (presumably a wildcard)
           we are forwarding
         - if verbosity is 0, we don't output any "useful" messages, if it is
@@ -123,15 +115,8 @@ class Limpet(object):
         if network_id < 1:
             raise ValueError('Limpet network id must be > 0, not %d'%network_id)
 
-        if socket_family not in (socket.AF_UNIX, socket.AF_INET):
-            raise ValueError('Socket family is %d, must be AF_UNIX (%s) or'
-                             ' AF_INET (%d)'%(socket_family,
-                                              socket.AF_UNIX, socket.AF_INET))
-
-        self.kbus_device = kbus_device
-        self.sock_address = socket_addresss
-        self.sock_family = socket_family
-        self.is_server = is_server
+        self.ksock = ksock
+        self.sock = sock
         self.network_id = network_id
         self.message_name = message_name
         self.verbosity = verbosity
@@ -139,9 +124,6 @@ class Limpet(object):
         # We don't know the network id of our Limpet pair yet
         self.other_network_id = None
 
-        self.sock = None
-        self.listener = None
-        self.ksock = Ksock(self.kbus_device, 'rw')
         self.ksock_id = self.ksock.ksock_id()
 
         # A dictionary of { <message_name> : <binder_id> } of the messages
@@ -153,11 +135,6 @@ class Limpet(object):
         # the key, and the from/to information as the data
         self.our_requests = {}
 
-        if is_server:
-            self.sock = self.setup_as_server(self.sock_address, self.sock_family)
-        else:
-            self.sock = self.setup_as_client(self.sock_address, self.sock_family)
-
         # So we're set up to talk at both ends - now sort out what we're
         # talking about
 
@@ -166,7 +143,7 @@ class Limpet(object):
             self._send_network_id()
             self._read_network_id()
 
-            if verbosity == 2:
+            if verbosity > 1:
                 self.ksock.kernel_module_verbose(True)
 
             # Note that we only want one copy of a message, even if we were
@@ -218,104 +195,29 @@ class Limpet(object):
         if self.verbosity > 1:
             print 'Other Limpet has network id',self.other_network_id
 
-    def setup_as_server(self, address, family):
-        """Set ourselves up as a server Limpet.
-
-        We start listening, until we get someone connecting to us.
-        """
-        if self.verbosity > 1:
-            print 'Listening on', address
-
-        listener = self.listener = socket.socket(family, socket.SOCK_STREAM)
-        # Try to allow address reuse as soon as possible after we've finished
-        # with it
-        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        listener.bind(address)
-        try:
-            listener.listen(1)
-            connection, address = self.listener.accept()
-
-            if self.verbosity:
-                print 'Connection accepted from (%s, %s)'%(connection, address)
-
-            return connection
-        except:
-            self.close()
-            raise
-
-    def setup_as_client(self, address, family):
-        """Set ourselves up as a client Limpet.
-        """
-        if family == socket.AF_INET:
-            sockname = '%s:%s'%address
-        else:
-            sockname = address
-
-        try:
-            sock = socket.socket(family, socket.SOCK_STREAM)
-            sock.connect(address)
-
-            if self.verbosity:
-                print 'Connected to "%s" as client'%sockname
-
-            return sock
-        except Exception as exc:
-            raise GiveUp('Unable to connect to "%s" as client: %s'%(sockname, exc))
-
-
     def close(self):
         """Tidy up when we're finished.
         """
-        if self.ksock:
-            self.ksock.close()
-            self.ksock = None
-
-        if self.sock:
-            if self.verbosity > 1:
-                print 'Closing socket'
-            if self.is_server:
-                self.sock.close()
-            else:
-                self.sock.shutdown(socket.SHUT_RDWR)
-                self.sock.close()
-            self.sock = None
-
-        if self.listener:
-            if self.verbosity > 1:
-                print 'Closing listener socket'
-            self.listener.close()
-            self.listener = None
-            if self.sock_family == socket.AF_UNIX:
-                self.remove_socket_file(self.sock_address)
-
         if self.verbosity:
             print 'Limpet closed'
-
-    def remove_socket_file(self, name):
-        # Assuming this is an address representing a file in the filesystem,
-        # delete it so we can use it again...
-        try:
-            os.remove(name)
-        except Exception as err:
-            raise GiveUp('Unable to delete socket file "%s": %s'%(name, err))
 
     def __repr__(self):
         sf = {socket.AF_INET:'socket.AF_INET',
               socket.AF_UNIX:'socket.AF_UNIX'}
         parts = []
-        parts.append('kbus_device=%s'%self.kbus_device)
+        parts.append('ksock=%s'%self.ksock)
+        parts.append('sock=%s'%self.sock)
         parts.append('network_id=%d'%self.network_id)
-        parts.append('socket_address=%s'%self.sock_address)
-        parts.append('is_server=%s'%('True' if self.is_server else 'False'))
-        parts.append('socket_family=%s'%sf.get(self.sock_family, self.sock_family))
         if self.message_name != '$.*':
             parts.append('message_name=%s'%repr(self.message_name))
+        if self.verbosity != 1:
+            parts.append('verbosity=%s'%self.verbosity)
 
         return 'Limpet(%s)'%(', '.join(parts))
 
     def __str__(self):
-        return 'Limpet from KBUS %d Ksock %u via %s'%(self.kbus_device,
-                self.ksock_id, self.sock_address)
+        return 'Limpet from KBUS Ksock %u via socket %s'%(self.ksock_id,
+                                                          self.sock)
 
     def serialise_message_header(self, msg):
         """Serialise a message header as integers for writing to the network.
@@ -504,7 +406,7 @@ class Limpet(object):
         * anything else - just send it through, with the appropriate changes to
           the message id's network id.
         """
-        kbus_name   = 'KBUS%u'%self.kbus_device
+        kbus_name   = 'KBUS%u'%self.ksock_id
         limpet_name = 'Limpet%d'%self.other_network_id
         kbus_to_us_hdr  = '%s->Us%s'%(kbus_name, ' '*(len(limpet_name)-2))
         nowt_to_limpet_hdr = '%s->%s'%(' '*len(kbus_name), limpet_name)
@@ -686,7 +588,7 @@ class Limpet(object):
         * anything else - just send it through, with the appropriate changes to
           the message id's network id.
         """
-        kbus_name  = 'KBUS%u'%self.kbus_device
+        kbus_name  = 'KBUS%u'%self.ksock_id
         limpet_name = 'Limpet%d'%self.other_network_id
         limpet_to_us_hdr  = '%s->Us%s'%(limpet_name, ' '*(len(kbus_name)-2))
         nowt_to_kbus_hdr   = '%s->%s'%(' '*len(limpet_name), kbus_name)
@@ -793,21 +695,129 @@ class Limpet(object):
             # And allow the exception to be re-raised
             return False
 
+def connect_as_server(address, family, verbosity=1):
+    """Connect to a socket as a server.
+
+    We start listening, until we get someone connecting to us.
+
+    Returns a tuple (listener_socket, connection_socket).
+    """
+    if verbosity > 1:
+        print 'Listening on', address
+
+    listener = socket.socket(family, socket.SOCK_STREAM)
+    # Try to allow address reuse as soon as possible after we've finished
+    # with it
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(address)
+
+    listener.listen(1)
+    connection, address = listener.accept()
+
+    if verbosity:
+        print 'Connection accepted from (%s, %s)'%(connection, address)
+
+    return (listener, connection)
+
+def connect_as_client(address, family, verbosity=1):
+    """Connect to a socket as a client.
+
+    Returns the socket.
+    """
+    if family == socket.AF_INET:
+        sockname = '%s:%s'%address
+    else:
+        sockname = address
+
+    try:
+        sock = socket.socket(family, socket.SOCK_STREAM)
+        sock.connect(address)
+
+        if verbosity:
+            print 'Connected to "%s" as client'%sockname
+
+        return sock
+    except Exception as exc:
+        raise GiveUp('Unable to connect to "%s" as client: %s'%(sockname, exc))
+
+def remove_socket_file(name):
+    # Assuming this is an address representing a file in the filesystem,
+    # delete it so we can use it again...
+    try:
+        os.remove(name)
+    except Exception as err:
+        raise GiveUp('Unable to delete socket file "%s": %s'%(name, err))
 
 def run_a_limpet(is_server, address, family, kbus_device, network_id,
                  message_name='$.*', termination_message=None, verbosity=1):
     """Run a Limpet.
+
+    A Limpet has two "ends":
+
+    1. 'kbus_device' specifies which KBUS device it should communicate
+       with, via ``ksock = Ksock(kbus_device, 'rw')``.
+
+    2. 'socket_addresss' is the address for the socket used to
+       communicate with its paired Limpet. This should generally be a
+       path name (if communication is with another Limpet on the same
+       machine, via Unix domain sockets), or a ``(host, port)`` tuple (for
+       communication with a Limpet on another machine, via the internet).
+
+    Messages received from KBUS get sent to the other Limpet.
+
+    Messages sent from the other Limpet get sent to KBUS.
+
+    - is_server is true if we are the "server" of the Limpet pair, false
+      if we are the "client"
+    - address is the socket address we use to talk to the other Limpet
+    - family is AF_UNIX or AF_INET, determining what sort of address we
+      want -- a pathname for the former, a <host>:<port> string for the
+      latter
+    - kbus_device is which KBUS device to open
+    - network_id is the network id to set in message ids when we are
+      forwarding a message to the other Limpet. It must be greater
+      than zero.
+    - message_name is the name of the message (presumably a wildcard)
+      we are forwarding
+    - if verbosity is 0, we don't output any "useful" messages, if it is
+      1 we just announce ourselves, if it is 2 (or higher) we output
+      information about each message as it is processed.
     """
+    if family not in (socket.AF_UNIX, socket.AF_INET):
+        raise ValueError('Socket family is %d, must be AF_UNIX (%s) or'
+                         ' AF_INET (%d)'%(family,
+                                          socket.AF_UNIX, socket.AF_INET))
+
     print 'Limpet: %s via %s for KBUS %d, using network id %d'%('server' if is_server else 'client',
             address, kbus_device, network_id)
 
-    with Limpet(kbus_device, network_id, address, is_server, family,
-                message_name, verbosity) as l:
-        if verbosity:
-            print l
-            if termination_message:
-                print "Terminate by sending a message called '%s'"%termination_message
-        l.run_forever(termination_message)
+    if is_server:
+        listener, sock = connect_as_server(address, family, verbosity)
+    else:
+        sock = connect_as_client(address, family, verbosity)
+
+    try:
+        with Ksock(kbus_device, 'rw') as ksock:
+            with Limpet(ksock, sock, network_id, message_name, verbosity) as l:
+                if verbosity:
+                    print l
+                    if termination_message:
+                        print "Terminate by sending a message named '%s'"%termination_message
+                l.run_forever(termination_message)
+    except Exception as exc:
+        if verbosity > 1:
+            print 'Closing socket'
+        if not is_server:
+            sock.shutdown(socket.SHUT_RDWR)
+        sock.close()
+
+        if is_server:
+            if verbosity > 1:
+                print 'Closing listener socket'
+            listener.close()
+            if family == socket.AF_UNIX:
+                remove_socket_file(address)
+        raise
 
 def parse_address(word):
     """Work out what sort of address we have.
