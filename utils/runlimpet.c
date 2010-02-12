@@ -272,6 +272,11 @@ static int send_message_to_other_limpet(limpet_context_t  *context,
     char       *name = NULL;
     void       *data = NULL;
 
+    uint32_t    padded_name_len;
+    uint32_t    padded_data_len;
+
+    static char padding[] = "\0\0\0\0\0\0\0\0";
+
     name = kbus_msg_name_ptr(msg);
     data = kbus_msg_data_ptr(msg);
 
@@ -315,15 +320,20 @@ static int send_message_to_other_limpet(limpet_context_t  *context,
         return -1;
     }
 
-    // Since we're always sending data from an "entire" message, we know
-    // that the name is already correctly padded at the end with NULL bytes.
-    // We can thus safely send a multiple of 4 bytes for our name, which
-    // seems, well, tidier
-    rv = send(context->socket, name, KBUS_PADDED_NAME_LEN(msg->name_len), 0);
+    padded_name_len = KBUS_PADDED_NAME_LEN(msg->name_len);
+    rv = send(context->socket, name, msg->name_len, 0);
     if (rv < 0) {
         printf("### Error sending message name to other limpet: %s\n",
                strerror(errno));
         return -1;
+    }
+    if (padded_name_len - msg->name_len > 0) {
+        rv = send(context->socket, padding, padded_name_len-msg->name_len, 0);
+        if (rv < 0) {
+            printf("### Error sending message name padding to other limpet: %s\n",
+                   strerror(errno));
+            return -1;
+        }
     }
 
     if (msg->data_len != 0 && data != NULL) {
@@ -340,14 +350,20 @@ static int send_message_to_other_limpet(limpet_context_t  *context,
             event->name_len = htonl(event->name_len);
         }
 
-        // As with the name, we know our data has any NULL bytes necessary
-        // as final padding, so can send a nice number of bytes
-        rv = send(context->socket, data,
-                  KBUS_PADDED_DATA_LEN(msg->data_len), 0);
+        padded_data_len = KBUS_PADDED_DATA_LEN(msg->data_len);
+        rv = send(context->socket, data, msg->data_len, 0);
         if (rv < 0) {
             printf("### Error sending message data to other limpet: %s\n",
                    strerror(errno));
             return -1;
+        }
+        if (padded_data_len - msg->data_len > 0) {
+            rv = send(context->socket, padding, padded_data_len-msg->data_len, 0);
+            if (rv < 0) {
+                printf("### Error sending message data padding to other limpet: %s\n",
+                       strerror(errno));
+                return -1;
+            }
         }
     }
 

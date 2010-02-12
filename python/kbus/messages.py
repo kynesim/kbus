@@ -582,6 +582,10 @@ class _EntireMessageStructBaseclass(ctypes.Structure):
         self.header.final_to = value
 
     @property
+    def extra(self):
+        return self.header.extra
+
+    @property
     def flags(self):
         return self.header.flags
 

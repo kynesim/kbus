@@ -37,6 +37,8 @@ command line is not significant, but if a later <thing> contradicts an earlier
                     Proxy any messages with this name to the other Limpet.
                     Using "-m '$.*'" will proxy all messages, and this is
                     the default.
+
+    -v <n>          Verbosity level. Default is 1. 0 means less, 2 means more.
 """
 
 # ***** BEGIN LICENSE BLOCK *****
@@ -313,6 +315,7 @@ def main(args):
     kbus_device = 0
     network_id = None
     message_name = '$.*'
+    verbosity = 1
 
     if not args:
         print __doc__
@@ -348,6 +351,12 @@ def main(args):
                 except:
                     raise GiveUp('-kbus requires an integer argument (KBUS device)')
                 args = args[1:]
+            elif word == '-v':
+                try:
+                    verbosity = int(args[0])
+                except:
+                    raise GiveUp('-v requires an argument (verbosity number)')
+                args = args[1:]
             else:
                 print __doc__
                 return
@@ -365,7 +374,8 @@ def main(args):
         network_id = 2 if is_server else 1
 
     # And then do whatever we've been asked to do...
-    run_a_limpet(is_server, address, family, kbus_device, network_id, message_name)
+    run_a_limpet(is_server, address, family, kbus_device, network_id,
+                 message_name, verbosity=verbosity)
 
 if __name__ == "__main__":
     args = sys.argv[1:]
