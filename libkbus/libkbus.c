@@ -259,9 +259,10 @@ extern int kbus_ksock_last_msg_id(kbus_ksock_t          ksock,
 /*
  * Find the Ksock id of the Replier for the given message name.
  *
- * Returns 0 if there is no Replier bound to this message, 1 if the Replier's
- * Ksock id has been returned in `replier_ksock_id`, or a negative number
- * (``-errno``) for failure.
+ * `replier_ksock_id` will either be the Replier's Ksock id, or 0 if there
+ * is no Replier bound for this message name.
+ *
+ * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
 extern int kbus_ksock_find_replier(kbus_ksock_t   ksock,
                                    const char    *name,
@@ -276,11 +277,9 @@ extern int kbus_ksock_find_replier(kbus_ksock_t   ksock,
   rv = ioctl(ksock, KBUS_IOC_REPLIER, &bind_query);
   if (rv < 0)
     return -errno;
-  else {
-    if (rv == 0)
+  else if (rv == 0)
       replier_ksock_id = 0;
-    return rv;
-  }
+  return 0;
 }
 
 /*
@@ -1232,7 +1231,7 @@ extern int kbus_msg_split_bind_event(const kbus_message_t  *msg,
   if (!this_name) return -ENOMEM;
 
   strncpy(this_name, orig_name, event_data->name_len);
-  this_name[event_data->name_len+1] = 0;
+  this_name[event_data->name_len] = 0;
 
   *is_bind = event_data->is_bind;
   *binder = event_data->binder;
