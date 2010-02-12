@@ -647,11 +647,11 @@ extern int kbus_msg_create_short_request(kbus_message_t        **msg,
  *
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
-extern int kbus_msg_create_reply(kbus_message_t **msg, 
-                                 const kbus_message_t *in_reply_to,
-                                 const void *data,
-                                 uint32_t data_len, /* bytes */
-                                 uint32_t flags);
+extern int kbus_msg_create_reply_to(kbus_message_t **msg, 
+                                    const kbus_message_t *in_reply_to,
+                                    const void *data,
+                                    uint32_t data_len, /* bytes */
+                                    uint32_t flags);
 
 /*
  * Create a short ("entire") Reply message, based on a previous Request.
@@ -662,20 +662,20 @@ extern int kbus_msg_create_reply(kbus_message_t **msg,
  *
  * Unless you really, really need the "copying the name/data" functionality,
  * and are guaranteed to be sending short enough messages, please do not use
- * this function, use ``kbus_msg_create_reply()`` instead.
+ * this function, use ``kbus_msg_create_reply_to()`` instead.
  *
- * This is identical in behaviour to ``kbus_msg_create_reply()``, except
+ * This is identical in behaviour to ``kbus_msg_create_reply_to()``, except
  * that an "entire" message is created, and thus both the message name and data
  * are copied. This means that the original (`in_reply_to`) message and the
  * `data` may be freed as soon as the `msg` has been created.
  * 
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
-extern int kbus_msg_create_short_reply(kbus_message_t          **msg, 
-                                       const kbus_message_t     *in_reply_to,
-                                       const void               *data, 
-                                       uint32_t                  data_len, /* bytes */
-                                       uint32_t                  flags);
+extern int kbus_msg_create_short_reply_to(kbus_message_t          **msg, 
+                                          const kbus_message_t     *in_reply_to,
+                                          const void               *data, 
+                                          uint32_t                  data_len, /* bytes */
+                                          uint32_t                  flags);
 
 /*
  * Create a Stateful Request message, based on a previous Reply or Request.
