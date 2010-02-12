@@ -61,6 +61,14 @@ struct replier_for {
 };
 typedef struct replier_for replier_for_t;
 
+// Ditto, more or less
+struct request_from {
+    kbus_msg_id_t        id;        // the Request message's id
+    uint32_t             from;      // who it was from
+    struct request_from *next;      // and another of us...
+};
+typedef struct request_from request_from_t;
+
 
 struct limpet_context {
     int              socket;             // Our connection to the other limpet
@@ -70,6 +78,7 @@ struct limpet_context {
     uint32_t         other_network_id;   // The other limpet's network id
     char            *termination_message;// The message name that stops us
     replier_for_t   *replier_for;        // Message repliers
+    request_from_t  *request_from;       // Requests we're expecting replies for
 };
 typedef struct limpet_context limpet_context_t;
 
@@ -159,6 +168,36 @@ static void forget_all_replier_for(limpet_context_t *context)
         free(ptr);
         ptr = next;
     }
+}
+
+static void print_request_from(limpet_context_t    *context)
+{
+    // XXX
+}
+
+// Return the 'from' id, or 0 if we can't find one.
+static uint32_t find_request_from(limpet_context_t    *context,
+                                  kbus_msg_id_t        id)
+{
+    // XXX
+}
+
+static int forget_request_from(limpet_context_t  *context,
+                               kbus_msg_id_t      id)
+{
+    // XXX
+}
+
+static int remember_request_from(limpet_context_t    *context,
+                                 kbus_msg_id_t        id,
+                                 uint32_t             from)
+{
+    // XXX
+}
+
+static void forget_all_request_from(limpet_context_t *context)
+{
+    // XXX
 }
 
 // Length of an array sufficient to hold the parts of a message header that
@@ -276,7 +315,11 @@ static int send_message_to_other_limpet(limpet_context_t  *context,
         return -1;
     }
 
-    rv = send(context->socket, name, msg->name_len, 0);
+    // Since we're always sending data from an "entire" message, we know
+    // that the name is already correctly padded at the end with NULL bytes.
+    // We can thus safely send a multiple of 4 bytes for our name, which
+    // seems, well, tidier
+    rv = send(context->socket, name, KBUS_PADDED_NAME_LEN(msg->name_len), 0);
     if (rv < 0) {
         printf("### Error sending message name to other limpet: %s\n",
                strerror(errno));
@@ -297,7 +340,10 @@ static int send_message_to_other_limpet(limpet_context_t  *context,
             event->name_len = htonl(event->name_len);
         }
 
-        rv = send(context->socket, data, msg->data_len, 0);
+        // As with the name, we know our data has any NULL bytes necessary
+        // as final padding, so can send a nice number of bytes
+        rv = send(context->socket, data,
+                  KBUS_PADDED_DATA_LEN(msg->data_len), 0);
         if (rv < 0) {
             printf("### Error sending message data to other limpet: %s\n",
                    strerror(errno));
@@ -349,6 +395,24 @@ static int handle_message_from_kbus(limpet_context_t    *context)
         }
     }
 
+    if (kbus_msg_is_request(msg) && kbus_msg_wants_us_to_reply(msg)) {
+        // Remember who this Request message was from, so that when we
+        // get a Reply we can set *its* 'from' field correctly
+        rv = remember_request_from(context, msg->id, msg->from);
+    }
+
+    if (msg->id.network_id == context->other_network_id) {
+        // This is a message that originated with our pair Limpet (so it's
+        // been from the other Limpet, to us, to KBUS, and we're now getting
+        // it back again). Therefore we want to ignore it. When the original
+        // message was sent to the other KBUS (before any Limpet touched
+        // it), any listeners on that side would have heard it from that
+        // KBUS, so we don't want to send it back to them yet again...
+        printf(".. Ignoring message from other Limpet\n");
+        kbus_msg_delete(&msg);
+        return 0;
+    }
+
     rv = send_message_to_other_limpet(context, msg);
 
     kbus_msg_delete(&msg);
@@ -367,6 +431,9 @@ static int read_message_from_other_limpet(limpet_context_t     *context,
     kbus_message_t      *new_msg = NULL;
     char                *name = NULL;
     void                *data = NULL;
+
+    uint32_t             padded_name_len;
+    uint32_t             padded_data_len;
 
     length = recv(context->socket, array, wanted, MSG_WAITALL);
     if (length == 0) {
@@ -396,34 +463,42 @@ static int read_message_from_other_limpet(limpet_context_t     *context,
         goto error_return;
     }
 
-    name = malloc(new_msg->name_len + 1);
+    // Note that the name, as sent, was padded with zero bytes at the end
+    // We *could* read the name and then ignore some bytes, but it's simpler
+    // just to read (and remember) the extra data and quietly ignore it
+    // Remember that this padding *includes* guaranteed zero termination byte
+    // for the string, so we don't need to add one in to the length
+    padded_name_len = KBUS_PADDED_NAME_LEN(new_msg->name_len);
+    name = malloc(padded_name_len);
     if (name == NULL) {
         printf("### Unable to allocate message name\n");
         goto error_return;
     }
-    length = recv(context->socket, name, new_msg->name_len, MSG_WAITALL);
+    length = recv(context->socket, name, padded_name_len, MSG_WAITALL);
     if (length == 0) {
         printf("!!! Trying to read message name: other Limpet has gone away\n");
         goto error_return;
-    } else if (length != new_msg->name_len) {
+    } else if (length != padded_name_len) {
         printf("### Unable to read whole message name from other Limpet: %s\n",
                strerror(errno));
         goto error_return;
     }
-    name[new_msg->name_len] = 0;
+    name[new_msg->name_len] = 0;    // This *should not* be needed, but heh...
     new_msg->name = name;
 
     if (new_msg->data_len) {
-        data = malloc(new_msg->data_len);
+        // Similar comments for the data and the number of bytes transmitted
+        padded_data_len = KBUS_PADDED_DATA_LEN(new_msg->data_len);
+        data = malloc(padded_data_len);
         if (name == NULL) {
             printf("### Unable to allocate message data\n");
             goto error_return;
         }
-        length = recv(context->socket, data, new_msg->data_len, MSG_WAITALL);
+        length = recv(context->socket, data, padded_data_len, MSG_WAITALL);
         if (length == 0) {
             printf("!!! Trying to read message data: other Limpet has gone away\n");
             goto error_return;
-        } else if (length != new_msg->data_len) {
+        } else if (length != padded_data_len) {
             printf("### Unable to read whole message data from other Limpet: %s\n",
                    strerror(errno));
             goto error_return;
@@ -472,11 +547,120 @@ error_return:
     return -1;
 }
 
+static int amend_reply_from_socket(limpet_context_t     *context,
+                                   kbus_message_t       *msg,
+                                   bool                 *ignore)
+{
+    int          rv;
+    uint32_t     from;
+    char        *name = kbus_msg_name_ptr(msg);
+    void        *data = kbus_msg_data_ptr(msg);
+
+    // If this message is in reply to a message from our network,
+    // revert to the original message id
+    if (msg->in_reply_to.network_id == context->network_id)
+        msg->in_reply_to.network_id = 0;
+
+    // Look up the original Request, and amend appropriately
+    from = find_request_from(context, msg->in_reply_to);
+    if (from == 0) {
+        // We couldn't find it - oh dear
+        // Presumably we already dealt with this Reply once before
+        printf("Ignoring this Reply as a 'listen' copy\n");
+        *ignore = true;
+        return 0;
+    }
+    msg->to = from;
+
+    printf(".. amended Reply: ");
+    kbus_msg_print(stdout, msg);
+    printf("\n");
+
+    *ignore = false;
+    return 0;
+}
+
+static int amend_request_from_socket(limpet_context_t   *context,
+                                     kbus_message_t     *msg,
+                                     bool               *ignore)
+{
+    int         rv;
+    bool        is_local;
+    uint32_t    replier_id;
+
+    // The Request will have been marked as "to" our Limpet pair (otherwise
+    // we would not have received it).
+    //
+    // If the "final_to" has a network id that matches ours, then we need to
+    // unset that, as it has clearly now reached its "local" network
+    if (msg->final_to.network_id == context->network_id) {
+        msg->final_to.network_id = 0;       // Do we really need to do this?
+        is_local = true;
+    }
+    else
+        is_local = false;
+
+    // Find out who KBUS thinks is replying to this message name
+    rv = kbus_ksock_find_replier(context->ksock, msg->name, &replier_id);
+    if (rv) return rv;
+
+    if (replier_id == 0) {
+        kbus_message_t      *error;
+        kbus_msg_id_t        msg_id;
+        // Oh dear - there's no replier
+        printf(".. Replier has gone away\n");
+        rv = kbus_msg_create(&error, KBUS_MSG_NAME_REPLIER_GONEAWAY,
+                             strlen(KBUS_MSG_NAME_REPLIER_GONEAWAY),
+                             NULL, 0, 0);
+        if (rv) {
+            printf("XXX Unable to create (and send) ReplierGoneAway message\n");
+            return -1;
+        }
+        error->to = msg->from;
+        error->in_reply_to = msg->id;
+        rv = kbus_ksock_send_msg(context->ksock, error, &msg_id);
+        if (rv) {
+            printf("XXX Unable to send ReplierGoneAway message\n");
+            return -1;
+        }
+        *ignore = true;
+        return 0;
+    }
+
+    printf(".. %s KBUS replier %u\n", is_local?"Local":"NonLocal", replier_id);
+
+    // Regardless, we believe the message is OK, so need to
+    // adjust who it is meant to go to (locally)
+    if (is_local) {
+        // If we're in our final stage, then we insist that the
+        // Replier we deliver to be the Replier we expected
+        msg->to = msg->final_to.local_id;
+    } else {
+        // If we're just passing through, then just deliver it to
+        // whoever is listening, on the assumption that they in turn
+        // will pass it along, until it reaches its destination.
+        // XXX What happens if they are not a Limpet?
+        // XXX That would be bad - but I'm not sure how we could
+        // XXX tell (short of allowing Limpets to register with
+        // XXX KBUS, so that we can ask - and then a non-Limpet
+        // XXX could presumably *pretend* to be a Limpet anyway)
+        // XXX - a potentially infinite shell game then ensues...
+        msg->to = replier_id;
+    }
+
+    printf("..Adjusted the msg.to field\n");
+
+    *ignore = false;
+    return 0;
+}
+
 static int handle_message_from_other_limpet(limpet_context_t    *context)
 {
     int              rv;
     kbus_message_t  *msg = NULL;
     char            *bind_name = NULL;
+    kbus_msg_id_t    msg_id;
+    bool             ignore;
 
     rv = read_message_from_other_limpet(context, &msg);
     if (rv) return -1;
@@ -510,15 +694,54 @@ static int handle_message_from_other_limpet(limpet_context_t    *context)
         print_replier_for(context);
     }
 
+    if (kbus_msg_is_reply(msg))
+        rv = amend_reply_from_socket(context, msg, &ignore);
+    else if (kbus_msg_is_stateful_request(msg) &&
+               kbus_msg_wants_us_to_reply(msg))
+        rv = amend_request_from_socket(context, msg, &ignore);
 
+    if (rv) goto tidyup;
+    if (ignore) {
+        goto tidyup;    // No need to send a message
+    }
 
-
+    rv = kbus_ksock_send_msg(context->ksock, msg, &msg_id);
+    if (rv) {
+        // If we were trying to send a Request, we need to fake an
+        // appropriate Reply
+        if (kbus_msg_is_request(msg)) {
+            kbus_message_t  *errmsg;
+            char             errfmt[] = "$.KBUS.RemoteError.%u";
+            char             errname[19+11+1];
+            sprintf(errname, errfmt, -rv);
+            rv = kbus_msg_create(&errmsg, errname, strlen(errname), NULL,0,0);
+            if (rv) {
+                printf("XXX Cannot create $.KBUS.RemoteError Reply\n");
+                goto tidyup;
+            } else {
+                errmsg->to = msg->from;
+                errmsg->in_reply_to = msg->id;
+                rv = kbus_ksock_send_msg(context->ksock, errmsg, &msg_id);
+                free(errmsg);
+                if (rv) {
+                    printf("XXX Cannot send $.KBUS.RemoteError Reply\n");
+                    goto tidyup;
+                }
+            }
+        }
+        // XXX If we were sending a Reply, can we do anything useful?
+        printf(".. send message error %u -- continuing\n",-rv);
+    }
 
     rv = 0;
 
 tidyup:
     if (bind_name) free(bind_name);
-    if (msg)  free(msg);
+    if (msg) {
+        if (msg->name) free(msg->name);
+        if (msg->data) free(msg->data);
+        free(msg);
+    }
     return rv;
 }
 
@@ -925,6 +1148,9 @@ tidyup:
 
     if (context.replier_for)
         forget_all_replier_for(&context);
+
+    if (context.request_from)
+        forget_all_request_from(&context);
 
     return rv;
 }

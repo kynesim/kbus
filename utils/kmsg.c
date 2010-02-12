@@ -235,7 +235,7 @@ static int do_reply(const char *msg_name, int bus_number)
       kbus_msg_print(stdout, msg); fprintf(stdout,"\n");
       kbus_msg_dump(msg, 1);
 
-      rv = kbus_msg_create_reply(&reply, msg, NULL, 0, 0);
+      rv = kbus_msg_create_reply_to(&reply, msg, NULL, 0, 0);
       if (rv < 0)
 	{
 	  fprintf(stderr, "Failed to create reply - %s [%d] \n",
