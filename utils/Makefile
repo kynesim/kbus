@@ -44,8 +44,8 @@ all: dirs $(KMSG) $(RUNLIMPET)
 dirs:
 	-mkdir -p $(TGTDIR)
 
-$(RUNLIMPET): runlimpet.c $(LIBDEPEND)
-	$(CC) runlimpet.c -o $@ $(CFLAGS) $(LDFLAGS) $(LIBS)
+$(RUNLIMPET): runlimpet.c limpet.c limpet.h $(LIBDEPEND)
+	$(CC) runlimpet.c limpet.c -o $@ $(CFLAGS) $(LDFLAGS) $(LIBS)
 
 $(KMSG): kmsg.c $(LIBDEPEND)
 	$(CC) kmsg.c -o $@ $(CFLAGS) $(LDFLAGS) $(LIBS)
