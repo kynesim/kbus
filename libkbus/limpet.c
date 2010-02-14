@@ -509,11 +509,11 @@ static int handle_message_from_kbus(limpet_context_t    *context,
         return 0;
     }
 
+    rv = send_message_to_other_limpet(context, msg);
+
     printf("%u Us->Limpet: ",context->network_id);
     kbus_msg_print(stdout, msg);
     printf("\n");
-
-    rv = send_message_to_other_limpet(context, msg);
 
     kbus_msg_delete(&msg);
     return rv;
@@ -667,6 +667,10 @@ static int amend_reply_from_socket(limpet_context_t     *context,
         return 0;
     }
     msg->to = from;
+    // We don't want to preserve the network id - let KBUS give it
+    // a whole new id
+    msg->id.network_id = 0;
+    msg->id.serial_num = 0;
 
     // And now we've dealt with it...
     (void) forget_request_from(context, msg->in_reply_to);
@@ -709,7 +713,6 @@ static int amend_request_from_socket(limpet_context_t   *context,
 
     if (replier_id == 0) {
         kbus_message_t      *error;
-        kbus_msg_id_t        msg_id;
         // Oh dear - there's no replier
         printf(".. Replier has gone away\n");
         rv = kbus_msg_create(&error, KBUS_MSG_NAME_REPLIER_GONEAWAY,
@@ -726,7 +729,7 @@ static int amend_request_from_socket(limpet_context_t   *context,
         kbus_msg_print(stdout, error);
         printf("\n");
 
-        rv = kbus_ksock_send_msg(context->ksock, error, &msg_id);
+        rv = send_message_to_other_limpet(context, error);
         if (rv) {
             printf("XXX Unable to send ReplierGoneAway message\n");
             return -1;
@@ -742,7 +745,6 @@ static int amend_request_from_socket(limpet_context_t   *context,
         // Thus the replier id must match that of the original Replier.
         if (replier_id != msg->final_to.local_id) {
             kbus_message_t      *error;
-            kbus_msg_id_t        msg_id;
             char                 errname[] = "$.KBUS.Replier.NotSameKsock";
             // Oops - wrong replier - someone rebound
             printf("XXX Replier is %u, wanted %u - Replier gone away\n",
@@ -750,7 +752,7 @@ static int amend_request_from_socket(limpet_context_t   *context,
             rv = kbus_msg_create(&error, errname, strlen(errname),
                                  NULL, 0, 0);
             if (rv) {
-                printf("XXX Unable to create (and send) ReplierGoneAway message\n");
+                printf("XXX Unable to create (and send) ReplierNotSameKsock message\n");
                 return -1;
             }
             error->to = msg->from;
@@ -760,7 +762,7 @@ static int amend_request_from_socket(limpet_context_t   *context,
             kbus_msg_print(stdout, error);
             printf("\n");
 
-            rv = kbus_ksock_send_msg(context->ksock, error, &msg_id);
+            rv = send_message_to_other_limpet(context, error);
             if (rv) {
                 printf("XXX Unable to send Replier.NotSameKsock message\n");
                 return -1;
@@ -847,6 +849,8 @@ static int handle_message_from_other_limpet(limpet_context_t    *context)
             }
         }
         print_replier_for(context);
+        // Don't want to mirror this to KBUS
+        goto tidyup;
     }
 
     if (kbus_msg_is_reply(msg))

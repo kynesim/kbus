@@ -278,7 +278,9 @@ extern int kbus_ksock_find_replier(kbus_ksock_t   ksock,
   if (rv < 0)
     return -errno;
   else if (rv == 0)
-      replier_ksock_id = 0;
+      *replier_ksock_id = 0;
+  else
+      *replier_ksock_id = bind_query.return_id;
   return 0;
 }
 
@@ -1296,7 +1298,7 @@ extern void kbus_msg_print(FILE                 *stream,
     fprintf(stream," in_reply_to=[%u:%u]", msg->in_reply_to.network_id, msg->in_reply_to.serial_num);
 
   if (msg->flags) {
-    fprintf(stream," flags=%08x", msg->flags);
+    fprintf(stream," flags=0x%x", msg->flags);
     if (msg->flags & KBUS_BIT_WANT_A_REPLY) fprintf(stream," REQ");
     if (msg->flags & KBUS_BIT_WANT_YOU_TO_REPLY) fprintf(stream," YOU");
     if (msg->flags & KBUS_BIT_SYNTHETIC) fprintf(stream," SYN");

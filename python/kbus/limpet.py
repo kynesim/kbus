@@ -408,8 +408,8 @@ class Limpet(object):
         """
         kbus_name   = 'KBUS%u'%self.ksock_id
         limpet_name = 'Limpet%d'%self.other_network_id
-        kbus_to_us_hdr  = '%s->Us%s'%(kbus_name, ' '*(len(limpet_name)-2))
-        nowt_to_limpet_hdr = '%s->%s'%(' '*len(kbus_name), limpet_name)
+        kbus_to_us_hdr  = '%u %s->Us%s'%(self.network_id, kbus_name, ' '*(len(limpet_name)-2))
+        nowt_to_limpet_hdr = '%u %s->%s'%(self.network_id, ' '*len(kbus_name), limpet_name)
         spaces_hdr = ' '*len(kbus_to_us_hdr)
 
         if self.verbosity > 1:
@@ -590,8 +590,8 @@ class Limpet(object):
         """
         kbus_name  = 'KBUS%u'%self.ksock_id
         limpet_name = 'Limpet%d'%self.other_network_id
-        limpet_to_us_hdr  = '%s->Us%s'%(limpet_name, ' '*(len(kbus_name)-2))
-        nowt_to_kbus_hdr   = '%s->%s'%(' '*len(limpet_name), kbus_name)
+        limpet_to_us_hdr  = '%u %s->Us%s'%(self.network_id, limpet_name, ' '*(len(kbus_name)-2))
+        nowt_to_kbus_hdr   = '%u %s->%s'%(self.network_id, ' '*len(limpet_name), kbus_name)
         spaces_hdr = ' '*len(limpet_to_us_hdr)
 
         if self.verbosity > 1:
@@ -666,12 +666,14 @@ class Limpet(object):
                     print
 
                 if self.ksock in r:
+                    print '%u ---------------------- Message from KBUS'%self.network_id
                     msg = self.ksock.read_next_msg()
                     if msg.name == termination_message:
                         raise GiveUp('Termination requested via %s message'%termination_message)
                     self.handle_message_from_kbus(msg)
 
                 if self.sock in r:
+                    print '%u ---------------------- Message from other Limpet'%self.network_id
                     try:
                         msg = self.read_message_from_socket()
                         self.handle_message_from_socket(msg)
