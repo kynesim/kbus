@@ -301,6 +301,16 @@ class Limpet(object):
         if end != Message.END_GUARD:
             raise GiveUp('Final message data end guard is %08x,'
                          ' not %08x'%(end,Message.END_GUARD))
+
+        # We know enough to sort out the network order of the integers in
+        # the Replier Bind Event's data
+        if name[:name_len] == '$.KBUS.ReplierBindEvent':
+            hdr = _struct_from_string(_ReplierBindEventHeader, data[:data_len])
+            hdr.is_bind = ntohl(hdr.is_bind)
+            hdr.binder  = ntohl(hdr.binder)
+            rest = data[ctypes.sizeof(_ReplierBindEventHeader):data_len]
+            # And just replace the original with the amended version 
+            data=_struct_to_string(hdr)+rest
         
         return Message(name[:name_len],
                        data=data[:data_len] if data else None,
@@ -600,8 +610,6 @@ class Limpet(object):
         if msg.name == '$.KBUS.ReplierBindEvent':
             # We have to bind/unbind as a Replier in proxy
             is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
-            is_bind   = ntohl(is_bind)
-            binder_id = ntohl(binder_id)
             if is_bind:
                 if self.verbosity > 1:
                     print '%s BIND "%s'%(spaces_hdr,name)
