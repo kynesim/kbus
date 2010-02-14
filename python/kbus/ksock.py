@@ -136,7 +136,7 @@ class Ksock(object):
         if mode == 'r':
             self.mode = 'read'
         else:
-            mode = 'w+'
+            mode = 'r+'
             self.mode = 'read/write'
         # Although Unix doesn't mind whether a file is opened with a 'b'
         # for binary, it is possible that some version of Python may

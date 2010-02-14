@@ -286,9 +286,8 @@ class TestKsock:
             f = Ksock(ii,'rw')
             f.close()
 
-        # EACCES, since we can't create the file 
-        check_IOError(errno.EACCES, Ksock, -1, 'rw')
-        check_IOError(errno.EACCES, Ksock, NUM_DEVICES, 'rw')
+        check_IOError(errno.ENOENT, Ksock, -1, 'rw')
+        check_IOError(errno.ENOENT, Ksock, NUM_DEVICES, 'rw')
 
     def test_modes(self):
         """Test only the allowed modes are allowed
