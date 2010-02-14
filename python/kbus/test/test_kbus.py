@@ -274,12 +274,21 @@ class TestKsock:
         """
         # We should be able to open each device that exists
         for ii in range(NUM_DEVICES):
-            f = Ksock(ii)
+            f = Ksock(ii,'r')
             f.close()
 
         # and not those that don't
-        check_IOError(errno.ENOENT, Ksock, -1)
-        check_IOError(errno.ENOENT, Ksock, NUM_DEVICES)
+        check_IOError(errno.ENOENT, Ksock, -1, 'r')
+        check_IOError(errno.ENOENT, Ksock, NUM_DEVICES, 'r')
+
+        # Whatever our requested mode
+        for ii in range(NUM_DEVICES):
+            f = Ksock(ii,'rw')
+            f.close()
+
+        # EACCES, since we can't create the file 
+        check_IOError(errno.EACCES, Ksock, -1, 'rw')
+        check_IOError(errno.EACCES, Ksock, NUM_DEVICES, 'rw')
 
     def test_modes(self):
         """Test only the allowed modes are allowed

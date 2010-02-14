@@ -128,7 +128,7 @@ class Ksock(object):
     IOC_NEWDEVICE   = _IOR(IOC_MAGIC,  16, ctypes.sizeof(ctypes.c_char_p))
     IOC_REPORTREPLIERBINDS = _IOWR(IOC_MAGIC, 17, ctypes.sizeof(ctypes.c_char_p))
 
-    def __init__(self, which=0, mode='r'):
+    def __init__(self, which=0, mode='rw'):
         if mode not in ('r', 'rw'):
             raise ValueError("Ksock mode should be 'r' or 'rw', not '%s'"%mode)
         self.which = which
