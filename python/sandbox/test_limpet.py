@@ -53,6 +53,13 @@ KBUS_LISTENER = 2
 
 TIMEOUT = 10        # 10 seconds seems like a reasonably long time...
 
+if True:
+    SOCKET_ADDRESS = 'fred'
+    SOCKET_FAMILY  = socket.AF_UNIX
+else:
+    SOCKET_ADDRESS = ('localhost',1234)
+    SOCKET_FAMILY  = socket.AF_INET
+
 # The Limpet processes - so we can tidy them up neatly
 g_server = None
 g_client = None
@@ -95,7 +102,11 @@ def c_limpet(is_server, sock_address, sock_family, kbus_device, network_id):
         parts.append('-s')
     else:
         parts.append('-c')
-    parts.append(sock_address)
+
+    if sock_family == socket.AF_UNIX:
+        parts.append(sock_address)
+    else:
+        parts.append('%s:%d'%sock_address)
     parts.append('-k %u'%kbus_device)
     parts.append('-id %u'%network_id)
     parts.append('-t %s'%TERMINATION_MESSAGE)
@@ -174,7 +185,7 @@ def setup_module(python_or_c):
         assert mode == 020666
 
         global g_server, g_client
-        g_server, g_client = run_limpets('fred', socket.AF_UNIX, python_or_c)
+        g_server, g_client = run_limpets(SOCKET_ADDRESS, SOCKET_FAMILY, python_or_c)
 
         # Debug output may be useful...
         for devno in range(3):
