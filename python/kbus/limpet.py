@@ -169,8 +169,9 @@ class Limpet(object):
         """Send our pair Limpet our network id.
         """
         self.sock.sendall('HELO')
-        value = htonl(self.network_id)
-        data = struct.pack('!L', value)   # unsigned long, network order
+        #value = htonl(self.network_id)
+        #data = struct.pack('!L', value)   # unsigned long, network order
+        data = struct.pack('!L', self.network_id)   # unsigned long, network order
         self.sock.sendall(data)
 
     def _read_network_id(self):
@@ -184,8 +185,9 @@ class Limpet(object):
                              " got '%s'"%hello)
 
         data = self.sock.recv(4, socket.MSG_WAITALL)
-        value = struct.unpack('!L', data)   # unsigned long, network order
-        self.other_network_id = ntohl(value[0])
+        #value = struct.unpack('!L', data)   # unsigned long, network order
+        #self.other_network_id = ntohl(value[0])
+        self.other_network_id = struct.unpack('!L', data)[0]   # unsigned long, network order
 
         if self.other_network_id == self.network_id:
             # We rather rely on unique network ids, and *in particular*
@@ -260,7 +262,7 @@ class Limpet(object):
             array[ii] = ntohl(array[ii])
         return array[13], array[14], array
 
-    def read_message_from_socket(self):
+    def read_message_from_other_limpet(self):
         """Read a message from the other Limpet.
 
         Returns the corresponding Message instance.
@@ -296,8 +298,9 @@ class Limpet(object):
             data = None
 
         end = self.sock.recv(4, socket.MSG_WAITALL)
-        value = struct.unpack('!L', end)   # unsigned long, network order
-        end = ntohl(value[0])
+        #value = struct.unpack('!L', end)   # unsigned long, network order
+        #end = ntohl(value[0])
+        end = struct.unpack('!L', end)[0]   # unsigned long, network order
         if end != Message.END_GUARD:
             raise GiveUp('Final message data end guard is %08x,'
                          ' not %08x'%(end,Message.END_GUARD))
@@ -306,8 +309,9 @@ class Limpet(object):
         # the Replier Bind Event's data
         if name[:name_len] == '$.KBUS.ReplierBindEvent':
             hdr = _struct_from_string(_ReplierBindEventHeader, data[:data_len])
-            hdr.is_bind = ntohl(hdr.is_bind)
-            hdr.binder  = ntohl(hdr.binder)
+            hdr.is_bind  = ntohl(hdr.is_bind)
+            hdr.binder   = ntohl(hdr.binder)
+            hdr.name_len = ntohl(hdr.name_len)
             rest = data[ctypes.sizeof(_ReplierBindEventHeader):data_len]
             # And just replace the original with the amended version 
             data=_struct_to_string(hdr)+rest
@@ -321,7 +325,7 @@ class Limpet(object):
                        final_to=OrigFrom(array[9],array[10]),
                        flags=array[12])
 
-    def write_message_to_socket(self, msg):
+    def write_message_to_other_limpet(self, msg):
         """Write a Message to the other Limpet.
         """
         # If KBUS gave us a message with an unset network id, then it is
@@ -366,8 +370,9 @@ class Limpet(object):
         # the Replier Bind Event's data
         if msg.name == '$.KBUS.ReplierBindEvent':
             hdr = _struct_from_string(_ReplierBindEventHeader, msg.data)
-            hdr.is_bind = htonl(hdr.is_bind)
-            hdr.binder  = htonl(hdr.binder)
+            hdr.is_bind  = htonl(hdr.is_bind)
+            hdr.binder   = htonl(hdr.binder)
+            hdr.name_len = htonl(hdr.name_len)
             rest = msg.data[ctypes.sizeof(_ReplierBindEventHeader):]
             # And just replace the original with the amended version 
             msg = Message(msg, data=_struct_to_string(hdr)+rest)
@@ -386,7 +391,8 @@ class Limpet(object):
             if len(msg.data) != padded_data_len:
                 self.sock.sendall('\0'*(padded_data_len - len(msg.data)))
 
-        end_guard = struct.pack('!L', header[-1])
+        ##end_guard = struct.pack('!L', header[-1])
+        end_guard = struct.pack('!L', Message.END_GUARD)
         self.sock.sendall(end_guard)       # end guard again
 
     def handle_message_from_kbus(self, msg):
@@ -452,7 +458,7 @@ class Limpet(object):
                 print '%s From the other Limpet -- ignore'%(spaces_hdr)
             return
 
-        self.write_message_to_socket(msg)
+        self.write_message_to_other_limpet(msg)
         if self.verbosity > 1:
             # Write out the message with its amended detals
             print '%s %s'%(nowt_to_limpet_hdr, str(msg))
@@ -522,7 +528,7 @@ class Limpet(object):
             error = Message('$.KBUS.Replier.GoneAway',
                             to=msg.from_,
                             in_reply_to=msg.id)
-            self.write_message_to_socket(error)
+            self.write_message_to_other_limpet(error)
             raise NoMessage
 
         if self.verbosity > 1:
@@ -541,7 +547,7 @@ class Limpet(object):
                 error = Message('$.KBUS.Replier.NotSameKsock', # XXX New message name
                                 to=msg.from_,
                                 in_reply_to=msg.id)
-                self.write_message_to_socket(error)
+                self.write_message_to_other_limpet(error)
                 raise NoMessage
 
         # Regardless, we believe the message is OK, so need to
@@ -648,7 +654,7 @@ class Limpet(object):
                 if self.verbosity > 1:
                     print '%s *** Remote error %s'%(nowt_to_kbus_hdr, errname)
                 error = Message(errname, to=msg.from_, in_reply_to=msg.id)
-                self.write_message_to_socket(error)
+                self.write_message_to_other_limpet(error)
                 return
             #
             # If we were sending a Reply, we need to think whether we
@@ -683,7 +689,7 @@ class Limpet(object):
                 if self.sock in r:
                     print '%u ---------------------- Message from other Limpet'%self.network_id
                     try:
-                        msg = self.read_message_from_socket()
+                        msg = self.read_message_from_other_limpet()
                         self.handle_message_from_socket(msg)
                     except NoMessage:       # Presumably, a HELO <network_id>
                         pass
@@ -800,8 +806,9 @@ def run_a_limpet(is_server, address, family, kbus_device, network_id,
                          ' AF_INET (%d)'%(family,
                                           socket.AF_UNIX, socket.AF_INET))
 
-    print 'Limpet: %s via %s for KBUS %d, using network id %d'%('server' if is_server else 'client',
-            address, kbus_device, network_id)
+    print 'Python Limpet: %s via %s for KBUS %d,' \
+          ' using network id %d'%('Server' if is_server else 'Client',
+                                  address, kbus_device, network_id)
 
     if is_server:
         listener, sock = connect_as_server(address, family, verbosity)

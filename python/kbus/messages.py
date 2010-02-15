@@ -1851,7 +1851,9 @@ def split_replier_bind_event_data(data):
 
     hdr = _struct_from_string(_ReplierBindEventHeader, data)
 
-    name = data[12:12+hdr.name_len]
+    offset = ctypes.sizeof(_ReplierBindEventHeader)
+
+    name = data[offset:offset+hdr.name_len]
 
     return (hdr.is_bind, hdr.binder, name)
 

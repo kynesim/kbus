@@ -113,21 +113,33 @@ def c_limpet(is_server, sock_address, sock_family, kbus_device, network_id):
 # This "blackbox" is actually a pair of Limpets, running as separate
 # processes...
 
-def run_limpets(sock_address, sock_family, use_python):
+def run_limpets(sock_address, sock_family, python_or_c):
     """Run the Limpets for our "blackbox" KBUS communications.
 
     Returns the server and client
     """
 
-    if use_python:
-        process = python_limpet
+    print 'Running limpets using',python_or_c
+
+    if python_or_c == 'Python':
+        server_process = python_limpet
+        client_process = python_limpet
+    elif python_or_c == 'Python-and-C':
+        server_process = python_limpet
+        client_process = c_limpet
+    elif python_or_c == 'C-and-Python':
+        server_process = c_limpet
+        client_process = python_limpet
+    elif python_or_c == 'C':
+        server_process = c_limpet
+        client_process = c_limpet
     else:
-        process = c_limpet
+        raise GiveUp('python_or_c is (unexpectedly) "%s"'%python_or_c)
 
     kbus_devices = network_ids  = (KBUS_SENDER, KBUS_LISTENER)
 
     # First, start the server Limpet
-    server = Process(target=process,
+    server = Process(target=server_process,
                      args=(True, sock_address, sock_family, kbus_devices[0],
                            network_ids[0]))
     server.start()
@@ -136,7 +148,7 @@ def run_limpets(sock_address, sock_family, use_python):
     time.sleep(0.5)
 
     # And then *start* the client
-    client = Process(target=process,
+    client = Process(target=client_process,
                      args=(False, sock_address, sock_family, kbus_devices[1],
                            network_ids[1]))
     client.start()
@@ -146,7 +158,7 @@ def run_limpets(sock_address, sock_family, use_python):
 
     return (server, client)
 
-def setup_module(use_python):
+def setup_module(python_or_c):
     # This path assumes that we are running the tests in the ``kbus/python/sandbox``
     # directory, and that the KBUS kernel module has been built in ``kbus/kbus``.
     retcode = system('sudo insmod ../../kbus/kbus.ko kbus_num_devices=%d'%NUM_DEVICES)
@@ -162,7 +174,7 @@ def setup_module(use_python):
         assert mode == 020666
 
         global g_server, g_client
-        g_server, g_client = run_limpets('fred', socket.AF_UNIX, use_python)
+        g_server, g_client = run_limpets('fred', socket.AF_UNIX, python_or_c)
 
         # Debug output may be useful...
         for devno in range(3):
@@ -459,14 +471,18 @@ import traceback
 if __name__ == '__main__':
 
     if len(sys.argv) == 1:
-        use_python = True
+        python_or_c = 'Python'
     else:
         if sys.argv[1] == 'P':
-            use_python = True
+            python_or_c = 'Python'
         elif sys.argv[1] == 'C':
-            use_python = False
+            python_or_c = 'C'
+        elif sys.argv[1] == 'X':
+            python_or_c = 'Python-and-C'
+        elif sys.argv[1] == 'Y':
+            python_or_c = 'C-and-Python'
         else:
-            print './test_limpet [P|C]'
+            print './test_limpet [P|C|X]'
             sys.exit()
 
     num_tests = 0
@@ -477,7 +493,7 @@ if __name__ == '__main__':
         print '%s %s %s'%('-'*10, name, '-'*(50 - len(name)))
 
     announce(None, 'SETUP')
-    setup_module(use_python)
+    setup_module(python_or_c)
 
     t = TestLimpets()
 
