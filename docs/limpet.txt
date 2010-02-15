@@ -1,0 +1,253 @@
+==============================
+KBUS Limpets - an introduction
+==============================
+
+The problem, in brief
+---------------------
+By design, KBUS does not allow message sending between KBUS devices.
+
+Also, KBUS the-kernel-module only provides message sending on a single
+machine.
+
+In the KBUS tradition of trying to provide simple, but just sufficient,
+solutions, KBUS Limpets allow intercommunication between pairs of KBUS
+devices, possibly on different machines.
+
+Summary
+-------
+A Limpet proxies KBUS message between a KBUS device and another Limpet.
+
+Thus one has a connection something like::
+
+    KBUS<x> <----> L<x> : L<y> <----> KBUS<y>
+
+The paired Limpets communicate via a socket.
+
+To someone talking to KBUS<x>, it should appear as if messages to/from someone
+using KBUS<y> are sent/received directly. In particular, Requests and Replies
+(including Stateful Requests) are proxied transparently.
+
+Restrictions and caveats
+------------------------
+There are various restrictions on what Limpets can do and how they must be
+used. These are mostly intrinsic in the approach taken, and avoiding them
+would require doing something more sophisticated.
+
+* The name is unintuitive. Sorry.
+
+* All Limpets that can be reached by a message must have distinct network ids.
+
+      Limpet network ids are used to identify the Limpet's pair, and also
+      for determining if a message has originated with this particular Limpet.
+      If the network ids are not unique, this will go horribly wrong.
+
+* Limpets do not support closed loops. Thus the "network" formed by Limpets
+  and KBUS devices must be "open" - for instance, a tree structure or star.
+
+      If a loop is formed in the network, messages may go round and round
+      forever. And other bad stuff.
+
+* When starting up a Limpet pair, one must be designated the server and the
+  other the client (in the traditional socket handling manner). This is a
+  nuisance, but doing otherwise would be more complex, and possibly
+  unreliable.
+
+* Don't connect both ends of a Limpet pair to the same KBUS device. Just
+  don't.
+
+* Limpets intrinsically assume a "safe" network, i.e., there is no way of
+  "proving" that the end of a message passing chain is a proper Limpet, rather
+  than someone spoofing one.
+
+      In particular, if we have a chain (e.g., x->K1->L1:L2->K2->L3:L4->K3->y) and
+      are passing through a Stateful Request, L2 has to trust that the Replier
+      for the message on K2 is actually a Limpet who is going to pass the
+      message on (ultimately to y). The message is only marked with who it was
+      originally from (x) and who it is aimed at (y), and if L3 is not
+      actually a Limpet (but someone who has taken its place), there is little
+      that we can do about it.
+
+* KBUS itself is intended to give a very good guarantee that a Request will
+  always generate a Reply (of some sort). Whilst the Limpet system tries to
+  provide a reasonably reliable mechanism, there is no way that it can be as
+  robust in this matter as just talking to a KBUS device.
+
+* Limpets default to proxying "$.*" (i.e., all messages). It is possible to
+  proxy something different, but this is untested, and actually of unproven
+  utility (I just had a feeling it might be useful). So if you try, cross your
+  fingers and let me know the results.
+
+* It *is* possible to tell if a message is going through Limpets, by
+  inspection of the message id (the network id will be set when it is
+  intermediate networks), and the use of the "originally from" and "finally
+  to" fields. Thus the use of Limpets is not strictly transparent.
+
+  Also, there are some specialised messages returned only by Limpets.
+
+  I do not believe this to be a problem. It may possibly be an advantage.
+
+* The most important problem with Limpets is that they are not (at the moment)
+  particularly well tested. Although I've done a fair amount of paper-and-pen
+  figuring of message/KBUS/Limpet interaction, and some testing, it is still
+  possible that I've missed a whole chunk of necessary functionality. So
+  please treat the whole thing as heavily ALPHA for the moment (as of February
+  2010).
+
+With goldfish bowls
+-------------------
+
+                ...and bad ASCII art.
+
+Consider a particular machine as a goldfish bowl. Inside is a KBUS kernel
+module, and the contents of the bowl communicate with this (and thus each
+other) in the normal KBUS manner.
+
+Now consider another goldfish bowl. We'd like to be able to make the two KBUS
+kernel modles (one in each) communicate.
+
+So, let's place a limpet on the inside of each bowl's glass. Each limpet can
+communicate with the other using a simple laser communications link (so
+they're clever cyborg limpets), and each limpet can also communicate with its
+KBUS kernel module.
+
+::
+
+        ..
+
+           +          +                 +          +   
+          /           |\               /|           \  
+         /      +.....|L\ ~ ~ ~ ~ ~ ~ /L|....+       \ 
+        +       :     +--+           +--+    :        +
+        |       :        |           |       :        |
+        +       :        +           +       :        +
+         \    +---+     /             \    +---+     / 
+          \   | K |    /               \   | K |    /  
+           +--+---+---+                 +--+---+---+   
+              Bowl A                       Bowl B
+
+So the Limpet needs to proxy things for KBUS users in its bowl to the other
+bowl, and back again.
+
+So:
+
+* if a goldfish in Bowl A (let's call them S'a) wants to bind as a listener to
+  message M'1, then we want the Limpet in Bowl B to forward all M'1 messages
+  from Bowl B, and the Limpet in Bowl A then needs to echo them to the KBUS
+  kernel module in Bowl A::
+
+        ..
+
+           +          +                 +          +   
+          /           |\               /|           \  
+         /      +.....|L\ < < < < < < /L|<...+       \ 
+        +       :     +--+           +--+    :        +
+        |       :        |           |       :        |
+        +       v        +           +       :        +
+         \    +---+     /             \    +---+     / 
+          \   | K |    /               \   | K |    /  
+           +--+---+---+                 +--+---+---+   
+              Bowl A                       Bowl B
+
+* what if S'A wants to bind as a replier for message Q'1?
+
+  They do so in the normal manner. However, in order for a goldfish in Bowl B to
+  be able to send requests from their bowl to the other, the Limpet in Bowl B
+  needs to bind as a (proxy) replier for Q'1.
+
+  The sequence would then be:
+
+  * S'B can send a request, Q'1
+  * The KBUS kernel module in Bowl B knows there is a replier bound for this -
+    it is the Bowl B Limper. So it sends the request to it.
+  * The Bowl B Limpet forwards the requset to the Bowl A Limpet.
+  * The Bowl A Limpet acts as a proxy sender for Q'1 - it sends Q'1 to the
+    Bowl A KBUS kernel module.
+  * The Bowl A KBUS kernel module sends the request to S'A, who is the actual
+    replier.
+
+  And one can construct a similar path in reverse, for the eventual reply.
+
+Handling Stateful Requests (and Replies) needs a bit more infrastructure (and,
+specifically, is why the ``orig_from`` and ``final_to`` fields were introduced
+for messages), but basically work by an extension of this mechanism.
+
+Python and C implementations
+----------------------------
+Limpets were originally developed in Python. ::
+
+    >>> from kbus import run_a_limpet
+    >>> import socket
+    >>> run_a_limpet(True, '/tmp/limpet-socket', socket.AF_UNIX, 0, 1)
+
+There is a Limpet class, and a ``runlimpet.py`` utility in ``kbus/utils``.
+
+Subsequently, a C implementation has been added to libkbus::
+
+    err = run_limpet(kbus_device, message_name, is_server, address, port,
+                     network_id, termination_message, verbosity);
+    if (err) return 1;
+
+and there is a ``runlimpet`` utility in ``kbus/utils``, with an identical
+command line to the Python equivalent.
+
+At the moment, the logging messages output by these two are not identical, but
+otherwise their behaviour should be, and in particular it should be possible
+to run a C Limpet communicating with a Python Limpet.
+
+The ``test_limpet.py`` utility, in ``kbus/python/sandbox``, provides some
+limited testing of limpets. It defaults to testing the Python version, but if
+run as ``./test_limpet.py C`` will test the C version. It is *not* a robust
+test, as it doesn't always give the same results (for reasons I've still to
+figure out, but probably timing issues). It's also an incredibly unrealistic
+use of the limpet mechanism.
+
+Network protocol
+----------------
+When a Limpet starts up, it contacts its pair to swap network ids.
+
+Thus each Limpet sends::
+
+    HELO
+    <network_id>                -- an unsigned 32 bit integer
+
+when <network_id> is in network order.
+
+Otherwise, Limpets swap "entire" messages, but omitting the <name> and <data>
+pointers (which would by definition be NULL for an "entire" message). Thus::
+
+        start_guard
+          id.network_id
+          id.serial_num
+          in_reply_to.network_id
+          in_reply_to.serial_num
+          to
+          from_
+          orig_from.network_id
+          orig_from.local_id
+          final_to.network_id
+          final_to.local_id
+          extra
+          flags
+          name_len
+          data_len
+        end_guard
+
+        name, including 0 byte terminator, padded to 4-byte boundary
+
+        if data_len > 0:
+          data, padded to 4-byte boundary
+
+        end_guard
+
+The various integer fields in the header are in network order.
+
+Name/data padding is done with zero bytes.
+
+A Replier Bind Event message is treated specially, in that the <is_binder>,
+<binder_id> and <name_len> fields in the data are automatically converted
+to/from network order as the message is written/read.
+
+All other message data is just treated as a byte stream.
+
+
+.. vim: set filetype=rst tabstop=8 shiftwidth=2 expandtab:

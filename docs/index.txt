@@ -12,8 +12,12 @@ Contents:
 
    self
    docs
-   TODO
-   kbus-kernel-module
+   limpet
+   kbus-python-messages
+   kbus-python-ksocks
+   kbus-python-limpets
+   kbus-c-bindings
+   utilities
 
 Indices and tables
 ==================

@@ -1,0 +1,45 @@
+KBUS Python bindings for Limpets
+================================
+
+.. automodule:: kbus.limpet
+
+   Limpets
+   -------
+
+   Limpet and run_a_limpet
+   ~~~~~~~~~~~~~~~~~~~~~~~
+   .. autoclass:: Limpet
+      :members:
+      :show-inheritance:
+      :undoc-members:
+
+   .. autofunction:: run_a_limpet
+
+   Limpet exceptions
+   ~~~~~~~~~~~~~~~~~
+   .. autoclass:: GiveUp
+      :members:
+      :show-inheritance:
+      :undoc-members:
+
+   .. autoclass:: OtherLimpetGoneAway
+      :members:
+      :show-inheritance:
+      :undoc-members:
+
+   .. autoclass:: NoMessage
+      :members:
+      :show-inheritance:
+      :undoc-members:
+
+   .. autoclass:: BadMessage
+      :members:
+      :show-inheritance:
+      :undoc-members:
+
+   Helper functions
+   ~~~~~~~~~~~~~~~~
+   .. autofunction:: parse_address
+   .. autofunction:: connect_as_server
+   .. autofunction:: connect_as_client
+   .. autofunction:: remove_socket_file

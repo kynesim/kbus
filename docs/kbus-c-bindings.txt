@@ -1,0 +1,35 @@
+KBUS C bindings
+===============
+
+*Proper documentation of the C bindings for KBUS (libkbus) will live here. For
+the moment, here are some header files:*
+
+* ``kbus/kbus_defns.h`` - the kernel header file, which defines the various
+  datastructures, the IOCTLs, and some useful macros and functions. This
+  header file is used by the kernel, and also by user space programs (although
+  in this latter case normally by including the ``libkbus`` header file).
+
+* ``libkbus/kbus.h`` - the main header file for ``libkbus``. This include the
+  kernel header file for you.
+
+* ``libkbux/limpet.h`` - the ``libkbus`` header file for Limpet code. Since
+  Limpets are more normally used via the ``runlimpet`` application, this may
+  or may not be of direct use.
+
+kbus/kbus_defns.h
+-----------------
+*Please be aware that the comments in this file are currently inaccurate, and
+scheduled to be rewritten. The datastructures are, of course, correct...*
+
+.. include:: ../kbus/kbus_defns.h
+   :literal:
+
+libkbus/kbus.h
+--------------
+.. include:: ../libkbus/kbus.h
+   :literal:
+
+libkbus/limpet.h
+----------------
+.. include:: ../libkbus/limpet.h
+   :literal:

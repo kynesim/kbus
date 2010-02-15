@@ -68,7 +68,7 @@ release = '0.1 alpha'
 today_fmt = '%F'    # ISO date format
 
 # List of documents that shouldn't be included in the build.
-unused_docs = ['temp', 'mpl_license', 'README']
+unused_docs = ['temp', 'mpl_license', 'README', 'TODO']
 
 # List of directories, relative to source directory, that shouldn't be searched
 # for source files.
