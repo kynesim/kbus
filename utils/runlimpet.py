@@ -14,7 +14,8 @@ command line is not significant, but if a later <thing> contradicts an earlier
 
 <thing> may be:
 
-    <host>:<port>   Communicate via the specified host and port.
+    <host>:<port>   Communicate via the specified host and port
+                    (the <host> is ignored on the 'server').
     <path>          Communicate via the named Unix domain socket.
 
         One or the other communication mechanism must be specified.

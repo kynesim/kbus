@@ -227,25 +227,25 @@ class Limpet(object):
         Returns the serialised array.
         """
         array = _SerialisedMessageHeaderType()
-        array[0]  = msg.msg.start_guard;
-        array[1]  = msg.msg.id.network_id;
-        array[2]  = msg.msg.id.serial_num;
-        array[3]  = msg.msg.in_reply_to.network_id;
-        array[4]  = msg.msg.in_reply_to.serial_num;
-        array[5]  = msg.msg.to;
-        array[6]  = msg.msg.from_;
-        array[7]  = msg.msg.orig_from.network_id;
-        array[8]  = msg.msg.orig_from.local_id;
-        array[9]  = msg.msg.final_to.network_id;
-        array[10] = msg.msg.final_to.local_id;
-        array[11] = msg.msg.extra;                # to save adding it in the future
-        array[12] = msg.msg.flags;
-        array[13] = msg.msg.name_len;
-        array[14] = msg.msg.data_len;
+        array[0]  = msg.msg.start_guard
+        array[1]  = msg.msg.id.network_id
+        array[2]  = msg.msg.id.serial_num
+        array[3]  = msg.msg.in_reply_to.network_id
+        array[4]  = msg.msg.in_reply_to.serial_num
+        array[5]  = msg.msg.to
+        array[6]  = msg.msg.from_
+        array[7]  = msg.msg.orig_from.network_id
+        array[8]  = msg.msg.orig_from.local_id
+        array[9]  = msg.msg.final_to.network_id
+        array[10] = msg.msg.final_to.local_id
+        array[11] = msg.msg.extra                # to save adding it in the future
+        array[12] = msg.msg.flags
+        array[13] = msg.msg.name_len
+        array[14] = msg.msg.data_len
         # There's no point in sending the name and data pointers - since we must
         # be sending an "entire" message, they must be NULL, and anyway they're
         # pointers...
-        array[15] = msg.msg.end_guard;
+        array[15] = msg.msg.end_guard
 
         for ii, item in enumerate(array):
             array[ii] = htonl(item)
