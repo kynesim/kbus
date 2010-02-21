@@ -27,7 +27,7 @@
  *
  * Contributor(s):
  *   Kynesim, Cambridge UK
- *   Tony Ibbs <tony.ibbs@gmail.com>
+ *   Tony Ibbs <tibs@tonyibbs.co.uk>
  *
  * Alternatively, the contents of this file may be used under the terms of the
  * GNU Public License version 2 (the "GPL"), in which case the provisions of

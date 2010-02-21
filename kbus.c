@@ -27,7 +27,7 @@
  *
  * Contributor(s):
  *   Kynesim, Cambridge UK
- *   Tony Ibbs <tony.ibbs@gmail.com>
+ *   Tony Ibbs <tibs@tonyibbs.co.uk>
  *
  * Alternatively, the contents of this file may be used under the terms of the
  * GNU Public License version 2 (the "GPL"), in which case the provisions of
@@ -2350,83 +2350,6 @@ static struct kbus_message_binding
 		}
 	}
 	return NULL;
-}
-
-/*
- * Decide if we should keep this message, because we are still bound to it.
- */
-static int kbus_we_should_keep_this_message(struct kbus_private_data    *priv,
-					    int				 is_our_request,
-					    uint32_t			 name_len,
-					    char			*name)
-{
-	struct kbus_message_binding	**listeners = NULL;
-	struct kbus_message_binding	 *replier = NULL;
-	int		 num_listeners, ii;
-	int		 still_wanted = false;
-
-	/*
-	 * This is rather a heavy hammer to wield, but we shouldn't do it
-	 * *that* often, and it does guarantee to do (what we think is) the
-	 * Right Thing.
-	 */
-	num_listeners = kbus_find_listeners(priv->dev,&listeners,&replier,
-					    name_len,name);
-
-#if VERBOSE_DEBUG
-	if (priv->dev->verbose) {
-		printk(KERN_DEBUG "kbus:    ___ is our request %d, replier %u, num_listeners %d\n",
-		       is_our_request,(replier?replier->bound_to_id:0),num_listeners);
-	}
-#endif
-
-
-	if (num_listeners < 0)		/* Hmm, what else to do on error? */
-		return true;
-	else if (num_listeners == 0)
-		goto done;
-
-	/*
-	 * If the message wanted us, specifically, to reply to it, are we
-	 * still bound to do so?
-	 */
-	if (is_our_request) {
-	       if (replier && replier->bound_to_id == priv->id) {
-#if VERBOSE_DEBUG
-		       if (priv->dev->verbose) {
-			       printk(KERN_DEBUG "kbus:    ___ we are replier\n");
-		       }
-#endif
-
-		       still_wanted = true;
-		       goto done;
-	       } else {
-#if VERBOSE_DEBUG
-		       if (priv->dev->verbose) {
-			       printk(KERN_DEBUG "kbus:    ___ we are not replier\n");
-		       }
-#endif
-
-		       still_wanted = false;
-		       goto done;
-	       }
-	}
-
-	for (ii=0; ii<num_listeners; ii++) {
-		if (listeners[ii]->bound_to_id == priv->id) {
-#if VERBOSE_DEBUG
-			if (priv->dev->verbose) {
-				printk(KERN_DEBUG "kbus:    ___ we are listener\n");
-			}
-#endif
-
-			still_wanted = true;
-			goto done;
-		}
-	}
-done:
-	kfree(listeners);
-	return still_wanted;
 }
 
 /*
@@ -5728,7 +5651,7 @@ module_init(kbus_init);
 module_exit(kbus_exit);
 
 MODULE_DESCRIPTION("KBUS lightweight messaging system");
-MODULE_AUTHOR("tibs@tibsnjoan.co.uk, tony.ibbs@gmail.com");
+MODULE_AUTHOR("tibs@tonyibbs.co.uk, tony.ibbs@gmail.com");
 /*
  * All well-behaved Linux kernel modules should be licensed under GPL v2.
  * So shall it be.
