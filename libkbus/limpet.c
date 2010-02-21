@@ -21,12 +21,12 @@
  * message system
  *
  * The Initial Developer of the Original Code is Kynesim, Cambridge UK.
- * Portions created by the Initial Developer are Copyright (C) 2009
+ * Portions created by the Initial Developer are Copyright (C) 2010
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
  *   Kynesim, Cambridge UK
- *   Richard Watts <rrw@kynesim.co.uk>
+ *   Tony Ibbs <tibs@tonyibbs.co.uk>
  *
  * Alternatively, the contents of this file may be used under the terms of the
  * GNU Public License version 2 (the "GPL"), in which case the provisions of

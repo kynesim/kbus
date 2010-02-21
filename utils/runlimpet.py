@@ -64,7 +64,7 @@ command line is not significant, but if a later <thing> contradicts an earlier
 #
 # Contributor(s):
 #   Kynesim, Cambridge UK
-#   Tibs <tony.ibbs@gmail.com>
+#   Tibs <tibs@tonyibbs.co.uk>
 #
 # ***** END LICENSE BLOCK *****
 

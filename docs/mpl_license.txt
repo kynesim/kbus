@@ -20,7 +20,7 @@
 #
 # Contributor(s):
 #   Kynesim, Cambridge UK
-#   Tony Ibbs <tony.ibbs@gmail.com>
+#   Tibs <tibs@tonyibbs.co.uk>
 #
 # ***** END LICENSE BLOCK *****
 

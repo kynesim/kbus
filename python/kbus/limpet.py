@@ -21,12 +21,12 @@ either on the same machine or over a network.
 # message system
 #
 # The Initial Developer of the Original Code is Kynesim, Cambridge UK.
-# Portions created by the Initial Developer are Copyright (C) 2009
+# Portions created by the Initial Developer are Copyright (C) 2010
 # the Initial Developer. All Rights Reserved.
 #
 # Contributor(s):
 #   Kynesim, Cambridge UK
-#   Tibs <tony.ibbs@gmail.com>
+#   Tibs <tibs@tonyibbs.co.uk>
 #
 # ***** END LICENSE BLOCK *****
 

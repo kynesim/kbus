@@ -38,7 +38,7 @@ To get the doctests (for instance, in kbus.py's Message) as well, try::
 #
 # Contributor(s):
 #   Kynesim, Cambridge UK
-#   Tibs <tony.ibbs@gmail.com>
+#   Tibs <tibs@tonyibbs.co.uk>
 #
 # ***** END LICENSE BLOCK *****
 

@@ -23,6 +23,7 @@
  * Contributor(s):
  *   Kynesim, Cambridge UK
  *   Richard Watts <rrw@kynesim.co.uk>
+ *   Tibs <tibs@tonyibbs.co.uk>
  *
  * Alternatively, the contents of this file may be used under the terms of the
  * GNU Public License version 2 (the "GPL"), in which case the provisions of
