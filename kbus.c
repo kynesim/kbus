@@ -210,9 +210,10 @@ struct kbus_read_msg {
 /* The data for an unsent Replier Bind Event (in the unsent_unbind_msg_list) */
 struct kbus_unsent_message_item {
 	struct list_head list;
-	struct kbus_private_data   *send_to;	/* who we want to send it to */
-	uint32_t		    send_to_id;	/* but the id is often useful */
-	struct kbus_message_header *msg;	/* and the message itself */
+	struct kbus_private_data    *send_to;	/* who we want to send it to */
+	uint32_t		     send_to_id;/* but the id is often useful */
+	struct kbus_message_header  *msg;	/* the message itself */
+	struct kbus_message_binding *binding;	/* and why we remembered it */
 };
 
 /*
@@ -482,11 +483,18 @@ struct kbus_dev
 static struct kbus_dev       **kbus_devices;
 
 /*
- * Each entry in a message queue holds a single message.
+ * Each entry in a message queue holds a single message, and a pointer to
+ * the message name binding that caused it to be added to the list. This
+ * makes it simple to remove messages from the queue if the message name
+ * binding is unbound. The binding shall be NULL for:
+ *
+ *  * Replies
+ *  * KBUS "synthetic" messages, which are also (essentialy) Replies
  */
 struct kbus_message_queue_item {
 	struct list_head		 list;
 	struct kbus_message_header	*msg;
+	struct kbus_message_binding	*binding;
 };
 
 /*
@@ -528,6 +536,9 @@ static int kbus_setup_new_device(int which);
 static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 					struct kbus_dev		   *dev,
 					struct kbus_message_header *msg);
+
+static void kbus_forget_unbound_unsent_unbind_msgs(struct kbus_private_data	*priv,
+						   struct kbus_message_binding  *binding);
 /* ========================================================================= */
 
 /*
@@ -1294,6 +1305,11 @@ static void kbus_empty_write_msg(struct kbus_private_data *priv)
  *
  * We assume the message has been checked for sanity.
  *
+ * 'msg' is the message to add to the queue.
+ *
+ * 'binding' is a pointer to the KBUS message name binding that caused the
+ * message to be added.
+ *
  * 'for_replier' is true if this particular message is being pushed to the
  * message's replier's queue. Specifically, it's true if this is a Reply
  * to this Ksock, or a Request aimed at this Ksock (as Replier).
@@ -1306,6 +1322,7 @@ static void kbus_empty_write_msg(struct kbus_private_data *priv)
  */
 static int kbus_push_message(struct kbus_private_data	  *priv,
 			     struct kbus_message_header   *msg,
+			     struct kbus_message_binding  *binding,
 			     int			   for_replier)
 {
 	struct list_head		*queue = &priv->message_queue;
@@ -1358,6 +1375,12 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 		 *
 		 * So, given that, has a message with that id already been
 		 * added to the message queue?
+		 *
+		 * XXX Note that if a message would be included because of
+		 * XXX multiple message name bindings, we do not say anything
+		 * XXX about which binding we will actually add the message
+		 * XXX for - so unbinding later on may or may not cause a
+		 * XXX message to go away, in this case.
 		 */
 		if (kbus_same_message_id(&priv->msg_id_just_pushed,
 					 msg->id.network_id,
@@ -1412,6 +1435,7 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 
 	/* And join it up... */
 	item->msg = new_msg;
+	item->binding = binding;
 
 	/* By default, we're using the list as a FIFO, so we want to add our
 	 * new message to the end (just before the first item). However, if the
@@ -1521,7 +1545,7 @@ static void kbus_push_synthetic_message(struct kbus_dev		  *dev,
 	new_msg = kbus_build_kbus_message(dev, name, from, to, in_reply_to);
 	if (!new_msg) return;
 
-	(void) kbus_push_message(priv, new_msg, false);
+	(void) kbus_push_message(priv, new_msg, NULL, false);
 
 	/* kbus_push_message takes a copy of our message */
 	kbus_free_message(priv, dev, new_msg);
@@ -2291,6 +2315,44 @@ static int kbus_remember_binding(struct kbus_dev	  *dev,
 }
 
 /*
+ * Find a particular binding.
+ *
+ * Return a pointer to the binding, or NULL if it was not found.
+ */
+static struct kbus_message_binding
+	*kbus_find_binding(struct kbus_dev		*dev,
+			   struct kbus_private_data 	*priv,
+			   uint32_t			 replier,
+			   uint32_t			 name_len,
+			   char				*name)
+{
+	struct kbus_message_binding *ptr;
+	struct kbus_message_binding *next;
+
+	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
+		if (priv != ptr->bound_to)
+			continue;
+		if (replier != ptr->is_replier)
+			continue;
+		if (name_len != ptr->name_len)
+			continue;
+		if ( !strncmp(name,ptr->name,name_len) ) {
+#if VERBOSE_DEBUG
+			if (priv->dev->verbose) {
+				printk(KERN_DEBUG "kbus:   %u/%u Found %c '%.*s'\n",
+				       dev->index,priv->id,
+				       (ptr->is_replier?'R':'L'),
+				       ptr->name_len,
+				       ptr->name);
+			}
+#endif
+			return ptr;
+		}
+	}
+	return NULL;
+}
+
+/*
  * Decide if we should keep this message, because we are still bound to it.
  */
 static int kbus_we_should_keep_this_message(struct kbus_private_data    *priv,
@@ -2369,16 +2431,13 @@ done:
 
 /*
  * Forget any messages (in our queue) that were only in the queue because of
- * the binding we've just removed.
+ * the binding we're removing.
  *
  * If the message was a request (needing a reply) generate an appropriate
  * synthetic message.
  */
-static int kbus_forget_matching_messages(struct kbus_private_data  *priv,
-					 uint32_t		    bound_to_id,
-					 uint32_t		    bound_as_replier,
-					 uint32_t		    name_len,
-					 char			   *name)
+static void kbus_forget_matching_messages(struct kbus_private_data    *priv,
+					  struct kbus_message_binding *binding)
 {
 	struct list_head		*queue = &priv->message_queue;
 	struct kbus_message_queue_item	*ptr;
@@ -2391,71 +2450,15 @@ static int kbus_forget_matching_messages(struct kbus_private_data  *priv,
 	}
 #endif
 
-
 	list_for_each_entry_safe(ptr, next, queue, list) {
 		struct kbus_message_header	*msg = ptr->msg;
-		int  is_a_request = (KBUS_BIT_WANT_A_REPLY & msg->flags);
 		int  is_OUR_request = (KBUS_BIT_WANT_YOU_TO_REPLY & msg->flags);
 
 		/*
-		 * Deciding on the basis of message name is easy, so do that
-		 * first
+		 * If this message was not added to the queue because of this
+		 * binding, then we are not interested in it...
 		 */
-		if (msg->name_len != name_len)
-			continue;
-		if (strncmp(msg->name,name,name_len))
-			continue;
-
-#if VERBOSE_DEBUG
-		if (priv->dev->verbose) {
-			printk(KERN_DEBUG "kbus:   >>> bound_as_replier %d, is_OUR_request %d\n",
-			       bound_as_replier,is_OUR_request);
-			kbus_report_message(KERN_DEBUG, msg);
-		}
-#endif
-
-		/*
-		 * If this message didn't require a reply, and the binding
-		 * we just removed was a replier binding, then we presumably
-		 * haven't affected this message
-		 */
-		if ( !is_a_request && bound_as_replier ) {
-#if VERBOSE_DEBUG
-			if (priv->dev->verbose) {
-				printk(KERN_DEBUG "kbus:   >>> removed replier binding, message not our business\n");
-			}
-#endif
-
-			continue;
-		}
-
-		/*
-		 * If this message required US to reply, and we've just
-		 * removed a listener binding, then we presumably haven't
-		 * affected this message.
-		 */
-		if ( is_OUR_request && !bound_as_replier ) {
-#if VERBOSE_DEBUG
-			if (priv->dev->verbose) {
-				printk(KERN_DEBUG "kbus:   >>> removed listener binding, specific request not our business\n");
-			}
-#endif
-
-			continue;
-		}
-
-		/*
-		 * OK, it looks like it matches.
-		 *
-		 * However, we don't know if there is another binding in the
-		 * bindings list that matches as well (even for a replier, we
-		 * might be bound with a wildcard and with a more specific
-		 * binding)
-		 */
-		if (kbus_we_should_keep_this_message(priv,
-						     is_OUR_request,
-						     msg->name_len,
-						     msg->name))
+		if (ptr->binding != binding)
 			continue;
 
 #if VERBOSE_DEBUG
@@ -2471,6 +2474,14 @@ static int kbus_forget_matching_messages(struct kbus_private_data  *priv,
 		 * ourselves, by accident!)
 		 */
 		if (is_OUR_request && msg->to != priv->id ) {
+
+#if VERBOSE_DEBUG
+			if (priv->dev->verbose) {
+				printk(KERN_DEBUG "kbus:   >>> is_OUR_request,"
+				       " sending fake reply\n");
+				kbus_report_message(KERN_DEBUG, msg);
+			}
+#endif
 			kbus_push_synthetic_message(priv->dev,priv->id,
 						    msg->from, msg->id,
 						    KBUS_MSG_NAME_REPLIER_UNBOUND);
@@ -2494,8 +2505,7 @@ static int kbus_forget_matching_messages(struct kbus_private_data  *priv,
 		       priv->message_count, priv->message_count==1?"":"s");
 	}
 #endif
-
-	return 0;
+	return;
 }
 
 /*
@@ -2505,49 +2515,40 @@ static int kbus_forget_matching_messages(struct kbus_private_data  *priv,
  */
 static int kbus_forget_binding(struct kbus_dev		*dev,
 			       struct kbus_private_data *priv,
-			       uint32_t			 bound_to_id,
 			       uint32_t			 replier,
 			       uint32_t			 name_len,
 			       char			*name)
 {
-	struct kbus_message_binding *ptr;
-	struct kbus_message_binding *next;
+	struct kbus_message_binding *binding;
 
-	int removed_binding = false;
+	uint32_t  bound_to_id = priv->id;
+
+	binding = kbus_find_binding(dev,priv,replier,name_len,name);
+	if (binding == NULL) {
+#if VERBOSE_DEBUG
+		if (priv->dev->verbose) {
+			printk(KERN_DEBUG "kbus:   %u/%u Could not find/unbind %u %c '%.*s'\n",
+			       dev->index,priv->id,
+			       bound_to_id,
+			       (replier?'R':'L'),
+			       name_len,name);
+		}
+#endif
+		return -EINVAL;
+	}
 
 	if (replier && dev->report_replier_binds) {
 
 		/*
 		 * We want to send a message indicating that we've unbound
-		 * the Replier for this message. But we only want to do that
-		 * if there *is* such a binding. So we need to check first...
-		 */
-		int found_binding = false;
-		int retval;
-
-		list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
-			if (bound_to_id != ptr->bound_to_id)
-				continue;
-			if (replier != ptr->is_replier)
-				continue;
-			if (name_len != ptr->name_len)
-				continue;
-			if ( !strncmp(name,ptr->name,name_len) ) {
-				found_binding = true;
-				break;
-			}
-		}
-		if (!found_binding) {
-			goto no_such_binding;
-		}
-
-		/*
+		 * the Replier for this message.
+		 *
 		 * If we can't tell all the Listeners who're listening for this
 		 * message, we want to give up, rather then tell some of them,
 		 * and then unbind anyway.
 		 */
-		retval = kbus_push_synthetic_bind_message(priv, false,
-							  name_len, name);
+		int retval = kbus_push_synthetic_bind_message(priv, false,
+							      name_len, name);
 		if (retval != 0) {	/* Hopefully, just -EBUSY */
 			return retval;
 		}
@@ -2556,76 +2557,44 @@ static int kbus_forget_binding(struct kbus_dev		*dev,
 		 * events, then we will ourselves get the message announcing
 		 * we're about to unbind.
 		 */
-
-		/*
-		 * For simplicity, we then just fall through into the "normal"
-		 * code, even though we've already done "finding the binding"
-		 * above.
-		 */
 	}
 
-	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
-		if (bound_to_id != ptr->bound_to_id)
-			continue;
-		if (replier != ptr->is_replier)
-			continue;
-		if (name_len != ptr->name_len)
-			continue;
-		if ( !strncmp(name,ptr->name,name_len) ) {
-#if VERBOSE_DEBUG
-			if (priv->dev->verbose) {
-				printk(KERN_DEBUG "kbus:   %u/%u Unbound %u %c '%.*s'\n",
-				       dev->index,priv->id,
-				       ptr->bound_to_id,
-				       (ptr->is_replier?'R':'L'),
-				       ptr->name_len,
-				       ptr->name);
-			}
-#endif
-
-			/* And we don't want anyone reading for this */
-			list_del(&ptr->list);
-			if (ptr->name)
-				kfree(ptr->name);
-			kfree(ptr);
-
-			/*
-			 * Leave dealing with the implications of this until
-			 * we're safely out of our iteration over this list.
-			 * This means the code to do such dealing doesn't need
-			 * to care if we're already manipulating this list
-			 * (just in case).
-			 */
-			removed_binding = true;
-			break;
-		}
-	}
-
-	if (removed_binding) {
-		/* And forget any messages we now shouldn't receive */
-		(void) kbus_forget_matching_messages(priv,bound_to_id,
-						     replier,name_len,name);
-		/*
-		 * We carefully don't try to do anything about requests that
-		 * have already been read - the fact that the user has unbound
-		 * from receiving new messages with this name doesn't imply
-		 * anything about whether they're going to reply to requests
-		 * (with that name) which they've already read.
-		 */
-		return 0;
-	}
-
-no_such_binding:
 #if VERBOSE_DEBUG
 	if (priv->dev->verbose) {
-		printk(KERN_DEBUG "kbus:   %u/%u Could not find/unbind %u %c '%.*s'\n",
+		printk(KERN_DEBUG "kbus:   %u/%u Unbound %u %c '%.*s'\n",
 		       dev->index,priv->id,
-		       bound_to_id,
-		       (replier?'R':'L'),
-		       name_len,name);
+		       binding->bound_to_id,
+		       (binding->is_replier?'R':'L'),
+		       binding->name_len,
+		       binding->name);
 	}
 #endif
-	return -EINVAL;
+
+	/* And forget any messages we now shouldn't receive */
+	kbus_forget_matching_messages(priv,binding);
+
+	/*
+	 * Maybe including any set-aside Replier Unbind Events...
+	 */
+	if (!strncmp(KBUS_MSG_NAME_REPLIER_BIND_EVENT, binding->name,
+		     binding->name_len)) {
+		kbus_forget_unbound_unsent_unbind_msgs(priv, binding);
+	}
+
+	/*
+	 * We carefully don't try to do anything about requests that
+	 * have already been read - the fact that the user has unbound
+	 * from receiving new messages with this name doesn't imply
+	 * anything about whether they're going to reply to requests
+	 * (with that name) which they've already read.
+	 */
+
+	/* And remove the binding once that has been done. */
+	list_del(&binding->list);
+	if (binding->name)
+		kfree(binding->name);
+	kfree(binding);
+	return 0;
 }
 
 /*
@@ -2636,10 +2605,10 @@ no_such_binding:
  *
  * Returns 0 if all went well, a negative value if it did not.
  */
-static int kbus_remember_unsent_unbind_event(struct kbus_dev		*dev,
-					     struct kbus_private_data	*priv,
-					     struct kbus_message_header	*msg)
-
+static int kbus_remember_unsent_unbind_event(struct kbus_dev		 *dev,
+					     struct kbus_private_data	 *priv,
+					     struct kbus_message_header	 *msg,
+					     struct kbus_message_binding *binding)
 {
 	struct kbus_unsent_message_item *new;
 	struct kbus_message_header	*new_msg = NULL;
@@ -2669,6 +2638,7 @@ static int kbus_remember_unsent_unbind_event(struct kbus_dev		*dev,
 	new->send_to = priv;
 	new->send_to_id = priv->id;	/* Useful shorthand? */
 	new->msg = new_msg;
+	new->binding = binding;
 
 	/*
 	 * The order should be the same as a normal message queue,
@@ -2838,7 +2808,8 @@ static void kbus_safe_report_unbinding(struct kbus_private_data *priv,
 				continue;
 			retval = kbus_remember_unsent_unbind_event(priv->dev,
 								   listeners[ii]->bound_to,
-								   msg);
+								   msg,
+								   listeners[ii]);
 			/* And remember that we've got something on the set-aside list */
 			listeners[ii]->bound_to->maybe_got_unsent_unbind_msgs = true;
 			if (retval) break;	/* No good choice here */
@@ -2848,7 +2819,8 @@ static void kbus_safe_report_unbinding(struct kbus_private_data *priv,
 		for (ii=0; ii<num_listeners; ii++) {
 			retval = kbus_remember_unsent_unbind_event(priv->dev,
 								   listeners[ii]->bound_to,
-								   msg);
+								   msg,
+								   listeners[ii]);
 			/* And remember that we've got something on the set-aside list */
 			listeners[ii]->bound_to->maybe_got_unsent_unbind_msgs = true;
 			if (retval) break;	/* No good choice here */
@@ -2929,7 +2901,8 @@ static int kbus_maybe_move_unsent_unbind_msg(struct kbus_private_data *priv)
 			 * we wish to keep our promise that this shall be the
 			 * only way of adding a message to the queue.
 			 */
-			retval = kbus_push_message(priv, ptr->msg, false);
+			retval = kbus_push_message(priv, ptr->msg,
+						   ptr->binding, false);
 			if (retval) return retval;	/* What else can we do? */
 
 			/* Remove it from the list */
@@ -2956,6 +2929,54 @@ check_tragic:
 	if (list_empty(&dev->unsent_unbind_msg_list))
 		dev->unsent_unbind_is_tragic = false;
 	return 0;
+}
+
+/*
+ * Forget any outstanding unsent Replier Unbind Event messages for this binding.
+ *
+ * Called from kbus_release.
+ */
+static void kbus_forget_unbound_unsent_unbind_msgs(struct kbus_private_data	*priv,
+						   struct kbus_message_binding  *binding)
+{
+	struct kbus_dev	*dev = priv->dev;
+
+	struct kbus_unsent_message_item	*ptr;
+	struct kbus_unsent_message_item	*next;
+
+	uint32_t count = 0;
+
+#if VERBOSE_DEBUG
+	if (dev->verbose) {
+		printk(KERN_DEBUG "kbus: %u/%u Forgetting unsent unbind messages for this binding\n",
+		       dev->index,priv->id);
+	}
+#endif
+
+	list_for_each_entry_safe(ptr, next, &dev->unsent_unbind_msg_list, list) {
+		if (ptr->binding == binding) {
+			/* Remove it from the list */
+			list_del(&ptr->list);
+			/* And forget all about it... */
+			kbus_free_message(priv, dev, ptr->msg);
+			kfree(ptr);
+			dev->unsent_unbind_msg_count --;
+			count ++;
+		}
+	}
+#if VERBOSE_DEBUG
+	if (dev->verbose) {
+		printk(KERN_DEBUG "kbus: %u/%u Forgot %u unsent unbind messages\n",
+		       dev->index,priv->id, count);
+	}
+#endif
+	/*
+	 * And if we've succeeded in emptying the list, we can unset the
+	 * "gone tragic" flag for it, too, if it was set.
+	 */
+	if (list_empty(&dev->unsent_unbind_msg_list))
+		dev->unsent_unbind_is_tragic = false;
+	return;
 }
 
 /*
@@ -3677,7 +3698,7 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 
 	/* If it's a reply message and we've got someone to reply to, send it */
 	if (reply_to) {
-		retval = kbus_push_message(reply_to,msg,true);
+		retval = kbus_push_message(reply_to,msg,NULL,true);
 		if (retval == 0) {
 			num_sent ++;
 			/*
@@ -3694,7 +3715,7 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 
 	/* If it's a request, and we've got a replier for it, send it */
 	if (replier) {
-		retval = kbus_push_message(replier->bound_to,msg,true);
+		retval = kbus_push_message(replier->bound_to,msg,replier,true);
 		if (retval == 0) {
 			num_sent ++;
 			/* And we'll need a reply for that, thank you */
@@ -3716,7 +3737,8 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 	for (ii=0; ii<num_listeners; ii++) {
 		struct kbus_message_binding *listener = listeners[ii];
 		if (listener) {
-			retval = kbus_push_message(listener->bound_to,msg,false);
+			retval = kbus_push_message(listener->bound_to,msg,
+						   listener,false);
 			if (retval == 0)
 				num_sent ++;
 			else
@@ -4113,7 +4135,7 @@ static int kbus_unbind(struct kbus_private_data	*priv,
 	}
 #endif
 
-	retval = kbus_forget_binding(dev, priv, priv->id,
+	retval = kbus_forget_binding(dev, priv,
 				     bind->is_replier,
 				     bind->name_len,
 				     name);
