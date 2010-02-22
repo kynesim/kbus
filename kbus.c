@@ -207,7 +207,12 @@ struct kbus_read_msg {
 	uint32_t			  pos;	/* How far they've read in it */
 };
 
-/* The data for an unsent Replier Bind Event (in the unsent_unbind_msg_list) */
+/*
+ * The data for an unsent Replier Bind Event (in the unsent_unbind_msg_list)
+ *
+ * Note that 'binding' may theroretically be NULL (although I don't think this
+ * should ever actually happen).
+ */
 struct kbus_unsent_message_item {
 	struct list_head list;
 	struct kbus_private_data    *send_to;	/* who we want to send it to */
