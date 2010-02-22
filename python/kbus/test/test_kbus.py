@@ -56,6 +56,8 @@ import sys
 import time
 import nose
 
+from itertools import permutations
+
 from kbus import Ksock, Message, MessageId, Announcement, \
                  Request, Reply, Status, reply_to, OrigFrom
 from kbus import read_bindings
@@ -3398,5 +3400,87 @@ class TestKernelModule:
                 check_IOError(errno.EAGAIN, first.send_msg,
                               Message('$.Jim', flags=Message.ALL_OR_WAIT))
 
+    def test_issue23_example(self):
+        """Test 1 for issue23, proper unbinding of overlapping bindings.
+
+        This is a test of the issue as mentioned in the issue report.
+        """
+        with Ksock(0) as sender:
+            with Ksock(0) as listener:
+                listener.bind('$.Fred')
+                id1 = sender.send_msg(Message('$.Fred'))
+                assert listener.num_messages() == 1
+
+                listener.bind('$.*')
+                id2 = sender.send_msg(Message('$.Fred'))
+                assert listener.num_messages() == 3
+
+                id3 = sender.send_msg(Message('$.Fred'))
+                assert listener.num_messages() == 5
+
+                listener.unbind('$.Fred')
+                assert listener.num_messages() == 2
+
+                listener.unbind('$.*')
+                assert listener.num_messages() == 0
+
+    def test_issue23_double_binding(self):
+        """Another for issue23, proper unbinding of double bindings.
+
+        This is a test of the second issue as mentioned in the issue report.
+        """
+        with Ksock(0) as sender:
+            with Ksock(0) as listener:
+                listener.bind('$.Fred')
+                id1 = sender.send_msg(Message('$.Fred'))
+                assert listener.num_messages() == 1
+
+                listener.bind('$.Fred')
+                id2 = sender.send_msg(Message('$.Fred'))
+                assert listener.num_messages() == 3
+
+                id3 = sender.send_msg(Message('$.Fred'))
+                assert listener.num_messages() == 5
+
+                # When we unbind, it happens that we unbind the most recent
+                # binding first (this is an "accident" of implementation, but
+                # then it *is* the obvious implementation if we're using a
+                # kernel module with lists, so...)
+                listener.unbind('$.Fred')
+                assert listener.num_messages() == 3
+
+                listener.unbind('$.Fred')
+                assert listener.num_messages() == 0
+
+    def test_issue23_simple2(self):
+        """Another test for issue23, proper unbinding of overlapping bindings (permuted).
+        """
+        with Ksock(0) as sender:
+            with Ksock(0) as thing:
+
+                name1 = '$.Fred.Jim'
+                name2 = '$.Fred.*'
+                name3 = '$.*'
+
+                bindings = permutations( [name1, name2, name3] )
+                for each in bindings:
+                    for name in each:
+                        thing.bind(name)
+
+                    msg = Message('$.Fred.Jim')
+                    sender.send_msg(msg)
+
+                    # Perhaps I should also alter the order in which
+                    # I unbind using permutations...
+                    thing.num_messages() == 3
+
+                    thing.unbind('$.Fred.Jim')
+                    thing.num_messages() == 2
+
+                    thing.unbind('$.*')
+                    thing.num_messages() == 1
+
+                    thing.unbind('$.Fred.*')
+                    thing.num_messages() == 0
 
 # vim: set tabstop=8 shiftwidth=4 softtabstop=4 expandtab:
