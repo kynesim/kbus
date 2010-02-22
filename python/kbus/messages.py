@@ -40,6 +40,7 @@ from __future__ import with_statement
 import ctypes
 import array
 import string
+import struct
 
 
 def _BIT(nr):
@@ -718,6 +719,14 @@ def entire_message_from_string(data):
 
     'data' is a string-like object (as, for instance, returned by 'read')
     """
+    # We do *not* want to pass something awful to our C-structure factory!
+    if len(data) < MSG_HEADER_LEN:
+        raise ValueError('Cannot form entire message from string'
+                         ' "%s" of length %d'%(hexdata(data),len(data)))
+    if struct.unpack('L',data[:4])[0] != Message.START_GUARD:
+        raise ValueError('Cannot form entire message from string "%s..%s"'
+                         ' which does not start with message start'
+                         ' guard'%(hexdata(data[:8]),hexdata(data[-8:])))
     ## ===================================
     debug = False
     if debug:
@@ -750,7 +759,7 @@ def entire_message_from_string(data):
     return _struct_from_string(local_class, data)
 
 class Message(object):
-    """A wrapper for a KBUS message
+    r"""A wrapper for a KBUS message
 
     A Message can be created in a variety of ways. Perhaps most obviously:
 
@@ -795,6 +804,30 @@ class Message(object):
         >>> msg4 = Message(msg_as_string)
         >>> msg4 == msg1
         True
+
+    Some testing is made on the first argument - a printable string must start
+    with "$." (KBUS itself will make a more stringent test when the message is
+    sent):
+
+        >>> Message('Fred')
+        Traceback (most recent call last):
+        ...
+        ValueError: Message name "Fred" not allowed: does not start "$."
+
+    and a data "string" must be plausible - that is, long enough for the
+    minimal message header:
+
+        >>> Message(msg_as_string[:8])
+        Traceback (most recent call last):
+        ...
+        ValueError: Cannot form entire message from string "Kbus\x00\x00\x00\x00" of length 8
+
+    and starting with a message start guard:
+
+        >>> Message('1234'+msg_as_string)
+        Traceback (most recent call last):
+        ...
+        ValueError: Cannot form entire message from string "1234Kbus..1234subK" which does not start with message start guard
 
     When constructing a message from another message, one may override
     particular values (but not the name):
@@ -922,6 +955,11 @@ class Message(object):
             elif data is None and to is None and from_ is None and \
                  orig_from is None and final_to is None and \
                  in_reply_to is None and flags is None and id is None:
+                # In order to be friendly, try to diagnose a badly named
+                # message...
+                if all(x in string.printable for x in arg):
+                    raise ValueError('Message name "%s" not allowed:'
+                                     ' does not start "$."'%arg)
                 # Assume it's sensible data...
                 self.msg = entire_message_from_string(arg)
             else:
