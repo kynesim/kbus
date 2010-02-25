@@ -270,19 +270,10 @@ struct kbus_entire_message {
 };
 
 /*
- * We have a couple of arbitrary limits:
- *
- * 1. A message name may not be more than 1000 characters long
- *    (some limit seems sensible, after all)
- *
- * 2. An "entire" message, when written to us, may not be more than
- *    2048 bytes long -- this guarantees we're not going to hit any
- *    page boundaries when trying to copy the entire message into
- *    kernel space. If big messages are wanted, write them with
- *    "pointy" headers.
+ * We limit a message name to at most 1000 characters (some limit seems
+ * sensible, after all)
  */
 #define KBUS_MAX_NAME_LEN	1000
-#define KBUS_MAX_ENTIRE_LEN	2048
 
 /*
  * The length (in bytes) of the name after padding, allowing for a terminating
