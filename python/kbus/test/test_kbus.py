@@ -14,6 +14,14 @@ Intended for use with (for instance) nose -- so, for instance::
 To get the doctests (for instance, in kbus.py's Message) as well, try::
 
     nosetests kbus -d --doctest-tests --with-doctest
+
+Beware that the tests started being written early in KBUS development. This
+means that (a) some of the tests are testing things that should not normally
+be done (but we still need to be safe), (b) some of the tests are testing
+things that one would not normally do from Python (but this is where the
+tests are), and (c) the style used to work with KBUS has *definitely* changed
+over time, so the tests (and especially the earlier tests) should *not* be
+taken as a suggestion on how to actually use KBUS from Python.
 """
 
 # ***** BEGIN LICENSE BLOCK *****
@@ -742,8 +750,8 @@ class TestKernelModule:
         finally:
             assert f.close() is None
 
-    def test_data_too_long(self):
-        """Test for a message being too long, or not.
+    def test_data_not_too_long(self):
+        """Test for messages not being too long, however we send/write them.
         """
         f = Ksock(0, 'rw')
         assert f != None
@@ -754,9 +762,10 @@ class TestKernelModule:
             m = Message('$.Fred', data='12345678'*1000)
             f.send_msg(m)
 
-            # But there is a limit on the size of an "entire" message
+            # Nor is there (now) a limit on "entire" messages
             d = m.to_string()
-            check_IOError(errno.EMSGSIZE, f.write_data, d)
+            f.write_data(d)
+            f.send()
         finally:
             assert f.close() is None
 
@@ -1399,43 +1408,54 @@ class TestKernelModule:
             with RecordingKsock(0, 'r', self.bindings) as f1:
                 f1.bind('$.Fred')
 
-                m = Message('$.Fred', 'dada')
-
-                # We can do it all in one go (the convenient way)
-                f0.send_msg(m)
-                r = f1.read_next_msg()
-                assert r.equivalent(m)
-                assert f1.next_msg() == 0
-
-                # We can do it in two parts, but writing the whole message
-                f0.write_msg(m)
-                # Nothing sent yet
-                assert f1.next_msg() == 0
-                f0.send()
-                r = f1.read_next_msg()
-                assert r.equivalent(m)
-                assert f1.next_msg() == 0
-
-                # Or we can write our messsage out in convenient pieces
-                # Note that (unlike reading) because of the magic of 'flush',
-                # we can expect to be writing single bytes to our file
-                # descriptor -- maximally inefficient!
-                assert f1.next_msg() == 0
-                data = m.to_string()
-                for ch in data:
-                    f0.write_data(ch)        # which also flushes
+                def test(f0, f1, m):
+                    # We can do it all in one go (the convenient way)
+                    f0.send_msg(m)
+                    r = f1.read_next_msg()
+                    assert r.equivalent(m)
                     assert f1.next_msg() == 0
-                f0.send()
-                r = f1.read_next_msg()
-                assert r.equivalent(m)
-                assert f1.next_msg() == 0
 
-                # Since writing and sending are distinct, we can, of course,
-                # decide *not* to send a message we've written
-                f0.write_msg(m)
-                f0.discard()
-                check_IOError(errno.ENOMSG, f0.send)
-                assert f1.next_msg() == 0
+                    # We can do it in two parts, but writing the whole message
+                    f0.write_msg(m)
+                    # Nothing sent yet
+                    assert f1.next_msg() == 0
+                    f0.send()
+                    r = f1.read_next_msg()
+                    assert r.equivalent(m)
+                    assert f1.next_msg() == 0
+
+                    # Or we can write our messsage out in convenient pieces
+                    # Note that (unlike reading) because of the magic of 'flush',
+                    # we can expect to be writing single bytes to our file
+                    # descriptor -- maximally inefficient!
+                    assert f1.next_msg() == 0
+                    data = m.to_string()
+                    for ch in data:
+                        f0.write_data(ch)        # which also flushes
+                        assert f1.next_msg() == 0
+                    f0.send()
+                    r = f1.read_next_msg()
+                    assert r.equivalent(m)
+                    assert f1.next_msg() == 0
+
+                    # Since writing and sending are distinct, we can, of course,
+                    # decide *not* to send a message we've written
+                    f0.write_msg(m)
+                    f0.discard()
+                    check_IOError(errno.ENOMSG, f0.send)
+                    assert f1.next_msg() == 0
+
+                test(f0, f1, Message('$.Fred'))
+                test(f0, f1, Message('$.Fred', '', id=MessageId(3,5)))
+                test(f0, f1, Message('$.Fred', '1'))
+                test(f0, f1, Message('$.Fred', '12'))
+                test(f0, f1, Message('$.Fred', '123'))
+                test(f0, f1, Message('$.Fred', '1234'))
+                test(f0, f1, Message('$.Fred', '12345'))
+                test(f0, f1, Message('$.Fred', '123456'))
+                test(f0, f1, Message('$.Fred', '1234567'))
+                test(f0, f1, Message('$.Fred', '12345678'))
+                test(f0, f1, Message('$.Fred', '123456789'))
 
     def test_reply_to_specific_id(self):
         """Test replying to a specific id.
@@ -2657,15 +2677,15 @@ class TestKernelModule:
                 ann = listener.read_next_msg()
                 assert msg.equivalent(ann)
 
-    def test_limit_on_entire_messages(self):
-        """Test how big an entire message may be.
+    def test_entire_messages_not_limited_to_2048(self):
+        """Check that entire messages no longer have a maximum size of 2048
         """
         with Ksock(0, 'rw') as sender:
             with Ksock(0, 'rw') as listener:
 
                 listener.bind('$.Fred')
 
-                # The maximum size of an entire "entire" message is 2048 bytes
+                # The maximum size of an entire "entire" message used to be 2048 bytes
                 MAX_SIZE = 2048
                 max_data_len = MAX_SIZE - 84
 
@@ -2693,7 +2713,8 @@ class TestKernelModule:
                 msg = Announcement('$.Fred', data=data)
                 msg_string = msg.to_string()
                 print 'Message length is',len(msg_string)
-                check_IOError(errno.EMSGSIZE, sender.write_data, msg_string)
+                sender.write_data(msg_string)
+                sender.send()
 
     def test_many_listeners_biggish_data(self):
         """Test that queuing a largish message to many listeners doesn't crash

@@ -737,7 +737,7 @@ extern int kbus_ksock_write_data(kbus_ksock_t    ksock,
  *
  * The `msg` may be an "entire" or "pointy" message.
  *
- * Once the messge has been sent, the message and any name/data pointed to may
+ * Once the message has been sent, the message and any name/data pointed to may
  * be freed.
  *
  * `msg_id` returns the message id assigned to the message by KBUS.
@@ -808,17 +808,13 @@ extern int kbus_msg_create(kbus_message_t **msg,
 }
 
 /*
- * Create a short ("entire") message.
+ * Create an "entire" message.
  *
- * Copies are taken of both `name` and `data`.
+ * Copies are taken of both `name` and `data` (and placed at the end of the
+ * message datastructure).
  *
- * "Entire" messages are limited in size (currently to 2048 bytes). That size
- * includes both the message header and the message data. Thus they are only
- * suitable for "short" messages.
- *
- * Unless you really, really need the "copying the name/data" functionality,
- * and are guaranteed to be sending short enough messages, please do not use
- * this function, use ``kbus_msg_create()`` instead.
+ * Unless you need to be able to free the name and/or data before sending
+ * the message, it is more usual to use ``kbus_msg_create()`` instead.
  *
  * `msg` is the new message, as created by this function.
  *
@@ -835,12 +831,12 @@ extern int kbus_msg_create(kbus_message_t **msg,
  *
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
-extern int kbus_msg_create_short(kbus_message_t        **msg, 
-                                 const char             *name,
-                                 uint32_t                name_len, /* bytes  */
-                                 const void             *data,
-                                 uint32_t                data_len, /* bytes */
-                                 uint32_t                flags)
+extern int kbus_msg_create_entire(kbus_message_t        **msg, 
+                                  const char             *name,
+                                  uint32_t                name_len, /* bytes  */
+                                  const void             *data,
+                                  uint32_t                data_len, /* bytes */
+                                  uint32_t                flags)
 {
   int data_index = KBUS_ENTIRE_MSG_DATA_INDEX(name_len);
   int end_guard_index = KBUS_ENTIRE_MSG_END_GUARD_INDEX(name_len,data_len);
@@ -848,9 +844,6 @@ extern int kbus_msg_create_short(kbus_message_t        **msg,
   size_t length = KBUS_ENTIRE_MSG_LEN(name_len, data_len);
 
   *msg = NULL;
-
-  if (length > KBUS_MAX_ENTIRE_LEN)
-    return -EMSGSIZE;
  
   buf = malloc(length);
   if (!buf) return -ENOMEM;
@@ -909,31 +902,26 @@ extern int kbus_msg_create_request(kbus_message_t **msg,
 }
 
 /*
- * Create a short ("entire") Request message.
- *
- * "Entire" messages are limited in size (currently to 2048 bytes). That size
- * includes both the message header and the message data. Thus they are only
- * suitable for "short" messages.
- *
- * Unless you really, really need the "copying the name/data" functionality,
- * and are guaranteed to be sending short enough messages, please do not use
- * this function, use ``kbus_msg_create()`` instead.
+ * Create an "entire" Request message.
  *
  * This is identical in behaviour to ``kbus_msg_create_request()``, except
  * that an "entire" message is created, and thus both the message name and data
  * are copied. This means that the original `name` and `data` may be freed as
  * soon as the `msg` has been created.
  *
+ * Unless you need to be able to free the name and/or data before sending
+ * the message, it is more usual to use ``kbus_msg_create_request()`` instead.
+ *
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
-extern int kbus_msg_create_short_request(kbus_message_t        **msg, 
-                                         const char             *name,
-                                         uint32_t                name_len, /* bytes  */
-                                         const void             *data,
-                                         uint32_t                data_len, /* bytes */
-                                         uint32_t                flags)
+extern int kbus_msg_create_entire_request(kbus_message_t        **msg, 
+                                          const char             *name,
+                                          uint32_t                name_len, /* bytes  */
+                                          const void             *data,
+                                          uint32_t                data_len, /* bytes */
+                                          uint32_t                flags)
 {
-  int rv = kbus_msg_create_short(msg, name, name_len, data, data_len, flags);
+  int rv = kbus_msg_create_entire(msg, name, name_len, data, data_len, flags);
   if (rv) return rv;
 
   (*msg)->flags |= KBUS_BIT_WANT_A_REPLY;
@@ -992,28 +980,24 @@ extern int kbus_msg_create_reply_to(kbus_message_t **msg,
 }
 
 /*
- * Create a short ("entire") Reply message, based on a previous Request.
- *
- * "Entire" messages are limited in size (currently to 2048 bytes). That size
- * includes both the message header and the message data. Thus they are only
- * suitable for "short" messages.
- *
- * Unless you really, really need the "copying the name/data" functionality,
- * and are guaranteed to be sending short enough messages, please do not use
- * this function, use ``kbus_msg_create_reply_to()`` instead.
+ * Create an "entire" Reply message, based on a previous Request.
  *
  * This is identical in behaviour to ``kbus_msg_create_reply_to()``, except
  * that an "entire" message is created, and thus both the message name and data
  * are copied. This means that the original (`in_reply_to`) message and the
  * `data` may be freed as soon as the `msg` has been created.
+ *
+ * Unless you need to be able to free the original message and/or data before
+ * sending * the message, it is more usual to use
+ * ``kbus_msg_create_reply_to()`` instead.
  * 
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
-extern int kbus_msg_create_short_reply_to(kbus_message_t          **msg, 
-                                          const kbus_message_t     *in_reply_to,
-                                          const void               *data, 
-                                          uint32_t                  data_len, /* bytes */
-                                          uint32_t                  flags)
+extern int kbus_msg_create_entire_reply_to(kbus_message_t          **msg, 
+                                           const kbus_message_t     *in_reply_to,
+                                           const void               *data, 
+                                           uint32_t                  data_len, /* bytes */
+                                           uint32_t                  flags)
 {
   char *name;
   int   rv;
@@ -1022,8 +1006,8 @@ extern int kbus_msg_create_short_reply_to(kbus_message_t          **msg,
     return -EBADMSG;
 
   name = kbus_msg_name_ptr(in_reply_to);
-  rv = kbus_msg_create_short(msg, name, in_reply_to->name_len, 
-                             data, data_len, flags);
+  rv = kbus_msg_create_entire(msg, name, in_reply_to->name_len, 
+                              data, data_len, flags);
   if (rv) return rv;
 
   (*msg)->to          = in_reply_to->from;
@@ -1099,30 +1083,27 @@ extern int kbus_msg_create_stateful_request(kbus_message_t         **msg,
 }
 
 /*
- * Create a Stateful Request message, based on a previous Reply or Request.
- *
- * "Entire" messages are limited in size (currently to 2048 bytes). That size
- * includes both the message header and the message data. Thus they are only
- * suitable for "short" messages.
- *
- * Unless you really, really need the "copying the name/data" functionality,
- * and are guaranteed to be sending short enough messages, please do not use
- * this function, use ``kbus_msg_create_stateful_request()`` instead.
+ * Create an "entire" Stateful Request message, based on a previous Reply or
+ * Request.
  *
  * This is identical in behaviour to ``kbus_msg_create_stateful_request()``,
  * except that an "entire" message is created, and thus both the message name
  * and data are copied. This means that both the `name` and the `data` may be
  * freed as soon as the `msg` has been created.
  *
+ * Unless you need to be able to free the name and/or data before sending
+ * the message, it is more usual to use ``kbus_msg_create_statefule_request()``
+ * instead.
+ *
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
-extern int kbus_msg_create_short_stateful_request(kbus_message_t       **msg, 
-                                                  const kbus_message_t  *earlier_msg,
-                                                  const char            *name,
-                                                  uint32_t               name_len,
-                                                  const void            *data, 
-                                                  uint32_t               data_len, /* bytes */
-                                                  uint32_t               flags)
+extern int kbus_msg_create_entire_stateful_request(kbus_message_t       **msg, 
+                                                   const kbus_message_t  *earlier_msg,
+                                                   const char            *name,
+                                                   uint32_t               name_len,
+                                                   const void            *data, 
+                                                   uint32_t               data_len, /* bytes */
+                                                   uint32_t               flags)
 {
   int                   rv;
   uint32_t              to;
@@ -1138,7 +1119,7 @@ extern int kbus_msg_create_short_stateful_request(kbus_message_t       **msg,
     return -EBADMSG;
   }
 
-  rv = kbus_msg_create_short(msg, name, name_len, data, data_len, flags);
+  rv = kbus_msg_create_entire(msg, name, name_len, data, data_len, flags);
   if (rv) return rv;
 
   (*msg)->final_to = final_to;

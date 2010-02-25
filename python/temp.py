@@ -16,49 +16,51 @@ time.sleep(0.5)
 
 try:
 
-        # We need to have a bigger number than the kernel will be using
-        TOO_MANY_MESSAGES = 2000
+        with Ksock(0) as f0:
+            #f0.kernel_module_verbose()
+            with Ksock(0) as f1:
+                f1.bind('$.Fred')
 
-        with Ksock(0, 'rw') as first:
-            first.kernel_module_verbose(True)
-            first.report_replier_binds(True)
+                m = Message('$.Fred', '\x11\x22\x33\x44',
+                            id=MessageId(3,5))
+                m.msg.extra = 99
+                print m
 
-            first.set_max_messages(1)
-            first.bind('$.KBUS.ReplierBindEvent')
-            first.bind('$.Fred')
+                # We can do it all in one go (the convenient way)
+                f0.send_msg(m)
+                r = f1.read_next_msg()
+                assert r.equivalent(m)
+                assert f1.next_msg() == 0
 
-            with Ksock(0, 'rw') as other:
-                other.set_max_messages(1)
-                other.bind('$.KBUS.ReplierBindEvent')
-                other.bind('$.Jim')
+                # We can do it in two parts, but writing the whole message
+                f0.write_msg(m)
+                # Nothing sent yet
+                assert f1.next_msg() == 0
+                f0.send()
+                r = f1.read_next_msg()
+                assert r.equivalent(m)
+                assert f1.next_msg() == 0
 
-                with Ksock(0, 'rw') as second:
-                    second_id = second.ksock_id()
-                    for ii in xrange(TOO_MANY_MESSAGES):
-                        # Of course, each message name needs to be unique 
-                        second.bind('$.Question%d'%ii,True)
-                        # Read the bind message, so it doesn't stack up
-                        msg = first.read_next_msg()
-                        is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
-                        assert is_bind
-                        assert binder_id ==second_id 
-                        msg2 = other.read_next_msg()
-                        assert msg == msg2
+                # Or we can write our messsage out in convenient pieces
+                # Note that (unlike reading) because of the magic of 'flush',
+                # we can expect to be writing single bytes to our file
+                # descriptor -- maximally inefficient!
 
-                # If this is a good test, then we won't have remembered all
-                # of the messages we're "meant" to have stacked up
-                num_msgs = first.num_messages()
-                assert num_msgs < TOO_MANY_MESSAGES
-                assert num_msgs == other.num_messages()
+                data = m.to_string()
+                print 'Length',len(data)
+                for ch in data:
+                    f0.write_data(ch)        # which also flushes
+                f0.send()
+                r = f1.read_next_msg()
+                assert r.equivalent(m)
+                assert f1.next_msg() == 0
 
-                # Now empty one listener's queue, but not the other
-                for ii in xrange(num_msgs):
-                    msg = first.read_next_msg()
-
-                # We should be able to send to one and not the other
-                first.send_msg(Message('$.Fred', flags=Message.ALL_OR_WAIT))
-                check_IOError(errno.EAGAIN, first.send_msg,
-                              Message('$.Jim', flags=Message.ALL_OR_WAIT))
+                # Since writing and sending are distinct, we can, of course,
+                # decide *not* to send a message we've written
+                f0.write_msg(m)
+                f0.discard()
+                check_IOError(errno.ENOMSG, f0.send)
+                assert f1.next_msg() == 0
 
 
 finally:
