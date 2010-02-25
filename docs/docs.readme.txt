@@ -1,3 +1,7 @@
+=================================
+The KBUS documentation and sphinx
+=================================
+
 Pre-built documentation
 -----------------------
 For your comfort and convenience, a pre-built version of the KBus

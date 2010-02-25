@@ -18,6 +18,7 @@ Contents:
    kbus-python-limpets
    kbus-c-bindings
    utilities
+   docs.readme
 
 Indices and tables
 ==================

@@ -219,7 +219,7 @@ The message header
   present, be padded out to a multiple of 4 bytes. This padding is not
   included in the data length, and the padding bytes may be whatever byte
   values are convenient to the user. KBUS does not guarantee to copy the exact
-  given padding bytes.
+  given padding bytes (in fact, current implementations just ignore them).
 
 Message implementation
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -332,41 +332,22 @@ reviewed in the future.
 
 Message data may, of course, be of zero length.
 
-When writing/sending a "pointy" message, any size of message data is allowed
-(although be aware that it will be copied into kernel space and then back into
-user space as part of sending the message, and this can be slow).
+When reading a message, an "entire" message is always returned.
 
-When writing an "entire" message, there is an absolute limit on how long the
-entire message may be, of 2048 bytes - this is to ensure that the entire
-message, when copied into kernel space, is less than a page. For this reason,
-sending "entire" messages should be thought of as sending "short" messages
-(the C library adopts this terminology in its API).
+    .. note:: When using C to work with KBUS messages, it is generally
+       ill-advised to reference the message name and data "directly"::
 
-When reading a message, an "entire" message is always returned, but since this
-is constructed in user space from an (internal, kernel space) "pointy"
-messsage, there is no limit on its size (i.e., it can cope with any message
-that was legally sent).
+            char    *name = msg->name;
+            uint8_t *data = msg->data;
 
-These restrictions do mean that it is not always possible to read a message
-from KBUS and then immediately write it back again. If you need to do this for
-very large messages, convert the "entire" message to a "pointy" message by
-inserting the appropriate pointers (into the datastructure itself) in the
-"name" and "data" fields - for instance (in C)::
+       since this will work for "pointy" messages, but not for "entire"
+       messages (where the ``name`` field will be NULL). Instead, it
+       is always better to do::
 
-    msg->name = kbus_msg_name_ptr(msg);
-    msg->data = kbus_msg_data_ptr(msg);
+            char    *name = kbus_msg_name_ptr(msg);
+            uint8_t *data = kbus_msg_data_ptr(msg);
 
-remembering that this will not work if ``msg`` changes memory location (and,
-particularly, if it changes address before SEND).
-
-    .. note:: In fact, when using C to work with KBUS messages, it is
-       generally a good idea to do::
-
-          char    *name = kbus_msg_name_ptr(msg);
-
-       and use ``name`` rather than using ``msg->name`` "directly" (and the
-       same for ``data``), just because of the existence of two forms of
-       message.
+       regardless of the message type.
 
 Message flags
 -------------
@@ -1157,8 +1138,9 @@ as values inside the IOError exception.
                 other words, this appears to be an attempt to reply to the
                 wrong message id or the wrong Ksock.
 :EINVAL:        Something went wrong (generic error).
-:EMSGSIZE:      On attempting to write or send a message: The message data is
-                too long.
+:EMSGSIZE:      On attempting to write a message: Data was written after
+                the end of the message (i.e., after the final end guard
+                of the message).
 :ENAMETOOLONG:  On attempting to bind, unbind or send a message: The message
                 name is too long.
 :ENOENT:        On attempting to open a Ksock: There is no such device
