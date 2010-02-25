@@ -92,8 +92,8 @@ kbus_codes = {
         """),
 
     'EMSGSIZE': __("""\
-        On attempting to write or send a message: The message data is too
-        long.
+        On attempting to write a message: Data was written after the end of the
+        message (i.e., after the final end guard of the message).
         """),
 
     'ENAMETOOLONG': __("""\
