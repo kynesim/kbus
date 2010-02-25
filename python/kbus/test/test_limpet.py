@@ -97,7 +97,7 @@ def python_limpet(is_server, sock_address, sock_family, kbus_device, network_id)
 def c_limpet(is_server, sock_address, sock_family, kbus_device, network_id):
     """Run a C Limpet.
     """
-    parts = ['../../utils/runlimpet']
+    parts = ['../../../utils/runlimpet']
     if is_server:
         parts.append('-s')
     else:
@@ -172,7 +172,7 @@ def run_limpets(sock_address, sock_family, python_or_c):
 def setup_module(python_or_c):
     # This path assumes that we are running the tests in the ``kbus/python/sandbox``
     # directory, and that the KBUS kernel module has been built in ``kbus/kbus``.
-    retcode = system('sudo insmod ../../kbus/kbus.ko kbus_num_devices=%d'%NUM_DEVICES)
+    retcode = system('sudo insmod ../../../kbus/kbus.ko kbus_num_devices=%d'%NUM_DEVICES)
     try:
         assert retcode == 0
         # Via the magic of hotplugging, that should cause our device to exist
