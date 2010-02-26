@@ -36,9 +36,9 @@ you won't need to (re)build the documentation. However, if you should need to
 
 The Python bindings
 -------------------
-Read the kbus-kernel-module.txt file to see how individual classes and
+Read the ``kbus-python-*.txt`` files to see how individual classes and
 functions within kbus.py are documented. Obviously, if you add, remove or
-rename such, you may need to alter this file -- please do so appropriately.
+rename such, you may need to alter these files -- please do so appropriately.
 
 Mime type magic
 ---------------
@@ -46,8 +46,8 @@ In order for the documentation in the Google Code Subversion repository to be
 useable as documentation, the HTML, CSS and JavaScript files in the _build
 directory tree need to have the correct mime types. Subversion is clever
 enough to be able to cope with this, and the ``svn_propset`` script shows what
-to do (it may be enough to just run it again - I shall update this if/when I
-find out).
+to do (it should be enough to just run it again after the generated files have
+been committed).
 
 Subversion gotchas
 ------------------

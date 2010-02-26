@@ -102,7 +102,7 @@ Network ids are represented textually as ``{n,s}``, where ``n`` is the
 network id and ``s`` is the serial number.
 
     Message id {0,0} is reserved for use as an invalid message id. Both
-    network id and serial number are unsigned 323-bit integers. Note that this
+    network id and serial number are unsigned 32-bit integers. Note that this
     means that local serial numbers will eventually wrap.
 
 Message content
@@ -111,14 +111,17 @@ Messages are made of the following parts:
 
 :start and end guards:
 
-  These are unsigned 32-bit words. 'start_guard' is notionally "kbus",
+  These are unsigned 32-bit words. 'start_guard' is notionally "Kbus",
   and 'end_guard' (the 32 bit word after the rest of the message) is
-  notionally "subk". Obviously that depends on how one looks at the 32-bit
+  notionally "subK". Obviously that depends on how one looks at the 32-bit
   word. Every message shall start with a start guard and end with an end
   guard (but see `Message implementation`_ for details).
-	 
+
   These provide some help in checking that a message is well formed, and in
   particular the end guard helps to check for broken length fields.
+
+  If the message layout changes in an incompatible manner (this has happened
+  once, and is strongly discouraged), then the start and end guards change.
 
 Unset
 ~~~~~
@@ -170,12 +173,12 @@ The message header
 :flags: indicates extra information about the message. See `Message Flags`_
   for detailed information.
 
-  When writing a message, this can be used to indicate that
+  When writing a message, typical uses include:
 
   * the message is URGENT
   * a reply is wanted
 
-  When reading a message, this indicates:
+  When reading a message, typical uses include:
 
   * the message is URGENT
   * a reply is wanted
@@ -187,37 +190,33 @@ The message header
 :name_length: is the length of the message name in bytes. This will always be
   non-zero, as a message name must always be given.
 
-      Note: in future implementations, a message name code (an integer
-      representing the particular message name) may be used instead of a
-      message name, and this field may be hijacked for that purpose, depending
-      on flags, etc.
-
 :data_length: is the length of the message data in bytes. It may be zero
   if there is no data associated with this message.
 
-:name: The message name identifies the message. It must be terminated with a
+:name: identifies the message. It must be terminated with a
   zero byte (as is normal for C - in the Python binding a normal Python string
   can be used, and the this will be done for you). Byte ordering is according
   to that of the platform.
  
-  In an "entire" message (see `Message implementation`_ below) it shall be
-  padded out to a multiple of 4 bytes. Neither the terminating zero byte nor
-  the padding are included in the name length.  Padding should be with zero
-  bytes.
+  In an "entire" message (see `Message implementation`_ below) the name shall
+  be padded out to a multiple of 4 bytes. Neither the terminating zero byte
+  nor the padding are included in the name length.  Padding should be with
+  zero bytes.
 
-:data: The message data is optional. KBUS does not touch the content of the
+:data: is optional. KBUS does not touch the content of the
   data, but just copies it. Byte ordering is according to that of the
   platform.
 
-  In an "entire" message (see `Message implementation`_ below) it shall, if
-  present, be padded out to a multiple of 4 bytes. This padding is not
+  In an "entire" message (see `Message implementation`_ below) the data shall,
+  if present, be padded out to a multiple of 4 bytes. This padding is not
   included in the data length, and the padding bytes may be whatever byte
   values are convenient to the user. KBUS does not guarantee to copy the exact
   given padding bytes (in fact, current implementations just ignore them).
 
 Message implementation
 ~~~~~~~~~~~~~~~~~~~~~~
-There are two ways in which a message may be stored, "pointy" and "entire".
+There are two ways in which a message may be constructed, "pointy" and
+"entire".
 See the ``kbus_defns.h`` header file for details.
 
 .. note:: The Python binding hides most of the detail of the message
@@ -254,12 +253,12 @@ or (with data)::
         end_guard:   'subK'
 
 .. warning:: When writing a "pointy" message in C, be very careful not to
-   free the name and data between the ``write`` and the SEND, as it is only
-   when the message is sent that KBUS actually follows the ``name`` and
+   free the name and data between the ``write`` and the SEND, as it is
+   only when the message is sent that KBUS actually follows the ``name`` and
    ``data`` pointers.
 
-   *After* the SEND, KBUS will have taken its own copies of the name and (any)
-   data.
+   *After* the SEND, KBUS will have taken its own copies of the name and
+   (any) data.
 
 In an "entire" message, both ``name`` and ``data`` fields are required to be
 NULL. The message header is followed by the message name (padded as described
@@ -275,7 +274,7 @@ represented as::
         data_len:    0
         name:        NULL
         data:        NULL
-        end_guard:   'subk'
+        end_guard:   'subK'
         name_data:   '$.Fred\x0\x0'
         end_guard:   'subK'
 
@@ -290,7 +289,7 @@ or (again with data)::
         data_len:    7
         name:        NULL
         data:        NULL
-        end_guard:   'subk'
+        end_guard:   'subK'
         name_data:   '$.Fred\x0\x0'
         data_data:   'abc1234\x0'
         end_guard:   'subK'
@@ -303,7 +302,7 @@ Note that in these examples:
 2. When there is no data, there is no "data data" after the name data.
 3. When there is data, the data is presented after the name, and is padded out
    to a multiple of 4 bytes (but without the necessity for a terminating zero
-   bytes, so it is possible to have no pad bytes if the data length is already
+   byte, so it is possible to have no pad bytes if the data length is already
    a multiple of 4). Again, the ``data_len`` always reflects the "real" data
    length.
 4. Although the data shown is presented as ASCII strings for these examples,
@@ -467,7 +466,7 @@ When creating a new request message, it has:
                        should fail if that Ksock is (no longer) the replier
                        for this message name
         :from:         unset (KBUS will set it)
-        :flags:        the "needs a reply" flags should be set.
+        :flags:        the "needs a reply" flag should be set.
                        KBUS will set the "you need to reply" flag in the
                        copy of the message delivered to its replier.
         :message name: as appropriate
@@ -1019,7 +1018,7 @@ header file (``kbus_defns.h``). They are:
 :UNREPLIEDTO:   Determines how many Requests (marked "WANT_YOU_TO_REPLY")
                 this Ksock still needs to reply to. This is primarily a
                 development tool.
-:MSGONLYONCE:   Determines whether only once copy of a message will be
+:MSGONLYONCE:   Determines whether only one copy of a message will be
                 received, even if the message name is bound to multiple times.
                 May also be used to query the current state.
 :VERBOSE:       Determines whether verbose kernel messages should be output or
