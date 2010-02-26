@@ -1,0 +1,418 @@
++++++++++++++++++++++++++++++++++++
+A simple introduction to using KBUS
++++++++++++++++++++++++++++++++++++
+
+This is intended as a very simple introduction to the basics of how to use
+KBUS. The examples are not realistic, but should give some flavour of the
+way that KBUS works.
+
+---------------------------------------------------------------
+
+We shall start with a single "actor":
+
+  .. compound::
+
+     *Terminal 1: Rosencrantz* ::
+
+        $ python
+        Python 2.6.4 (r264:75706, Dec  7 2009, 18:45:15) 
+        [GCC 4.4.1] on linux2
+        Type "help", "copyright", "credits" or "license" for more information.
+        >>> from kbus import *
+
+I'm generally against doing an import of ``*``, but it's reasonably safe with
+the KBUS python module, and it makes the tutorial shorter.
+
+First our actor needs to connect to KBUS itself, by opening a Ksock:
+
+  .. compound::
+
+     *Terminal 1: Rosencrantz* ::
+
+        >>> rosencrantz = Ksock(0)
+
+This specifies which KBUS device to connect to. If KBUS is installed, then
+device ``0`` will always exist, so it is a safe choice. The default is to open
+the device for read and write - this makes sense since we will want to write
+messages to it.
+
+Once we've done that, we can try sending a message:
+
+  .. compound::
+
+     *Terminal 1: Rosencrantz* ::
+
+        >>> ahem = Message('$.Actor.Speak', 'Ahem')
+        >>> rosencrantz.send_msg(ahem)
+        MessageId(0, 1)
+
+The first line creates a new message named ``$.Actor.Speak``, with the
+message data ``"Ahem"``.
+
+    *(All message names are composed of ``$`` followed by a series of
+    dot-separated parts.)*
+
+The second line sends it. For convenience, the ``send_msg`` method also
+returns the *message id* assigned to the message by KBUS - this can be used
+to identify a specific message.
+
+This will succeed, but doesn't do anything very useful, because no-one is
+listening. So, we shall need a second process, which we shall start in a
+new terminal.
+
+  .. compound::
+
+     *Terminal 2: Audience* ::
+
+        $ python
+        Python 2.6.4 (r264:75706, Dec  7 2009, 18:45:15) 
+        [GCC 4.4.1] on linux2
+        Type "help", "copyright", "credits" or "license" for more information.
+        >>> from kbus import *
+        >>> audience = Ksock(0)
+        >>> audience.bind('$.Actor.Speak')
+
+Here, the audience has opened the same KBUS device (messages cannot be sent
+between different KBUS devices). We've still opened it for
+write, since they might, for instance, want to be able to send ``$.Applause``
+messages later on. They've then 'bound to' the ``$.Actor.Speak`` message,
+which means they will receive any messages that are sent with that name.
+
+    (In fact, all messages with that name sent by anyone, not just by
+    rosencrantz.)
+
+Now, if rosencrantz speaks:
+
+  .. compound::
+
+     *Terminal 1: Rosencrantz* ::
+
+        >>> rosencrantz.send_msg(ahem)
+        MessageId(0, 2)
+
+the audience can listen:
+
+  .. compound::
+
+     *Terminal 2: Audience* ::
+
+        >>> audience.read_next_msg()
+        Message('$.Actor.Speak', data='Ahem', from_=1L, id=MessageId(0,2))
+
+A friendlier representation of the message is given if one prints it:
+
+  .. compound::
+
+     *Terminal 2: Audience* ::
+
+        >>> print _
+       <Announcement '$.Actor.Speak', id=[0:2], from=1, data='Ahem'> 
+
+"Plain" messages are also termed "announcements", since they are just being
+broadcast to whoever might be listening.
+
+Note that this shows that the message received has the same ``MessageId`` as
+the message sent (which is good!).
+
+Of course, if the audience tries to listen again, they're not going to "hear"
+anything new:
+
+  .. compound::
+
+     *Terminal 2: Audience* ::
+
+        >>> message = audience.read_next_msg()
+        >>> print message
+        None
+
+and so they really need to set up a loop to wait for messages, something like:
+
+  .. compound::
+
+     *Terminal 2: Audience* ::
+
+        >>> import select
+        >>> while 1:
+        ...    (r,w,x) = select.select([audience], [], [])
+        ...    # At this point, r should contain audience
+        ...    message = audience.read_next_msg()
+        ...    print 'We heard', message.name, message.data
+        ...
+
+  (although perhaps with more error checking, and maybe even a timeout, in a
+  real example).
+
+So if rosencrantz speaks again:
+
+  .. compound::
+
+     *Terminal 1: Rosencrantz* ::
+
+        >>> rosencrantz.send_msg(Message('$.Actor.Speak', 'Hello there'))
+        MessageId(0, 3)
+        >>> rosencrantz.send_msg(Message('$.Actor.Speak', 'Can you hear me?'))
+        MessageId(0, 4)
+
+the audience should be able to hear him:
+
+  .. compound::
+
+     *Terminal 2: Audience* ::
+
+        We heard $.Actor.Speak Hello there
+        We heard $.Actor.Speak Can you hear me?
+
+So now we'll introduce another participant:
+
+  .. compound::
+
+     *Terminal 3: Guildenstern* ::
+
+        $ python
+        Python 2.6.4 (r264:75706, Dec  7 2009, 18:45:15) 
+        [GCC 4.4.1] on linux2
+        Type "help", "copyright", "credits" or "license" for more information.
+        >>> from kbus import *
+        >>> guildenstern = Ksock(0)
+        >>> guildenstern.bind('$.Actor.*')
+
+Here, guildenstern is binding to any message whose name starts with
+``$.Actor.``. In retrosepct this, of course, makes sense for the audience, too
+- let's fix that:
+
+  .. compound::
+
+     *Terminal 2: Audience* ::
+
+        <CTRL-C>
+        Traceback (most recent call last):
+          File "<stdin>", line 3, in <module>
+        KeyboardInterrupt
+        >>> audience.bind('$.Actor.*')
+        >>> while 1:
+        ...    msg = audience.wait_for_msg()
+        ...    print 'We heard', msg.name, msg.data
+        ...
+
+(as a convenience, the Ksock class provides the ``wait_for_msg()`` wrapper
+around ``select.select``, which is shorter to type...).
+
+And maybe rosencrantz will want to hear his colleague:
+
+  .. compound::
+
+     *Terminal 1: Rosencrantz* ::
+
+        >>> rosencrantz.bind('$.Actor.*')
+
+So let guildenstern speak:
+
+  .. compound::
+
+     *Terminal 3: Guildenstern* ::
+
+        >>> guildenstern.send_msg(Message('$.Actor.Speak', 'Pssst!'))
+        MessageId(0, 5)
+        >>> # Remember guildenstern is also listening to '$.Actor.*'
+        >>> print guildenstern.read_next_msg()
+        <Announcement '$.Actor.Speak', id=[0:5], from=3, data='Pssst!'> 
+
+and rosencrantz hears:
+
+  .. compound::
+
+     *Terminal 1: Rosencrantz* ::
+
+        >>> print rosencrantz.read_next_msg()
+        <Announcement '$.Actor.Speak', id=[0:5], from=3, data='Pssst!'>
+
+However, when we look to the audience, we see:
+
+  .. compound::
+
+     *Terminal 2: Audience* ::
+
+        We heard $.Actor.Speak Pssst!
+        We heard $.Actor.Speak Pssst!
+
+This is because the audience has bound to the message twice - it is hearing it
+once because it asked to receive every ``$.Actor.Speak`` message, and again
+because it asked to hear any message matching ``$.Actor.*``.
+
+The solution is simple - ask not to hear the more specific version:
+
+  .. compound::
+
+     *Terminal 2: Audience* ::
+
+        <CTRL-C>
+        Traceback (most recent call last):
+          File "<stdin>", line 3, in <module>
+        KeyboardInterrupt
+        >>> audience.unbind('$.Actor.Speak')
+        >>> while 1:
+        ...    msg = audience.wait_for_msg()
+        ...    print 'We heard', msg.from_, 'say', msg.name, msg.data
+        ...
+
+Note that we've also amended the printout to say who the message was from.
+Each Ksock connection has an id associated with it - for instance:
+
+  .. compound::
+
+     *Terminal 1: Rosencrantz* ::
+
+        >>> rosencrantz.ksock_id()
+        1L
+
+and every message indicates who sent it, so:
+
+  .. compound::
+
+     *Terminal 1: Rosencrantz* ::
+
+        >>> print 'I heard', message.from_, 'say', message.name, message.data
+        I heard 3 say $.Actor.Speak Pssst!
+
+We've shown that KBUS allows one to "announce" (or, less politely,
+"shout") messages, but KBUS also supports asking questions. Thus:
+
+  .. compound::
+
+     *Terminal 3: Guildenstern* ::
+
+        >>> guildenstern.bind('$.Actor.Guildenstern.query', True)
+
+allows Guildenstern to bind to this new message name as a Replier.
+
+       *(Only one person may be bound as Replier for a particular message
+       name at any one time, so that it is unambiguous who is expected to do
+       the replying.*
+
+       *Also, if a Sender tries to send a Request, but no-one has bound to that
+       message name as a Replier, then an error is raised (contrast that with
+       ordinary messages, where if no-one is listening, the message just gets
+       ignored).)*
+
+If Rosencrantz then sends a Request of that name:
+
+  .. compound::
+
+     *Terminal 1: Rosencrantz* ::
+
+        >>> req = Request('$.Actor.Guildenstern.query', 'Were you speaking to me?')
+        >>> rosencrantz.send_msg(req)
+        MessageId(0, 6)
+
+Guildenstern can receive it:
+
+  .. compound::
+
+     *Terminal 3: Guildenstern* ::
+
+        >>> msg2 = guildenstern.read_next_msg()
+        >>> print 'I heard', msg2
+        I heard <Request '$.Actor.Guildenstern.query', id=[0:6], from=1, flags=0x3 (REQ,YOU), data='Were you speaking to me?'>
+        >>> msg3 = guildenstern.read_next_msg()
+        >>> print msg3
+        <Request '$.Actor.Guildenstern.query', id=[0:6], from=1, flags=0x1 (REQ), data='Were you speaking to me?'>
+
+As we should expect, guildenstern is getting the message twice, once because
+he has bound as a listener to '$.Actor.*', and once because he is bound as a
+Replier to this specific message.
+
+    *(There is, in fact, a way to ask KBUS to only deliver one copy of
+    a given message, and if guildenstern had used that, he would only have
+    received the Request that was marked for him to answer. I'm still a little
+    undecided how often this mechanism should be used, though.)*
+
+Looking at the two messages, the first is the Request specifically to
+guildenstern, which he is meant to answer:
+
+  .. compound::
+
+     *Terminal 3: Guildenstern* ::
+
+        >>> print msg2.wants_us_to_reply()
+        True
+
+(and that is what the ``YOU`` in the flags means).
+
+And rosencrantz himself will also have received a copy:
+
+  .. compound::
+
+     *Terminal 1: Rosencrantz* ::
+
+        >>> print rosencrantz.read_next_msg()
+        <Request '$.Actor.Guildenstern.query', id=[0:6], from=1, flags=0x1 (REQ), data='Were you speaking to me?'>
+
+Guildenstern can then reply:
+
+  .. compound::
+
+     *Terminal 3: Guildenstern* ::
+
+        >>> reply = reply_to(msg2, 'Yes, I was')
+        >>> print reply
+        <Reply '$.Actor.Guildenstern.query', to=1, in_reply_to=[0:6], data='Yes, I was'>
+        >>> guildenstern.send_msg(reply)
+        MessageId(0, 7)
+
+The ``reply_to`` convenience function crafts a new ``Reply`` message, with the
+various message parts set in an appropriate manner. And thus:
+
+  .. compound::
+
+     *Terminal 1: Rosencrantz* ::
+
+        >>> rep = rosencrantz.read_next_msg()
+        >>> print 'I heard', rep.from_, 'say', rep.name, rep.data
+        I heard 3 say $.Actor.Guildenstern.query Yes, I was
+
+Note that Rosencrantz didn't need to bind to this message to receive it - he
+will always get a Reply to any Request he sends (KBUS goes to some lengths to
+guarantee this, so that even if Guildenstern closes his Ksock, it will
+generate a "gone away" message for him).
+
+And, of course:
+
+  .. compound::
+
+     *Terminal 2: Audience* ::
+
+        We heard 1 say $.Actor.Guildenstern.query Were you speaking to me?
+        We heard 3 say $.Actor.Guildenstern.query Yes, I was
+
+So, in summary:
+
+* To send or receive messages, a process opens a Ksock.
+* A process can send messages (be a Sender).
+* A process can bind to receive messages (be a Listener) by message name.
+* When binding to a message name, wildcards can be used.
+* When binding to a message name, a process can say it wants to receive
+  Requests with that name (be a Replier)
+* It is not an error to send an ordinary message if no-one is listening.
+* It is an error to send a Request if there is no Replier.
+* There can only be one Replier for a given message name.
+* There can be any number of Listeners for a given message name.
+
+.. note:: Running the examples in this introduction requires having
+   the KBUS kernel module installed. If this is not already done, and you have
+   the KBUS sources, then ``cd`` to the kernel module directory (i.e.,
+   ``kbus`` in the sources) and do::
+
+             make
+             make rules
+             sudo insmod kbus.ko
+
+   When you've finished the examples, you can remove the kernel module again
+   with::
+
+             sudo rmmod kbus.ko
+
+   The message ids shown in the examples are correct if you've just installed
+   the kernel module - the second number in each message id will be different
+   (although always ascending) otherwise.
+
+.. vim: set filetype=rest tabstop=8 shiftwidth=2 expandtab:

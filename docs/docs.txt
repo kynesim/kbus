@@ -2,12 +2,6 @@
 KBUS -- Lightweight kernel-mediated messaging
 =============================================
 
-This is emergent documentation for the KBUS kernel module.
-
-.. note:: This documentation is kept as a reStructuredText document.
-          If you are looking at an HTML file, then it is provided for your
-          convenience, and may not be up-to-date.
-
 .. note:: Earlier versions of KBUS (release tags 0.1 and 0.2) used a shorter
    message header, and had a start guard of 'kbus' (and corresponding end
    guard). The current version of KBUS has a start guard of 'Kbus' (and
