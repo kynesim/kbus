@@ -8,7 +8,7 @@ way that KBUS works.
 
 ---------------------------------------------------------------
 
-We shall start with a single "actor":
+We shall start with a single "actor" in our virtual playlet:
 
   .. compound::
 
@@ -177,7 +177,7 @@ So now we'll introduce another participant:
         >>> guildenstern.bind('$.Actor.*')
 
 Here, guildenstern is binding to any message whose name starts with
-``$.Actor.``. In retrosepct this, of course, makes sense for the audience, too
+``$.Actor.``. In retrospect this, of course, makes sense for the audience, too
 - let's fix that:
 
   .. compound::
