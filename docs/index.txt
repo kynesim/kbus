@@ -5,15 +5,6 @@
 Welcome to the KBus documentation
 =================================
 
-.. note:: This documentation is kept as reStructuredText documents, managed
-          with Sphinx_.
-        
-          If you are looking at an HTML file from the KBUS Google code
-          repository, then it is provided for your convenience, and may not be
-          up-to-date.
-
-.. _Sphinx: http://sphinx.pocoo.org/
-
 KBUS is a lightweight messaging system for Linux, particularly
 aimed at embedded platforms. Message passing is managed by a kernel module, via
 reading/writing ``/dev/kbus0`` style devices. Python bindings are provided, as
@@ -40,3 +31,10 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
+
+.. note:: This documentation is kept as reStructuredText documents, managed
+          with Sphinx_. The HTML files in the Google code repository are
+          provided for convenience, and may not always be absolutely
+          up-to-date with head-of-tree.
+
+.. _Sphinx: http://sphinx.pocoo.org/
