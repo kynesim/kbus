@@ -1,0 +1,115 @@
+KBUS Limpets - an introduction with goldfish
+--------------------------------------------
+
+.. note:: This is a placeholder for the final version of this section.
+
+.. |fish| image:: images/01_goldfish.png
+           :width:  94px
+           :height: 66px
+
+This is a metaphorical goldfish |fish| called A.
+
+
+This is another metaphorical goldfish |fish| called B.
+
+A and B live in a metaphorical goldfish bowl.
+
+.. image:: images/02_bowl.png
+   :width:  370px
+   :height: 306px
+   :scale:  66
+
+Each metaphorical goldfish bowl has a KBUS device in it - this bowl has KBUS
+device 0:
+
+.. image:: images/03_kbus_bowl.png
+   :width:  371px
+   :height: 306px
+   :scale:  66
+
+Here are the two fish in their bowl.
+
+.. image:: images/04_fish_in_bowl.png
+   :width:  370px
+   :height: 306px
+   :scale:  66
+
+Metaphorical goldfish are simple creatures. They can only communicate with
+each other using KBUS messages.
+
+.. image:: images/04_fish_in_bowl2.png
+   :width:  370px
+   :height: 306px
+   :scale:  66
+
+Here is another metaphorical goldfish bowl. This one contains metaphorical
+goldfish called R and G. Their bowl has KBUS device 3.
+
+.. image:: images/05_fish_talk.png
+   :width:  370px
+   :height: 306px
+   :scale:  66
+
+Unfortunately, A and B cannot communicate with R and G. Even if the two
+metaphorical goldfish bowls are running on the same computer, KBUS does not
+permit sending KBUS messages between different KBUS devices.
+
+Luckily, KBUS provides Limpets.
+
+A Limpet lives on the side of a metaphorical goldfish bowl, and communicates
+with another Limpet on another metaphorical bowl.
+
+Here we have Limpet 1 connected to a Ksock on KBUS device 0, and Limpet 2
+connected to a Ksock on KBUS device 3:
+
+.. image:: images/06_limpet_pair.png
+   :width:  787px
+   :height: 306px
+   :scale:  66
+
+Limpets always come in pairs. Each Limpet can proxy KBUS messages from the
+KBUS device in its metaphorical goldfish bowl to and from the other Limpet in
+its pair.
+
+Think of them as using very low power line-of-sight lasers to send messages
+between each other.
+
+So a pair of Limpets hide the fact that the two KBUS devices are not the same.
+This means that fish A and G can talk just as if they were in the same bowl:
+
+.. image:: images/07_A_talks_to_G.png
+   :width:  787px
+   :height: 307px
+   :scale:  66
+
+To the metaphorical goldfish, it is as if the messages magically pass between
+the two KBUS devices, and thus A and B can communicate with R and G.
+
+This mechanism even allows such communication if there are intermediate bowls:
+
+.. image:: images/08_3_bowls.png
+   :width:  790px
+   :height: 210px
+
+A few more technical details 
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+KBUS Limpets are currently experimental, and have not been extensively tested
+yet. Limpet daemons are available in Python and C (which intercommunicate
+happily).
+
+In order to keep Limpets and their implementation as simple as possible, we're
+willing to put up with some limitations:
+
+1. We use TCP/IP or named sockets to communicate between Limpets,  which means
+   one Limpet in each pair has to be a server, and thus started up first.
+2. All Limpets on a connected network must have unique ids.
+3. Limpets may not be used to form a network with loops in it. This greatly
+   simplifies message management.
+4. We assume a "safe" or trusted network - if it acts like a Limpet, it is a
+   Limpet.
+5. Finally, one cannot connect both ends of a Limpet pair to the same KBUS
+   device (the same KBUS device number on different computers is OK, of
+   course).
+
+.. vim: set filetype=rst tabstop=8 softtabstop=2 shiftwidth=2 expandtab:

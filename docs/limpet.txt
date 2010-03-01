@@ -96,11 +96,14 @@ would require doing something more sophisticated.
 With goldfish bowls
 -------------------
 
-                ...and bad ASCII art.
-
 Consider a particular machine as a goldfish bowl. Inside is a KBUS kernel
 module, and the contents of the bowl communicate with this (and thus each
 other) in the normal KBUS manner.
+
+.. image:: images/05_fish_talk.png
+   :width:  370px
+   :height: 306px
+   :scale:  66
 
 Now consider another goldfish bowl. We'd like to be able to make the two KBUS
 kernel modles (one in each) communicate.
@@ -125,6 +128,11 @@ KBUS kernel module.
            +--+---+---+                 +--+---+---+   
               Bowl A                       Bowl B
 
+.. image:: images/06_limpet_pair.png
+   :width:  787px
+   :height: 306px
+   :scale:  66
+
 So the Limpet needs to proxy things for KBUS users in its bowl to the other
 bowl, and back again.
 
@@ -147,6 +155,17 @@ So:
           \   | K |    /               \   | K |    /  
            +--+---+---+                 +--+---+---+   
               Bowl A                       Bowl B
+
+.. image:: images/07_A_talks_to_G.png
+   :width:  787px
+   :height: 307px
+   :scale:  66
+
+or, with an intermediate bowl:
+
+.. image:: images/08_3_bowls.png
+   :width:  790px
+   :height: 210px
 
 * what if S'A wants to bind as a replier for message Q'1?
 
