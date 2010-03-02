@@ -113,21 +113,6 @@ communicate with the other using a simple laser communications link (so
 they're clever cyborg limpets), and each limpet can also communicate with its
 KBUS kernel module.
 
-::
-
-        ..
-
-           +          +                 +          +   
-          /           |\               /|           \  
-         /      +.....|L\ ~ ~ ~ ~ ~ ~ /L|....+       \ 
-        +       :     +--+           +--+    :        +
-        |       :        |           |       :        |
-        +       :        +           +       :        +
-         \    +---+     /             \    +---+     / 
-          \   | K |    /               \   | K |    /  
-           +--+---+---+                 +--+---+---+   
-              Bowl A                       Bowl B
-
 .. image:: images/06_limpet_pair.png
    :width:  787px
    :height: 306px
@@ -136,59 +121,64 @@ KBUS kernel module.
 So the Limpet needs to proxy things for KBUS users in its bowl to the other
 bowl, and back again.
 
-So:
-
-* if a goldfish in Bowl A (let's call them S'a) wants to bind as a listener to
-  message M'1, then we want the Limpet in Bowl B to forward all M'1 messages
-  from Bowl B, and the Limpet in Bowl A then needs to echo them to the KBUS
-  kernel module in Bowl A::
-
-        ..
-
-           +          +                 +          +   
-          /           |\               /|           \  
-         /      +.....|L\ < < < < < < /L|<...+       \ 
-        +       :     +--+           +--+    :        +
-        |       :        |           |       :        |
-        +       v        +           +       :        +
-         \    +---+     /             \    +---+     / 
-          \   | K |    /               \   | K |    /  
-           +--+---+---+                 +--+---+---+   
-              Bowl A                       Bowl B
+So if goldfish G in Bowl 3 wants to bind as a listener to message ``$.Gulp``,
+then we want the Limpet in Bowl 0 to forward all ``$.Gulp`` messages from its
+KBUS kernel module, and the Limpet in Bowl 3 then needs to echo them to the
+KBUS kernel module in its bowl. So when goldfish A sends a ``$.Gulp`` message,
+goldfish G will hear it:
 
 .. image:: images/07_A_talks_to_G.png
    :width:  787px
    :height: 307px
    :scale:  66
 
-or, with an intermediate bowl:
+What if goldfish G wants to bind as a Replier for message ``$.Gulp``? Limpets
+handle that as well, by binding as a proxy-replier in the other goldfish
+bowls.
+
+So:
+
+* Goldfish G binds as a replier for ``$.Gulp``.
+* KBUS device 3 sends out a Replier Bind Event message, saying that goldfish G
+  has bound as a replier for ``$.Gulp``.
+* Limpet 2 receives this message, and tells Limpet 1.
+* Limpet 1 binds as a replier for ``$.Gulp``, on KBUS device 0.
+
+This allows goldfish A and G to interact with a Request/Reply sequence as
+normal:
+
+* Goldfish A send a request ``$.Gulp``.
+* Limpet 1 receives it, as the Replier for that message on KBUS device 0.
+* Limpet 1 sends the message to Limpet 2.
+* Limpet 2 sends the message, as a Request, to KBUS device 3.
+* Goldfish G receives the message, marked as a Request to which it should
+  reply.
+* Goldfish G replies to the request.
+* Limpet 2 receives the reply (since it issued the request on this KBUS
+  device).
+* Limpet 2 sends the message to Limpet 1.
+* Limpet 1 uses the message to form *its* reply, which it then sends to
+  KBUS device 0, since in this bowl *it* is the replier.
+* Goldfish A receives the reply.
+
+Handling Stateful Requests (and Replies) needs a bit more infrastructure, but
+is essentially handled by the same mechanism, although we need to show it in a
+bit more detail this time.
+
+    (Stateful transactions use the message header ``orig_from`` and
+    ``final_to`` fields. When a message is sent through a Limpet, the
+    ``orig_from`` indicates both the original Ksock (goldfish G) and also
+    the first Limpet (Limpet 2). This can then be copied to the ``final_to``
+    field of a Stateful Request to indicate that it really is goldfish G that
+    is wanted, even though goldfish A can't "see" them.)
+
+*TODO: insert a detailed explanation of how Stateful Transactions work*
+
+These mechanisms will also work when there are intermediate bowls:
 
 .. image:: images/08_3_bowls.png
    :width:  790px
    :height: 210px
-
-* what if S'A wants to bind as a replier for message Q'1?
-
-  They do so in the normal manner. However, in order for a goldfish in Bowl B to
-  be able to send requests from their bowl to the other, the Limpet in Bowl B
-  needs to bind as a (proxy) replier for Q'1.
-
-  The sequence would then be:
-
-  * S'B can send a request, Q'1
-  * The KBUS kernel module in Bowl B knows there is a replier bound for this -
-    it is the Bowl B Limper. So it sends the request to it.
-  * The Bowl B Limpet forwards the requset to the Bowl A Limpet.
-  * The Bowl A Limpet acts as a proxy sender for Q'1 - it sends Q'1 to the
-    Bowl A KBUS kernel module.
-  * The Bowl A KBUS kernel module sends the request to S'A, who is the actual
-    replier.
-
-  And one can construct a similar path in reverse, for the eventual reply.
-
-Handling Stateful Requests (and Replies) needs a bit more infrastructure (and,
-specifically, is why the ``orig_from`` and ``final_to`` fields were introduced
-for messages), but basically work by an extension of this mechanism.
 
 Python and C implementations
 ----------------------------
