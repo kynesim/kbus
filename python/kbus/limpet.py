@@ -58,7 +58,15 @@ class OtherLimpetGoneAway(Exception):
 class NoMessage(Exception):
     """There was no message.
     """
-    pass
+
+class ErrorMessage(Exception):
+    """Something went wrong trying to send a message to KBUS.
+
+    There is an error message, for sending back to the other Limpet,
+    in our ``.error`` value.
+    """
+    def __init__(self, error):
+        self.error = error
 
 class BadMessage(Exception):
     """We have read a badly formatted KBUS message.
@@ -235,7 +243,7 @@ class LimpetWrapper(Ksock):
         """
         message = self._handle_message_from_socket(message)
         if message is None:
-            raise NoMessage(None)
+            raise NoMessage()
 
         super(LimpetWrapper, self).write_msg(message)
         return super(LimpetWrapper, self).send()
@@ -487,7 +495,7 @@ class LimpetWrapper(Ksock):
             error = Message('$.KBUS.Replier.GoneAway',
                             to=msg.from_,
                             in_reply_to=msg.id)
-            raise NoMessage(error)
+            raise ErrorMessage(error)
 
         if self.verbosity > 1:
             print '%s *** %s, kbus replier %u'%(hdr,
@@ -505,7 +513,7 @@ class LimpetWrapper(Ksock):
                 error = Message('$.KBUS.Replier.NotSameKsock', # XXX New message name
                                 to=msg.from_,
                                 in_reply_to=msg.id)
-                raise NoMessage(error)
+                raise ErrorMessage(error)
 
         # Regardless, we believe the message is OK, so need to
         # adjust who it is meant to go to (locally)
@@ -563,7 +571,7 @@ class LimpetWrapper(Ksock):
 
         Returns the amended message, or None if it should be ignored.
 
-        Raises NoMessage(<error message>) if we should send <error message> to
+        Raises ErrorMessage(<error message>) if we should send <error message> to
         the other Limpet.
         """
         kbus_name  = 'KBUS%u'%self._ksock_id
@@ -949,12 +957,10 @@ class Limpet2(object):
                         msg_id = self.wrapper.send_msg(msg)
                         print '%u msg_id %s'%(self.wrapper.network_id,msg_id)
                     except NoMessage as exc:
-                        error = exc.args[0]
-                        if error is None:
-                            # It turned out to be a message we should ignore - do so
-                            print '%u IGNORED %s'%(self.wrapper.network_id,msg)
-                        else:
-                            self.write_message_to_other_limpet(error)
+                        # It turned out to be a message we should ignore - do so
+                        print '%u IGNORED %s'%(self.wrapper.network_id,msg)
+                    except ErrorMessage as exc:
+                        self.write_message_to_other_limpet(exc.error)
                     except IOError as exc:
                         error = self.wrapper.could_not_send_to_kbus_msg(msg, exc)
                         if error is not None:
