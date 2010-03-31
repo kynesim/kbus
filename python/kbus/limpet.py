@@ -125,7 +125,7 @@ class LimpetWrapper(Ksock):
         self.other_network_id = their_network_id
         self.message_name = message_name
         self.verbosity = verbosity
-        self.termination_message = None
+        self.termination_message = termination_message
 
         self._ksock_id = self.ksock_id()
 
@@ -264,8 +264,9 @@ class LimpetWrapper(Ksock):
         if message is None:
             return None
 
-        if message == self.termination_message:
-            raise GiveUp('Received termination message to %s'%str(self))
+        if message.name == self.termination_message:
+            raise GiveUp('Received termination message %s to %s'%(
+                self.termination_message,str(self)))
 
         message = self._handle_message_from_kbus(message)
         if message is None:
@@ -287,8 +288,12 @@ class LimpetWrapper(Ksock):
         if message is None:
             return None
 
-        if message == self.termination_message:
-            raise GiveUp('Received termination message to %s'%str(self))
+        print '>>> message %s'%message
+        print '>>> termina %s'%self.termination_message
+
+        if message.name == self.termination_message:
+            raise GiveUp('Received termination message %s to %s'%(
+                self.termination_message,str(self)))
 
         message = self._handle_message_from_kbus(message)
         if message is None:
@@ -1725,7 +1730,7 @@ def run_a_limpet(is_server, address, family, kbus_device, network_id,
         sock = connect_as_client(address, family, verbosity)
 
     try:
-        if True:
+        if False:
             # The old mechanism
             with Ksock(kbus_device, 'rw') as ksock:
                 with Limpet(ksock, sock, network_id, message_name, verbosity) as l:
