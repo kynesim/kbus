@@ -267,13 +267,32 @@ static void forget_all_request_from(limpet_context_t *context)
     }
 }
 
-// Length of an array sufficient to hold the parts of a message header that
-// we need to send over the network
-#define KBUS_SERIALISED_HDR_LEN 16
-
-// Given a KBUS message, set the `result` array to its content, suitable for
-// sending across the network
-static void serialise_message_header(kbus_message_t      *msg,
+/*
+ * Given a KBUS message, set the `result` array to its content, suitable for
+ * sending across the network
+ *
+ * Ignores the message's name and data pointers.
+ *
+ * Thus we end up with::
+ *
+ *  result[0]  = msg->start_guard
+ *  result[1]  = msg->id.network_id
+ *  result[2]  = msg->id.serial_num
+ *  result[3]  = msg->in_reply_to.network_id
+ *  result[4]  = msg->in_reply_to.serial_num
+ *  result[5]  = msg->to
+ *  result[6]  = msg->from
+ *  result[7]  = msg->orig_from.network_id
+ *  result[8]  = msg->orig_from.local_id
+ *  result[9]  = msg->final_to.network_id
+ *  result[10] = msg->final_to.local_id
+ *  result[11] = msg->extra
+ *  result[12] = msg->flags
+ *  result[13] = msg->name_len
+ *  result[14] = msg->data_len
+ *  result[15] = msg->end_guard
+ */
+extern void serialise_message_header(kbus_message_t      *msg,
                                      uint32_t             result[KBUS_SERIALISED_HDR_LEN])
 {
     int ii;
@@ -302,8 +321,12 @@ static void serialise_message_header(kbus_message_t      *msg,
         result[ii] = htonl(result[ii]);
 }
 
-// Given a serialised message header from the network, set the message's header
-static void unserialise_message_header(uint32_t             serial[KBUS_SERIALISED_HDR_LEN],
+/*
+ * Given a serialised message header from the network, set the message's header
+ *
+ * Leaves the message's name and data pointers unset (NULL).
+ */
+extern void unserialise_message_header(uint32_t             serial[KBUS_SERIALISED_HDR_LEN],
                                        kbus_message_t      *msg)
 {
     int ii;
@@ -1038,6 +1061,121 @@ static int setup_kbus(kbus_ksock_t       ksock,
         return rv;
     }
     return 0;
+}
+
+
+/*
+ * PROPOSED
+ *
+ * Setup the Ksock in the given context for use as one end of a Limpet.
+ *
+ * This should be called before any attempt is made to use this Ksock
+ * as one end of a Limpet.
+ *
+ * It binds to the requested message name, sets up Replier Bind Event
+ * messages, and requests only one copy of each message.
+ *
+ * Returns 0 if all goes well, a negative number (``-errno``) for
+ * failure.
+ */
+extern int kbus_limpet_setup_ksock(kbus_limpet_data_t  *context)
+{
+    return 0;
+}
+
+/*
+ * PROPOSED
+ *
+ * Given a message read from KBUS, amend it for sending to the other Limpet.
+ *
+ * Returns:
+ *
+ * * 0 if the message has successfully been amended, and should be sent to
+ *   KBUS.
+ * * 1 if the message is not of interest and should be ignored.
+ * * A negative number (``-errno``) for failure. 
+ */
+extern int kbus_limpet_amend_msg_from_kbus(kbus_limpet_data_t *context,
+                                           kbus_message_t     *msg)
+{
+    return 1;
+}
+
+/*
+ * PROPOSED
+ *
+ * Given a message read from the other Limpet, amend it for sending to KBUS.
+ *
+ * * 'context' describes the Limpet environment
+ * * 'msg' is the message to be amended. It will be changed appropriately.
+ *   Note that the message data will never be touched.
+ * * 'error' will be NULL or an error message to be sent to the other Limpet.
+ *   In the latter case, it is up to the caller to free it.
+ *
+ * Returns:
+ *
+ * * 0 if the message has successfully been amended, and should be sent to
+ *   KBUS.
+ * * 1 if the message is not of interest and should be ignored.
+ * * 2 if an error occurred, and the 'error' message should be sent (back)
+ *   to the other Limpet (in this case the original error should not be
+ *   send to KBUS).
+ * * A negative number (``-errno``) for failure.
+ */
+extern int kbus_limpet_amend_msg_to_kbus(kbus_limpet_data_t  *context,
+                                         kbus_message_t      *msg,
+                                         kbus_message_t     **error)
+{
+    return 1;
+}
+
+/*
+ * PROPOSED
+ *
+ * Convert the data of a Replier Bind Event message to network order.
+ *
+ * Does not check the message name, so please only call it for
+ * messages called "$.ReplierBindEvent" (KBUS_MSG_NAME_REPLIER_BIND_EVENT).
+ */
+extern void kbus_limpet_ReplierBindEvent_hton(kbus_message_t  *msg)
+{
+}
+
+/*
+ * PROPOSED
+ *
+ * Convert the data of a Replier Bind Event message to host order.
+ *
+ * Does not check the message name, so please only call it for
+ * messages called "$.ReplierBindEvent" (KBUS_MSG_NAME_REPLIER_BIND_EVENT).
+ */
+extern void kbus_limpet_ReplierBindEvent_ntoh(kbus_message_t  *msg)
+{
+}
+
+/*
+ * PROPOSED
+ *
+ * If sending to our Ksock failed, maybe generate a message suitable for
+ * sending back to the other Limpet.
+ *
+ * 'msg' is the message we tried to send, 'error' is the new error message.
+ * The caller is responsible for freeing 'error'.
+ *
+ * An 'error' message will be generated if the original message was a Request.
+ *
+ * Returns
+ *
+ * * 0 if all goes well (in which case 'error' is non-NULL).
+ * * 1 if there is no need to send an error to the other Limpet, and
+ *   the event should be ignored.
+ * * A negative number (``-errno``) for failure.
+ */
+extern int kbus_limpet_could_not_send_to_kbus_msg(kbus_limpet_data_t  *context,
+                                                  kbus_message_t      *msg,
+                                                  kbus_message_t     **error)
+{
+    return -1;
 }
 
 /*
