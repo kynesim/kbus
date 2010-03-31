@@ -76,7 +76,7 @@ class BadMessage(Exception):
 _SERIALISED_MESSAGE_HEADER_LEN = 16
 _SerialisedMessageHeaderType = ctypes.c_uint32 * _SERIALISED_MESSAGE_HEADER_LEN
 
-class LimpetWrapper(Ksock):
+class LimpetKsock(Ksock):
     """A Limpet proxies KBUS messages to/from another Limpet.
 
     This class wraps itself around a Ksock, transforming messages as they are
@@ -127,7 +127,7 @@ class LimpetWrapper(Ksock):
             raise ValueError('Our Limpet network id (%d) must be different'
                              ' than theirs'%our_network_id)
 
-        super(LimpetWrapper, self).__init__(which, 'rw')
+        super(LimpetKsock, self).__init__(which, 'rw')
 
         self.network_id = our_network_id
         self.other_network_id = their_network_id
@@ -155,19 +155,19 @@ class LimpetWrapper(Ksock):
 
             # Note that we only want one copy of a message, even if we were
             # registered as (for instance) both Replier and Listener
-            super(LimpetWrapper, self).want_messages_once(True)
+            super(LimpetKsock, self).want_messages_once(True)
 
             # Bind to proxy the requested message name
-            super(LimpetWrapper, self).bind(self.message_name)
+            super(LimpetKsock, self).bind(self.message_name)
 
             # We always want to bind for Replier Bind Event messages, as well
             # - since we're only going to get one copy of each message, it is
             # safe to bind to this again, even if the ``message_name`` has
             # implicitly already done that
-            super(LimpetWrapper, self).bind('$.KBUS.ReplierBindEvent')
+            super(LimpetKsock, self).bind('$.KBUS.ReplierBindEvent')
 
             # And ask KBUS to *send* such messages
-            super(LimpetWrapper, self).report_replier_binds(True)
+            super(LimpetKsock, self).report_replier_binds(True)
         except:
             self.close()
             raise
@@ -188,46 +188,46 @@ class LimpetWrapper(Ksock):
 
     def bind(self, *args):
         """Not meaningful for this class."""
-        raise NotImplemented('bind method is not relevant to LimpetWrapper')
+        raise NotImplemented('bind method is not relevant to LimpetKsock')
 
     def unbind(self, *args):
         """Not meaningful for this class."""
-        raise NotImplemented('unbind method is not relevant to LimpetWrapper')
+        raise NotImplemented('unbind method is not relevant to LimpetKsock')
 
     def len_left(self):
         """Not meaningful for this class.
 
         We only support reading an entire message in one go.
         """
-        raise NotImplemented('len_left method is not relevant to LimpetWrapper')
+        raise NotImplemented('len_left method is not relevant to LimpetKsock')
 
     def discard(self):
         """Not meaningful for this class.
 
         We only support reading an entire message in one go.
         """
-        raise NotImplemented('discard method is not relevant to LimpetWrapper')
+        raise NotImplemented('discard method is not relevant to LimpetKsock')
 
     def want_messages_once(self, only_once=False, just_ask=False):
         """Not meaningful for this class.
 
         We require that this be set, and do not want the user to change it
         """
-        raise NotImplemented('want_messages_once method is not relevant to LimpetWrapper')
+        raise NotImplemented('want_messages_once method is not relevant to LimpetKsock')
 
     def report_replier_binds(self, report_events=True, just_ask=False):
         """Not meaningful for this class.
 
         We require that this be set, and do not want the user to change it
         """
-        raise NotImplemented('report_replier_binds method is not relevant to LimpetWrapper')
+        raise NotImplemented('report_replier_binds method is not relevant to LimpetKsock')
 
     def write_msg(self, message):
         """Not meaningful for this class.
 
         We only support writing and sending an entire message in one go.
         """
-        raise NotImplemented('write_msg method is not relevant to LimpetWrapper')
+        raise NotImplemented('write_msg method is not relevant to LimpetKsock')
 
     def send_msg(self, message):
         """Write a Message (from the other Limpet) to our Ksock, and send it.
@@ -245,15 +245,15 @@ class LimpetWrapper(Ksock):
         if message is None:
             raise NoMessage()
 
-        super(LimpetWrapper, self).write_msg(message)
-        return super(LimpetWrapper, self).send()
+        super(LimpetKsock, self).write_msg(message)
+        return super(LimpetKsock, self).send()
 
     def write_data(self, data):
         """Not meaningful for this class.
 
         We only support writing an entire message in one go.
         """
-        raise NotImplemented('write_data method is not relevant to LimpetWrapper')
+        raise NotImplemented('write_data method is not relevant to LimpetKsock')
 
     def read_msg(self, length):
         """Read a Message of length 'length' bytes.
@@ -268,7 +268,7 @@ class LimpetWrapper(Ksock):
         Returns None if there was nothing to be read, or if the message
         read is one that this Limpet should ignore.
         """
-        message = super(LimpetWrapper, self).read_msg(length)
+        message = super(LimpetKsock, self).read_msg(length)
         if message is None:
             return None
 
@@ -292,7 +292,7 @@ class LimpetWrapper(Ksock):
         Returns None if there was nothing to be read, or if the message
         read is one that this Limpet should ignore.
         """
-        message = super(LimpetWrapper, self).read_next_msg()
+        message = super(LimpetKsock, self).read_next_msg()
         if message is None:
             return None
 
@@ -314,7 +314,7 @@ class LimpetWrapper(Ksock):
 
         We only support reading an entire message in one go.
         """
-        raise NotImplemented('read_data method is not relevant to LimpetWrapper')
+        raise NotImplemented('read_data method is not relevant to LimpetKsock')
 
     def _sort_out_network_ids(self, msg):
         # If KBUS gave us a message with an unset network id, then it is
@@ -384,9 +384,7 @@ class LimpetWrapper(Ksock):
         * anything else - just send it through, with the appropriate changes to
           the message id's network id.
 
-        Returns the amended message, or None
-
-        FIXME: Or should it raise an "Ignore this message" exception?
+        Returns the amended message, or None if the message is to be ignored.
         """
         kbus_name   = 'KBUS%u'%self._ksock_id
         limpet_name = 'Limpet%d'%self.other_network_id
@@ -467,7 +465,7 @@ class LimpetWrapper(Ksock):
     def _amend_request_from_socket(self, hdr, msg):
         """Do whatever is necessary to a Stateful Request from the other Limpet.
 
-        Returns the amended message, or raises NoMessage(<error message>),
+        Returns the amended message, or raises ErrorMessage(<error message>),
         where <error message> is appropriate for sending to the other
         Limpet to report the problem.
         """
@@ -589,12 +587,12 @@ class LimpetWrapper(Ksock):
             if is_bind:
                 if self.verbosity > 1:
                     print '%s BIND "%s'%(spaces_hdr,name)
-                super(LimpetWrapper, self).bind(name, True)
+                super(LimpetKsock, self).bind(name, True)
                 self.replier_for[name] = binder_id
             else:
                 if self.verbosity > 1:
                     print '%s UNBIND "%s'%(spaces_hdr,name)
-                super(LimpetWrapper, self).unbind(name, True)
+                super(LimpetKsock, self).unbind(name, True)
                 del self.replier_for[name]
             return None
 
@@ -795,8 +793,8 @@ class LimpetExample(object):
         if self.verbosity > 1:
             print 'Other Limpet has network id',other_network_id
 
-        self.wrapper = LimpetWrapper(which, network_id, other_network_id,
-                                     message_name, verbosity, termination_message)
+        self.wrapper = LimpetKsock(which, network_id, other_network_id,
+                                   message_name, verbosity, termination_message)
         self.ksock_id = self.wrapper.ksock_id()
 
     def _send_network_id(self, network_id):
