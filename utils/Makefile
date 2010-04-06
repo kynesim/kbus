@@ -50,6 +50,10 @@ $(RUNLIMPET): runlimpet.c $(LIBDEPEND)
 $(KMSG): kmsg.c $(LIBDEPEND)
 	$(CC) kmsg.c -o $@ $(CFLAGS) $(LDFLAGS) $(LIBS)
 
+speed:	inspeed.c kspeed.c $(LIBDEPEND)
+	$(CC) inspeed.c -o $(TGTDIR)/inspeed
+	$(CC) kspeed.c -o $(TGTDIR)/kspeed $(CFLAGS) $(LDFLAGS) $(LIBS)
+
 $(LIBDEPEND):
 	$(MAKE) -C ../libkbus O=$(O) all
 
@@ -58,6 +62,8 @@ $(LIBDEPEND):
 .PHONY: clean
 clean:
 	rm -rf $(TGTDIR)/*.o $(TGTDIR)/kmsg $(TGTDIR)/runlimpet
+	rm -rf $(TGTDIR)/inspeed
+	rm -rf $(TGTDIR)/kspeed
 
 .PHONY: distclean
 distclean: clean
