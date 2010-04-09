@@ -1,5 +1,10 @@
 /*
- * An application to run a KBUS Limpet.
+ * An example application to run a KBUS Limpet.
+ *
+ * This is a simple example communicating between two Limpets over a socket.
+ * It is not intended to be suitable for production use.
+ *
+ * It is compatible with the Python version of the same name.
  */
 
 /*
@@ -57,6 +62,456 @@
 
 #include "libkbus/kbus.h"
 #include "libkbus/limpet.h"
+
+/*
+ * Read the other limpet's network id.
+ */
+static int read_network_id(int       limpet_socket,
+                           uint32_t *network_id)
+{
+    char        hello[5];
+    uint32_t    value = 0;
+    ssize_t     length;
+
+    length = recv(limpet_socket, hello, 4, MSG_WAITALL);
+    if (length != 4) {             // perhaps a little optimistic...
+        printf("### Unable to read 'HELO' from other Limpet: %s\n",strerror(errno));
+        return -1;
+    }
+
+    if (strncmp("HELO", hello, 4)) {
+        printf("### Read '%.4s' from other Limpet, instead of 'HELO'\n",hello);
+        return -1;
+    }
+
+    length = recv(limpet_socket, &value, 4, MSG_WAITALL);
+    if (length != 4) {
+        printf("### Unable to read network id from other Limpet: %s\n",strerror(errno));
+        return -1;
+    }
+
+    *network_id = ntohl(value);
+
+    return 0;
+}
+
+/*
+ * Send the other limpet our network id.
+ */
+static int send_network_id(int      limpet_socket,
+                           uint32_t network_id)
+{
+    char        *hello = "HELO";
+    uint32_t     value = htonl(network_id);
+    ssize_t      written;
+
+    written = send(limpet_socket, hello, 4, 0);
+    if (written != 4) {             // perhaps a little optimistic...
+        printf("### Unable to write 'HELO' to other Limpet: %s\n",strerror(errno));
+        return -1;
+    }
+
+    written = send(limpet_socket, &value, 4, 0);
+    if (written != 4) {
+        printf("### Unable to write network id to other Limpet: %s\n",strerror(errno));
+        return -1;
+    }
+
+    return 0;
+}
+
+static int send_message_to_other_limpet(int                limpet_socket,
+                                        kbus_message_t    *msg)
+{
+    int         rv;
+    uint32_t    array[KBUS_SERIALISED_HDR_LEN];
+    char       *name = NULL;
+    void       *data = NULL;
+
+    uint32_t    padded_name_len;
+    uint32_t    padded_data_len;
+
+    static char padding[] = "\0\0\0\0\0\0\0\0";
+
+    name = kbus_msg_name_ptr(msg);
+    data = kbus_msg_data_ptr(msg);
+
+    // And, since we're going to throw it onto the network...
+    kbus_serialise_message_header(msg, array);
+
+    rv = send(limpet_socket, array, sizeof(array), 0);
+    if (rv < 0) {
+        printf("### Error sending message header to other limpet: %s\n",
+               strerror(errno));
+        return -1;
+    }
+
+    padded_name_len = KBUS_PADDED_NAME_LEN(msg->name_len);
+    rv = send(limpet_socket, name, msg->name_len, 0);
+    if (rv < 0) {
+        printf("### Error sending message name to other limpet: %s\n",
+               strerror(errno));
+        return -1;
+    }
+    if (padded_name_len - msg->name_len > 0) {
+        rv = send(limpet_socket, padding, padded_name_len-msg->name_len, 0);
+        if (rv < 0) {
+            printf("### Error sending message name padding to other limpet: %s\n",
+                   strerror(errno));
+            return -1;
+        }
+    }
+
+    if (msg->data_len != 0 && data != NULL) {
+
+        // We know the structure of Replier Bind Event data, and can mangle
+        // it appropriately for the network
+        if (!strncmp(name, KBUS_MSG_NAME_REPLIER_BIND_EVENT, msg->name_len)) {
+            kbus_limpet_ReplierBindEvent_hton(msg);
+        }
+
+        padded_data_len = KBUS_PADDED_DATA_LEN(msg->data_len);
+        rv = send(limpet_socket, data, msg->data_len, 0);
+        if (rv < 0) {
+            printf("### Error sending message data to other limpet: %s\n",
+                   strerror(errno));
+            return -1;
+        }
+        if (padded_data_len - msg->data_len > 0) {
+            rv = send(limpet_socket, padding, padded_data_len-msg->data_len, 0);
+            if (rv < 0) {
+                printf("### Error sending message data padding to other limpet: %s\n",
+                       strerror(errno));
+                return -1;
+            }
+        }
+    }
+
+    // And a final end guard for safety
+    rv = send(limpet_socket, &array[KBUS_SERIALISED_HDR_LEN-1], sizeof(uint32_t), 0);
+    if (rv < 0) {
+        printf("### Error sending final message end guard to other limpet: %s\n",
+               strerror(errno));
+        return -1;
+    }
+
+    return 0;
+}
+
+static int read_message_from_other_limpet(int                 limpet_socket,
+                                          kbus_message_t    **msg)
+{
+    uint32_t    array[KBUS_SERIALISED_HDR_LEN];
+    ssize_t     wanted = sizeof(array);
+    ssize_t     length;
+    uint32_t    final_end_guard;
+
+    kbus_message_t      *new_msg = NULL;
+    char                *name = NULL;
+    void                *data = NULL;
+
+    uint32_t             padded_name_len;
+    uint32_t             padded_data_len;
+
+    length = recv(limpet_socket, array, wanted, MSG_WAITALL);
+    if (length == 0) {
+        printf("### Trying to read message: other Limpet has gone away\n");
+        goto error_return;
+    } else if (length != wanted) {
+        printf("### Unable to read whole message header from other Limpet: %s\n",
+               strerror(errno));
+        goto error_return;
+    }
+
+    new_msg = malloc(sizeof(*new_msg));
+    if (new_msg == NULL) {
+        printf("### Unable to allocate message header\n");
+        goto error_return;
+    }
+
+    kbus_unserialise_message_header(array, new_msg);
+
+    if (new_msg->start_guard != KBUS_MSG_START_GUARD) {
+        printf("### Message start guard from other limpet is %08x, not %08x\n",
+               new_msg->start_guard, KBUS_MSG_START_GUARD);
+        goto error_return;
+    } else if (new_msg->end_guard != KBUS_MSG_END_GUARD) {
+        printf("### Message end guard from other limpet is %08x, not %08x\n",
+               new_msg->end_guard, KBUS_MSG_END_GUARD);
+        goto error_return;
+    }
+
+    // Note that the name, as sent, was padded with zero bytes at the end
+    // We *could* read the name and then ignore some bytes, but it's simpler
+    // just to read (and remember) the extra data and quietly ignore it
+    // Remember that this padding *includes* guaranteed zero termination byte
+    // for the string, so we don't need to add one in to the length
+    padded_name_len = KBUS_PADDED_NAME_LEN(new_msg->name_len);
+    name = malloc(padded_name_len);
+    if (name == NULL) {
+        printf("### Unable to allocate message name\n");
+        goto error_return;
+    }
+    length = recv(limpet_socket, name, padded_name_len, MSG_WAITALL);
+    if (length == 0) {
+        printf("### Trying to read message name: other Limpet has gone away\n");
+        goto error_return;
+    } else if (length != padded_name_len) {
+        printf("### Unable to read whole message name from other Limpet: %s\n",
+               strerror(errno));
+        goto error_return;
+    }
+    name[new_msg->name_len] = 0;    // This *should not* be needed, but heh...
+    new_msg->name = name;
+
+    if (new_msg->data_len) {
+        // Similar comments for the data and the number of bytes transmitted
+        padded_data_len = KBUS_PADDED_DATA_LEN(new_msg->data_len);
+        data = malloc(padded_data_len);
+        if (name == NULL) {
+            printf("### Unable to allocate message data\n");
+            goto error_return;
+        }
+        length = recv(limpet_socket, data, padded_data_len, MSG_WAITALL);
+        if (length == 0) {
+            printf("### Trying to read message data: other Limpet has gone away\n");
+            goto error_return;
+        } else if (length != padded_data_len) {
+            printf("### Unable to read whole message data from other Limpet: %s\n",
+                   strerror(errno));
+            goto error_return;
+        }
+
+        new_msg->data = data;
+
+        // We know the structure of Replier Bind Event data, and can mangle
+        // it appropriately for having come from the network
+        if (!strncmp(name, KBUS_MSG_NAME_REPLIER_BIND_EVENT, new_msg->name_len)) {
+            kbus_limpet_ReplierBindEvent_ntoh(new_msg);
+        }
+    }
+
+    // And read a final end guard
+    wanted = sizeof(uint32_t);              // erm, 4...
+    length = recv(limpet_socket, &final_end_guard, wanted, MSG_WAITALL);
+    if (length == 0) {
+        printf("### Trying to read message end guard: other Limpet has gone away\n");
+        goto error_return;
+    } else if (length != wanted) {
+        printf("### Unable to read message end guard from other Limpet: %s\n",
+               strerror(errno));
+        goto error_return;
+    }
+    final_end_guard = ntohl(final_end_guard);
+    if (final_end_guard != KBUS_MSG_END_GUARD) {
+        printf("### Message final end guard from other limpet is %08x, not %08x\n",
+               final_end_guard, KBUS_MSG_END_GUARD);
+        goto error_return;
+    }
+
+    *msg = new_msg;
+    return 0;
+
+error_return:
+    if (new_msg)  free(new_msg);
+    if (name) free(name);
+    if (data) free(data);
+    return -1;
+}
+
+/*
+ * Run a KBUS Limpet.
+ *
+ * A Limpet proxies KBUS messages to/from another Limpet.
+ *
+ * `ksock` is the Ksock to use to communicate with KBUS. It must have been
+ * opened for read and write.
+ *
+ * `limpet_socket` is the socket to use to communicate with the other Limpet of
+ * this pair.
+ *
+ * `network_id` is a positive, non-negative integer identifying this Limpet.
+ * All Limpets that can rech each other (i.e., by passing messages via other
+ * Limpets and other KBUS devives) must have distinct network ids. This Limpet
+ * will check that it has a different network id than its pair.
+ *
+ * `message_name` is what this Limpet will "listen" to -- all messages matching
+ * this will be forwarded to the other Limpet. If it is NULL, then "$.*" will
+ * be used. Note that the Limpet will also listen for Replier Bind Events (and
+ * act on them).
+ *
+ * If `termination_message` is non-NULL, then this Limpet will exit when it read
+ * a message with that name from KBUS.
+ *
+ * `verbosity` determines how much information a Limpet will write to standard
+ * output. 0 means to be quiet, 1 means a moderate amount of output, 2 will
+ * produce messages giving details of exactly how messages are being received,
+ * sent and manipulated.
+ *
+ * This function is not normally expected to return, but given that, it returns
+ * 0 if `termination_message` was given, and the Limpet received such a
+ * message, or -1 if it went wrong.
+ */
+static int kbus_limpet(kbus_ksock_t     ksock,
+                       int              limpet_socket,
+                       uint32_t         network_id,
+                       char            *message_name,
+                       char            *termination_message,
+                       int              verbosity)
+{
+    int             rv = 0;
+    uint32_t        other_network_id;
+    uint32_t        ksock_id;
+    struct pollfd   fds[2];
+
+    kbus_limpet_context_t    *context;
+
+    kbus_message_t  *msg = NULL;
+    kbus_message_t  *error = NULL;
+
+    if (network_id < 1) {
+        printf("### Limpet network id must be > 0, not %d\n",network_id);
+        return -1;
+    }
+
+    if (message_name == NULL) {
+        if (verbosity > 1)
+            printf("%u Limpet defaulting to proxy messages matching '$.*'\n", network_id);
+        message_name = "$.*";
+    }
+
+    if (verbosity > 1)
+        printf("%u Sending our network id, %u\n", network_id, network_id);
+    rv = send_network_id(limpet_socket, network_id);
+    if (rv) goto tidyup;
+
+    if (verbosity > 1)
+        printf("%u Reading the other limpet's network id\n", network_id);
+    rv = read_network_id(limpet_socket, &other_network_id);
+    if (rv) goto tidyup;
+
+    if (verbosity)
+        printf("%u The other limpet's network id is %u\n", network_id, other_network_id);
+
+    if (other_network_id == network_id) {
+        printf("### This Limpet and its pair both have network id %u\n",
+               network_id);
+        rv = -1;
+        goto tidyup;
+    }
+
+    rv = kbus_limpet_new_context(ksock, network_id, other_network_id,
+                                 message_name, verbosity,
+                                 &context);
+    if (rv) goto tidyup;
+
+    fds[0].fd = ksock;
+    fds[0].events = POLLIN; // We want to read a KBUS message
+    fds[1].fd = limpet_socket;
+    fds[1].events = POLLIN; // We want to read a message from our pair
+    for (;;) {
+        int   results;
+        char *name;
+
+        fds[0].revents = 0;
+        fds[1].revents = 0;
+        results = poll(fds, 2, -1);     // No timeout, we're patient
+        if (results < 0) {
+            printf("### Waiting for messages abandoned: %s\n",strerror(errno));
+            goto tidyup;
+        }
+
+        if (verbosity > 1)
+            printf("\n");
+
+        if (fds[0].revents & POLLIN) {
+            bool  terminate;
+            if (verbosity > 1)
+                printf("%u ----------------- Message from KBUS\n", network_id);
+            rv = kbus_ksock_read_next_msg(ksock, &msg);
+            if (rv < 0) goto tidyup;
+
+            if (verbosity > 1) {
+                printf("%u ----------------- ", network_id);
+                kbus_msg_print(stdout, msg);
+                printf("\n");
+            }
+
+            if (termination_message != NULL) {
+                name = kbus_msg_name_ptr(msg);
+                if (!strncmp(termination_message, name, msg->name_len)) {
+                    if (verbosity > 1) {
+                        printf("%u ----------------- Terminated by message %s\n",
+                               network_id, termination_message);
+                        rv = 0;
+                        goto tidyup;
+                    }
+                }
+            }
+
+            rv = kbus_limpet_amend_msg_from_kbus(context, msg);
+            if (rv == 0) {
+               rv = send_message_to_other_limpet(limpet_socket, msg);
+               if (rv) goto tidyup;
+            }
+            else if (rv < 0) {
+                goto tidyup;
+            }
+        }
+        kbus_msg_delete(&msg);
+
+        if (fds[1].revents & POLLIN) {
+            if (verbosity > 1)
+                printf("%u ----------------- Message from other Limpet\n", network_id);
+
+            rv = read_message_from_other_limpet(limpet_socket, &msg);
+            if (rv < 0) goto tidyup;
+
+            rv = kbus_limpet_amend_msg_to_kbus(context, msg, &error);
+            if (rv == 0) {
+                kbus_msg_id_t    msg_id;
+                if (verbosity > 1) {
+                    printf("%u ----------------- ", network_id);
+                    kbus_msg_print(stdout, msg);
+                    printf("\n");
+                }
+                rv = kbus_ksock_send_msg(ksock, msg, &msg_id);
+                if (rv) {
+                    rv = kbus_limpet_could_not_send_to_kbus_msg(context, msg,
+                                                                rv, &error);
+                    if (rv == 0) {
+                        rv = send_message_to_other_limpet(limpet_socket, error);
+                        if (rv) goto tidyup;
+                    } else if (rv < 0) {
+                        goto tidyup;
+                    }
+                }
+            } else if (rv == 2) {
+                if (verbosity > 1) {
+                    printf("%u ----------------- ", network_id);
+                    kbus_msg_print(stdout, msg);
+                    printf("\n");
+                    printf("%u >>>>>>>>>>>>>>>>> ", network_id);
+                    kbus_msg_print(stdout, error);
+                    printf("\n");
+                }
+                // an error occurred, tell the other limpet
+                rv = send_message_to_other_limpet(limpet_socket, error);
+                if (rv) goto tidyup;
+            } else if (rv < 0) {
+                goto tidyup;
+            }
+        }
+        kbus_msg_delete(&msg);
+        kbus_msg_delete(&error);
+    }
+
+tidyup:
+    kbus_msg_delete(&msg);
+    kbus_msg_delete(&error);
+    kbus_limpet_free_context(&context);
+    return rv;
+}
 
 static int open_client_socket(char     *address,
                               int       port,
@@ -264,6 +719,9 @@ static int run_limpet(uint32_t  kbus_device,
 
     printf("Opened KBUS device %u\n",kbus_device);
 
+    if (verbosity > 1)
+        (void) kbus_ksock_kernel_module_verbose(ksock, 1);
+
     if (is_server)
         rv = open_server_socket(address, port, &limpet_socket, &listen_socket);
     else
@@ -437,6 +895,8 @@ static void print_usage(void)
         "\n"
         "    -t <name>       When the Limpet reads a message named <name> from\n"
         "                    KBUS, it should terminate.\n"
+        "\n"
+        "This is an example application, not intended to production use.\n"
         );
 }
 

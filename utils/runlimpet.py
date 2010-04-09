@@ -40,6 +40,8 @@ command line is not significant, but if a later <thing> contradicts an earlier
                     the default.
 
     -v <n>          Verbosity level. Default is 1. 0 means less, 2 means more.
+
+This is an example application, not intended to production use.
 """
 
 # ***** BEGIN LICENSE BLOCK *****
