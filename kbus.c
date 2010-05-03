@@ -589,9 +589,8 @@ struct kbus_message_queue_item {
  * are actually being stored in page 'n'. Once the data is all in place, this
  * should be equal to PART_LEN or 'last_page_len' as appropriate.
  *
- * 'refcnt' is then the reference count for this data - when it
- * reaches 0, everything (the parts, the arrays and the datastructure)
- * gets freed.
+ * 'refcount' is a stanard kernel reference count for the data - when it reaches
+ * 0, everything (the parts, the arrays and the datastructure) gets freed.
  */
 struct kbus_data_ptr {
 	int		 as_pages;
@@ -599,7 +598,7 @@ struct kbus_data_ptr {
 	unsigned long	*parts;
 	unsigned	*lengths;
 	unsigned	 last_page_len;
-	int		 refcnt;
+	struct kref	 refcount;
 };
 
 /* The sizes of the parts in our reference counted data */
@@ -649,12 +648,13 @@ static struct kbus_data_ptr *kbus_new_data_ref(struct kbus_private_data *priv,
 	new->lengths   = lengths;
 	new->num_parts = num_parts;
 	new->last_page_len = last_page_len;
-	new->refcnt    = 1;
+
+	kref_init(&new->refcount);
 
 #if DEBUG_REFCOUNT
 	kbus_maybe_dbg(priv->dev,"kbus:   %u/%u <00 ref %p now %d>\n",
 		       priv->dev->index,priv->id,
-		       new->parts,new->refcnt);
+		       new->parts,new->refcount.refcount);
 #endif
 	return new;
 }
@@ -665,17 +665,48 @@ static struct kbus_data_ptr *kbus_new_data_ref(struct kbus_private_data *priv,
  * Returns the (same) reference, for convenience.
  */
 static struct kbus_data_ptr *kbus_ref_data(struct kbus_private_data	*priv,
-					   struct kbus_data_ptr		*ref)
+					   struct kbus_data_ptr		*refdata)
 {
-	if (ref != NULL) {
-		ref->refcnt ++;
+	if (refdata != NULL) {
+		kref_get(&refdata->refcount);
 #if DEBUG_REFCOUNT
 		kbus_maybe_dbg(priv->dev,"kbus:   %u/%u <UP ref %p now %d>\n",
 			       priv->dev->index,priv->id,
-			       ref->parts,ref->refcnt);
+			       refdata->parts,refdata->refcount.refcount);
 #endif
 	}
-	return ref;
+	return refdata;
+}
+
+/*
+ * Data release callback for data reference pointers. Called when the reference
+ * count says to...
+ */
+static void kbus_release_data(struct kref *ref)
+{
+	struct kbus_data_ptr *refdata = container_of(ref,
+					struct kbus_data_ptr, refcount);
+#if DEBUG_REFCOUNT
+	printk(KERN_DEBUG "kbus: RELEASE DATA\n");
+#endif
+	if (refdata->parts == NULL) {
+		/* XXX Do we think this can happen? */
+		printk(KERN_ERR "kbus: Removing reference,"
+		       " but ptr already freed\n");
+	} else {
+		int jj;
+		if (refdata->as_pages)
+			for (jj=0; jj<refdata->num_parts; jj++)
+				free_page((unsigned long)refdata->parts[jj]);
+		else
+			for (jj=0; jj<refdata->num_parts; jj++)
+				kfree((void *)refdata->parts[jj]);
+		kfree(refdata->parts);
+		kfree(refdata->lengths);
+		refdata->parts = NULL;
+		refdata->lengths = NULL;
+	}
+	kfree(refdata);
 }
 
 /*
@@ -684,46 +715,21 @@ static struct kbus_data_ptr *kbus_ref_data(struct kbus_private_data	*priv,
  */
 static void kbus_deref_data(struct kbus_private_data	*priv,
 			    struct kbus_dev		*dev,
-			    struct kbus_data_ptr	*ref)
+			    struct kbus_data_ptr	*refdata)
 {
-	if (ref == NULL)
+	if (refdata == NULL)
 		return;
 
-	ref->refcnt --;
+	kref_put(&refdata->refcount, kbus_release_data);
 
 #if DEBUG_REFCOUNT
 	if (priv)
 		kbus_maybe_dbg(dev,"kbus:   %u/%u <DN ref %p now %d>\n",
-			       dev->index, priv->id, ref->parts, ref->refcnt);
+			       dev->index, priv->id, refdata->parts, refdata->refcount.refcount);
 	else
 		kbus_maybe_dbg(dev,"kbus:   %u <DN ref %p now %d>\n",
-			       dev->index, ref->parts, ref->refcnt);
+			       dev->index, refdata->parts, refdata->refcount.refcount);
 #endif
-
-	if (ref->refcnt == 0) {
-		if (ref->parts == NULL) {
-			if (priv)
-				printk(KERN_ERR "kbus: %u/%u Removing reference,"
-				       " but ptr already freed\n",
-				       priv->dev->index,priv->id);
-			else
-				printk(KERN_ERR "kbus: %u Removing reference,"
-				       " but ptr already freed\n", dev->index);
-		} else {
-			int jj;
-			if (ref->as_pages)
-				for (jj=0; jj<ref->num_parts; jj++)
-					free_page((unsigned long)ref->parts[jj]);
-			else
-				for (jj=0; jj<ref->num_parts; jj++)
-					kfree((void *)ref->parts[jj]);
-			kfree(ref->parts);
-			kfree(ref->lengths);
-			ref->parts = NULL;
-			ref->lengths = NULL;
-		}
-		kfree(ref);
-	 }
 }
 
 /*
@@ -4238,7 +4244,7 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 	int     total_parts;
 	int     ii;
 	struct kbus_message_header *msg;
-	struct kbus_data_ptr       *ref;
+	struct kbus_data_ptr       *refdata;
 
 	kbus_maybe_dbg(priv->dev,"kbus: %u/%u NEXTMSG\n",priv->dev->index,priv->id);
 
@@ -4263,12 +4269,12 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 	kbus_maybe_dbg(priv->dev,"kbus:   xx Setting up read_hdr\n");
 #endif
 
-	ref = msg->data;
+	refdata = msg->data;
 
 	/* How many parts will our output data be in? */
 	total_parts = KBUS_MIN_NUM_PARTS;
 	if (msg->data_len)
-		total_parts += ref->num_parts + 1;
+		total_parts += refdata->num_parts + 1;
 
 	if (priv->read.parts == NULL) {
 		retval = kbus_alloc_read_msg(priv, total_parts);
@@ -4285,8 +4291,8 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 	priv->read.parts[KBUS_PART_NAME] = msg->name;
 	priv->read.parts[KBUS_PART_NPAD] = static_zero_padding;
 	if (msg->data) {
-		for (ii=0; ii<ref->num_parts; ii++)
-			priv->read.parts[KBUS_PART_DATA_START+ii] = (void *)ref->parts[ii];
+		for (ii=0; ii<refdata->num_parts; ii++)
+			priv->read.parts[KBUS_PART_DATA_START+ii] = (void *)refdata->parts[ii];
 		priv->read.parts[total_parts-2] = static_zero_padding;
 	}
 	priv->read.parts[total_parts-1] = (char *)&static_end_guard;
@@ -4295,8 +4301,8 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 	priv->read.lengths[KBUS_PART_NAME] = msg->name_len;
 	priv->read.lengths[KBUS_PART_NPAD] = KBUS_PADDED_NAME_LEN(msg->name_len) - msg->name_len;
 	if (msg->data) {
-		for (ii=0; ii<ref->num_parts; ii++)
-			priv->read.lengths[KBUS_PART_DATA_START+ii] = ref->lengths[ii];
+		for (ii=0; ii<refdata->num_parts; ii++)
+			priv->read.lengths[KBUS_PART_DATA_START+ii] = refdata->lengths[ii];
 		priv->read.lengths[total_parts-2] = KBUS_PADDED_DATA_LEN(msg->data_len) - msg->data_len;
 	}
 	priv->read.lengths[total_parts-1]  = 4;
