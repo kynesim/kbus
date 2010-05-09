@@ -87,7 +87,7 @@
 #define DEF_NUM_DEVICES		  1
 
 /* By default, enable verbose debug to be selected */
-#define DEBUG 0
+#define DEBUG 1
 /* But we don't normally want the extra debug for kbus_read */
 #define DEBUG_READ 0
 /* Or for reference counting */
@@ -99,6 +99,9 @@
  * when we've got more examples of the code working in real use.
  */
 #define DEBUG_WRITE 0
+
+/* Should we default to verbose? */
+#define DEBUG_ASSUME_VERBOSE	0
 
 #if DEBUG
 #define kbus_maybe_dbg(dev, format, args...) do { \
@@ -159,78 +162,186 @@ struct kbus_unreplied_item {
 	struct list_head 	 list;
 	struct kbus_msg_id	 id;		/* the request's id */
 	uint32_t		 from;		/* the sender's id */
-	uint32_t		 name_len;	/* and its name... */
-	char			*name;
+	struct kbus_name_ptr	*name_ref;	/* and its name... */
+	uint32_t		 name_len;
 };
 
 /*
- * Stuff to do with the user reading a message (using 'read')
+ * The parts of a message being written to KBUS (via kbus_write[_parts]),
+ * or read by the user (via kbus_read) are:
  *
- * The message (as read by the user) is made up of:
+ * * the user-space message header - as in 'struct kbus_message_header'
  *
- * 0. the message header
- * 1. the message name
- * 2. padding to bring that up to a NULL terminator and then a 4-byte boundary
- * 3. the message data (if any)
- * 4. padding to bring that up to a 4-byte boundary
- * 5. the final end guard
- */
-
-/*
- * The minimum number of parts is 4:
+ * from which we copy various items into our own internal message header.
  *
- * * the message header
+ * For a "pointy" message, that is all there is.
+ *
+ * For an "entire" message, this is then followed by:
+ *
  * * the message name
  * * padding to bring that up to a NULL terminator and then a 4-byte boundary.
- * * and, at the end, the final end guard.
  *
- * If we have message data, then (before the final end guard) we also have N
- * data parts, plus padding to bring the total up to a 4-byte boundary.
+ * If the "entire" message has data, then this is followed by:
+ *
+ * * N data parts (all but the last of size PART_LEN)
+ * * padding to bring that up to a 4-byte boundary.
+ *
+ * and finally, whether there was data or not:
+ *
+ * * the final end guard.
+ *
+ * Remember that kbus_read always delivers an "entire" message.
  */
-#define KBUS_MIN_NUM_PARTS	4
-
 #define KBUS_PART_HDR		0
 #define KBUS_PART_NAME		1
 #define KBUS_PART_NPAD		2
-#define KBUS_PART_DATA_START	3
-
-/* The following are used by kbus_write(), but not by kbus_read() */
+#define KBUS_PART_DATA		3
 #define KBUS_PART_DPAD		4
 #define KBUS_PART_FINAL_GUARD	5
+
+#define KBUS_NUM_PARTS		6
 
 /* We can't need more than 8 characters of padding, by definition! */
 static char		*static_zero_padding = "\0\0\0\0\0\0\0\0";
 static uint32_t		 static_end_guard = KBUS_MSG_END_GUARD;
 
 /*
- * Note that:
+ * A reference counting wrapper for message data
  *
- * 1. 'hdr' and 'parts[0]' are both the message header.
- * 2. 'parts[1]' is the message name
- * 3. 'parts[2..]' are the message data, if any, and 'data'
- *    is the *reference counted* data (again, if any)
- * 4. 'parts[-1]' is the (static) final end guard
+ * If 'as_pages' is false, then the data is stored as a single kmalloc'd
+ * entity, pointed to by 'parts[0]'. In this case, 'num_parts' will be 1,
+ * and 'last_page_len' will be the size of the allocated data.
  *
- * Beware that, at some point in "reading" [1]_, the 'name' and 'data'
- * pointers in the message header will get unset, since we (a) want
- * to copy the header out byte-by-byte, and (b) we're trying to give
- * the user an "entire" message, so we need them unset. This means that,
- * after that point, any attempt to treat the message header *as* a
- * message header will fail.
+ * If 'as_pages' is true, then the data is stored as 'num_parts' pages, each
+ * pointed to by 'parts[n]'. The last page should be treated as being size
+ * 'last_page_len' (even if the implementation is not enforcing this). All
+ * other pages are of size PART_LEN.
  *
- * .. [1] Strangely enough, in kbus_read().
+ * In either case, 'lengths[n]' is a "fill counter" for how many bytes of data
+ * are actually being stored in page 'n'. Once the data is all in place, this
+ * should be equal to PART_LEN or 'last_page_len' as appropriate.
+ *
+ * 'refcount' is a stanard kernel reference count for the data - when it reaches
+ * 0, everything (the parts, the arrays and the datastructure) gets freed.
  */
-struct kbus_read_msg {
-	struct kbus_message_header	 *hdr;
-	struct kbus_data_ptr		 *data;
-	int				  num_parts;
-	char				**parts;  /* ARRAY */
-	unsigned			 *lengths;/* ARRAY */
-	int				  which;/* The current item */
-	uint32_t			  pos;	/* How far they've read in it */
+struct kbus_data_ptr {
+	int		 as_pages;
+	unsigned	 num_parts;
+	unsigned long	*parts;
+	unsigned	*lengths;
+	unsigned	 last_page_len;
+	struct kref	 refcount;
 };
 
 /*
+ * A reference counting wrapper for message names
+ *
+ * RATIONALE:
+ *
+ * When a message name is copied from user space, we take our first copy.
+ *
+ * In order to send a message to a Ksock, we use kbus_push_message(), which
+ * takes a copy of the message for each recipient.
+ *
+ * We also take a copy of the message name for our list of messages that have
+ * been read but not replied to.
+ *
+ * It makes sense to copy the message header, because the contents thereof are
+ * changed according to the particular recipient.
+ *
+ * Copying the message data (if any) is handled by the kbus_data_ptr, above,
+ * which provides reference counting. This makes sense because message data may
+ * be large.
+ *
+ * If we only have one recipient, copying the message name is not a big issue,
+ * but if there are many, we would prefer not to make many copies of the
+ * string. It is, perhaps, worth keeping a dictionary of message names. and
+ * referring to the name in that - but that's not an incremental change from
+ * the "simple copying" state we start from.
+ *
+ * The simplest change to make, which may have some benefit, is to reference
+ * count the names for an individual message, as is done for the message data.
+ *
+ * If we have a single recipient, we will have copied the string from user
+ * space, and also created the kbus_name_ptr datastructure - an overhead of 8
+ * bytes. However, when we copy the message for the recipient, we do not need
+ * to copy the message name, so if the message name is more than 8 bytes, we
+ * have immediately made a gain (and experience shows that message names tend
+ * to be at least that long).
+ *
+ * As soon as we have more than one recipient, it becomes extremely likely that
+ * we have saved space, and we will definitely have saved allocations which
+ * could be fragmenting memory. So it sounds like a good thing to try.
+ *
+ * Also, if I later on want to store a hash code for the string (hoping to
+ * speed up comparisons), the new datastructure gives me somewhere to put it...
+ */
+struct kbus_name_ptr {
+	char		*name;
+	struct kref	 refcount;
+};
+
+/*
+ * When the user writes a message to us, or reads a message from us, they use
+ * the kbus_message_header structure. The user version of the message is either
+ * "entire" or "pointy".
+ *
+ * Within the kernel, all messages are held as "pointy" messages, but instead
+ * of direct pointers to the message name and data, we use reference counted
+ * pointers.
+ *
+ * Rather than overload the 'name' and 'data' pointer fields, with all the
+ * danger of getting it wrong that that implies, it seems simpler to have our
+ * own, internal to the kernel, clone of the datastructure, but with these
+ * fields defined correctly...
+ *
+ * Hmm. If we have the name and data references, perhaps we should move the
+ * name and data *lengths* into those same.
+ */
+
+struct kbus_msg {
+	struct kbus_msg_id	 id;	      /* Unique to this message */
+	struct kbus_msg_id	 in_reply_to; /* Which message this is a reply to */
+	uint32_t		 to;	      /* 0 (empty) or a replier id */
+	uint32_t		 from;	      /* 0 (KBUS) or the sender's id */
+	struct kbus_orig_from	 orig_from;   /* Cross-network linkage */
+	struct kbus_orig_from	 final_to;    /* Cross-network linkage */
+	uint32_t		 extra;       /* ignored field - future proofing */
+	uint32_t		 flags;	      /* Message type/flags */
+	uint32_t		 name_len;    /* Message name's length, in bytes */
+	uint32_t		 data_len;    /* Message length, also in bytes */
+	struct kbus_name_ptr	*name_ref;
+	struct kbus_data_ptr	*data_ref;
+};
+
+/*
+ * The current message that the user is reading (with kbus_read())
+ *
+ * If 'msg' is NULL, then the data structure is "empty" (i.e., there is no
+ * message being read).
+ */
+struct kbus_read_msg {
+	struct kbus_message_header   user_hdr;  /* the header for user space */
+
+	struct kbus_msg		 *msg;		/* the internal message */
+	char			 *parts[KBUS_NUM_PARTS];
+	unsigned		  lengths[KBUS_NUM_PARTS];
+	int			  which;/* The current item */
+	uint32_t		  pos;	/* How far they've read in it */
+	/*
+	 * If the current item is KBUS_PART_DATA then we 'ref_data_index' is
+	 * which part of the data we're in, and 'pos' is how far we are through
+	 * that particular item.
+	 */
+	uint32_t		 ref_data_index;
+};
+
+/*
+ * See kbus_write_parts() for how this data structure is actually used.
+ *
+ * If 'msg' is NULL, then the data structure is "empty" (i.e., there is no
+ * message being written).
+ *
  * * 'is_finished' is true when we've got all the bytes for our message,
  *   and thus don't want any more. It's an error for the user to try to
  *   write more message after it is finished.
@@ -241,13 +352,11 @@ struct kbus_read_msg {
  *   final end guard is finished (so we will have the message name and any data
  *   in memory).
  *
- * * 'is_pointy' is set to indicate if this is a "pointy" or "entire" message
+ * * 'pointers_are_local' is true if the message's name and data have been
+ *   transferred to kernel space (as reference counted entities), and false
+ *   if they are (still) in user space.
  *
- * * 'pointers_are_local' is true if the message's name and data pointers
- *   refer to kernel space (and thus may/should be freed), and false if they do
- *   not (yet).
- *
- * * 'hdr' is the message header.
+ * * 'hdr' is the message header, the shorter in-kernel version.
  *
  * * 'which' indicates which part of the message we think we're being given
  *   bytes for, from KBUS_PART_HDR through to (for an "entire" message)
@@ -257,27 +366,39 @@ struct kbus_read_msg {
  *   this is the index within the whole of the data (not the index within a
  *   data part).
  *
- * * If we're reading an "entire" message, and it has data, then 'ref_data'
- *   is a pointer to the reference-counted data. This is allocated to the
+ * * If we're reading an "entire" message, then the message name gets written
+ *   to 'ref_name', which is a reference-counted string. This is allocated to
+ *   the correct size/shape for the entire message name, after the head has
+ *   been read.
+ *
+ *   The intention is that, if 'ref_name' is non-NULL, it should be legal
+ *   to call 'kbus_lower_name_ref()' on it, to free its contents.
+ *
+ * * Similarly, 'ref_data' is reference-counted data, again allocated to the
  *   correct size/shape for the entire message data length, after the header
  *   has been read. The 'length' for each part is used to indicate how far
  *   through that part we have populated with bytes.
  *
  *   The intention is that, if 'ref_data' is non-NULL, it should be legal
- *   to call 'kbus_deref_data()' on it, to free its contents.
+ *   to call 'kbus_lower_data_ref()' on it, to free its contents.
  *
- * * 'ref_data_index' is then the index (starting at 0) of the referenced
+ *  'ref_data_index' is then the index (starting at 0) of the referenced
  *   data part that we are populating.
  */
 struct kbus_write_msg {
-	uint32_t			 is_finished;
-	uint32_t			 is_pointy;
-	uint32_t			 pointers_are_local;
-	struct kbus_message_header	*hdr;
-	int				 which;
-	uint32_t			 pos;
-	struct kbus_data_ptr		*ref_data;
-	uint32_t			 ref_data_index;
+	struct kbus_message_header	 user_msg; /* from user space */
+	struct kbus_msg			*msg;	   /* our version of it */
+
+	uint32_t		 is_finished;
+	uint32_t		 pointers_are_local;
+	uint32_t		 guard;	/* Whichever guard we're reading */
+	char			*user_name_ptr;	/* User space name */
+	void			*user_data_ptr;	/* User space data */
+	int			 which;
+	uint32_t		 pos;
+	struct kbus_name_ptr	*ref_name;
+	struct kbus_data_ptr	*ref_data;
+	uint32_t		 ref_data_index;
 };
 
 /*
@@ -287,10 +408,10 @@ struct kbus_write_msg {
  * should ever actually happen).
  */
 struct kbus_unsent_message_item {
-	struct list_head list;
-	struct kbus_private_data    *send_to;	/* who we want to send it to */
-	uint32_t		     send_to_id;/* but the id is often useful */
-	struct kbus_message_header  *msg;	/* the message itself */
+	struct list_head	  list;
+	struct kbus_private_data *send_to;	/* who we want to send it to */
+	uint32_t		  send_to_id;	/* but the id is often useful */
+	struct kbus_msg		 *msg;		/* the message itself */
 	struct kbus_message_binding *binding;	/* and why we remembered it */
 };
 
@@ -373,11 +494,6 @@ struct kbus_private_data {
 	 *     we're only *really* needing its name, its id and who its
 	 *     from -- given which its easiest just to keep the parts we
 	 *     *do* need, and ignore the data.)
-	 *
-	 *     XXX Of course, when messages get reference counted internally,
-	 *     XXX and message names are also available as message codes,
-	 *     XXX we should be able to store *just* the message id, code
-	 *     XXX and from values, which is considerably shorter.
 	 *
 	 * XXX Do I need to limit the size of this list? *Can* it grow
 	 * XXX in an unbounded manner? The limitation is set by the ability
@@ -569,36 +685,8 @@ static struct kbus_dev       **kbus_devices;
  */
 struct kbus_message_queue_item {
 	struct list_head		 list;
-	struct kbus_message_header	*msg;
+	struct kbus_msg			*msg;
 	struct kbus_message_binding	*binding;
-};
-
-/*
- * A reference counting wrapper for message data
- *
- * If 'as_pages' is false, then the data is stored as a single kmalloc'd
- * entity, pointed to by 'parts[0]'. In this case, 'num_parts' will be 1,
- * and 'last_page_len' will be the size of the allocated data.
- *
- * If 'as_pages' is true, then the data is stored as 'num_parts' pages, each
- * pointed to by 'parts[n]'. The last page should be treated as being size
- * 'last_page_len' (even if the implementation is not enforcing this). All
- * other pages are of size PART_LEN.
- *
- * In either case, 'lengths[n]' is a "fill counter" for how many bytes of data
- * are actually being stored in page 'n'. Once the data is all in place, this
- * should be equal to PART_LEN or 'last_page_len' as appropriate.
- *
- * 'refcount' is a stanard kernel reference count for the data - when it reaches
- * 0, everything (the parts, the arrays and the datastructure) gets freed.
- */
-struct kbus_data_ptr {
-	int		 as_pages;
-	unsigned	 num_parts;
-	unsigned long	*parts;
-	unsigned	*lengths;
-	unsigned	 last_page_len;
-	struct kref	 refcount;
 };
 
 /* The sizes of the parts in our reference counted data */
@@ -616,9 +704,9 @@ static struct kbus_private_data *kbus_find_open_ksock(struct kbus_dev	*dev,
 static int kbus_setup_new_device(int which);
 
 /* More or less ditto */
-static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
-					struct kbus_dev		   *dev,
-					struct kbus_message_header *msg);
+static int32_t kbus_write_to_recipients(struct kbus_private_data *priv,
+					struct kbus_dev		 *dev,
+					struct kbus_msg		 *msg);
 
 static void kbus_forget_unbound_unsent_unbind_msgs(struct kbus_private_data	*priv,
 						   struct kbus_message_binding  *binding);
@@ -631,12 +719,11 @@ static int kbus_alloc_ref_data(struct kbus_private_data	 *priv,
 /*
  * Wrap a set of data pointers and lengths in a reference
  */
-static struct kbus_data_ptr *kbus_new_data_ref(struct kbus_private_data *priv,
-					       int		         as_pages,
-					       unsigned			 num_parts,
-					       unsigned long		*parts,
-					       unsigned			*lengths,
-					       unsigned			 last_page_len)
+static struct kbus_data_ptr *kbus_wrap_data_in_ref(int			 as_pages,
+						   unsigned		 num_parts,
+						   unsigned long	*parts,
+						   unsigned		*lengths,
+						   unsigned		 last_page_len)
 {
 	struct kbus_data_ptr *new = NULL;
 
@@ -652,9 +739,8 @@ static struct kbus_data_ptr *kbus_new_data_ref(struct kbus_private_data *priv,
 	kref_init(&new->refcount);
 
 #if DEBUG_REFCOUNT
-	kbus_maybe_dbg(priv->dev,"kbus:   %u/%u <00 ref %p now %d>\n",
-		       priv->dev->index,priv->id,
-		       new->parts,new->refcount.refcount);
+	printk(KERN_DEBUG "kbus:   <00 ref %p now %d>\n",
+	       new->parts, atomic_read(&new->refcount.refcount));
 #endif
 	return new;
 }
@@ -664,15 +750,13 @@ static struct kbus_data_ptr *kbus_new_data_ref(struct kbus_private_data *priv,
  *
  * Returns the (same) reference, for convenience.
  */
-static struct kbus_data_ptr *kbus_ref_data(struct kbus_private_data	*priv,
-					   struct kbus_data_ptr		*refdata)
+static struct kbus_data_ptr *kbus_raise_data_ref(struct kbus_data_ptr		*refdata)
 {
 	if (refdata != NULL) {
 		kref_get(&refdata->refcount);
 #if DEBUG_REFCOUNT
-		kbus_maybe_dbg(priv->dev,"kbus:   %u/%u <UP ref %p now %d>\n",
-			       priv->dev->index,priv->id,
-			       refdata->parts,refdata->refcount.refcount);
+		printk(KERN_DEBUG "kbus:   <UP ref %p now %d>\n",
+		       refdata->parts, atomic_read(&refdata->refcount.refcount));
 #endif
 	}
 	return refdata;
@@ -682,7 +766,7 @@ static struct kbus_data_ptr *kbus_ref_data(struct kbus_private_data	*priv,
  * Data release callback for data reference pointers. Called when the reference
  * count says to...
  */
-static void kbus_release_data(struct kref *ref)
+static void kbus_release_data_ref(struct kref *ref)
 {
 	struct kbus_data_ptr *refdata = container_of(ref,
 					struct kbus_data_ptr, refcount);
@@ -691,8 +775,8 @@ static void kbus_release_data(struct kref *ref)
 #endif
 	if (refdata->parts == NULL) {
 		/* XXX Do we think this can happen? */
-		printk(KERN_ERR "kbus: Removing reference,"
-		       " but ptr already freed\n");
+		printk(KERN_ERR "kbus: Removing data reference,"
+		       " but data ptr already freed\n");
 	} else {
 		int jj;
 		if (refdata->as_pages)
@@ -713,23 +797,98 @@ static void kbus_release_data(struct kref *ref)
  * Forget a reference to our pointer, and if no-one cares anymore, free it and
  * its contents.
  */
-static void kbus_deref_data(struct kbus_private_data	*priv,
-			    struct kbus_dev		*dev,
-			    struct kbus_data_ptr	*refdata)
+static void kbus_lower_data_ref(struct kbus_data_ptr	*refdata)
 {
 	if (refdata == NULL)
 		return;
 
-	kref_put(&refdata->refcount, kbus_release_data);
+	kref_put(&refdata->refcount, kbus_release_data_ref);
 
 #if DEBUG_REFCOUNT
-	if (priv)
-		kbus_maybe_dbg(dev,"kbus:   %u/%u <DN ref %p now %d>\n",
-			       dev->index, priv->id, refdata->parts, refdata->refcount.refcount);
-	else
-		kbus_maybe_dbg(dev,"kbus:   %u <DN ref %p now %d>\n",
-			       dev->index, refdata->parts, refdata->refcount.refcount);
+	printk(KERN_DEBUG "kbus:  <DN ref %p now %d>\n",
+	       refdata->parts, atomic_read(&refdata->refcount.refcount));
 #endif
+}
+
+/*
+ * Wrap a string in a reference. Does not take a copy of the string,
+ * but note that the release mechanism (triggered when there are no more
+ * references to the string) *will* free it.
+ */
+static struct kbus_name_ptr *kbus_wrap_name_in_ref(char *str)
+{
+	struct kbus_name_ptr *new = NULL;
+
+	new = kmalloc(sizeof(*new), GFP_KERNEL);
+	if (!new) return NULL;
+
+	new->name = str;
+	kref_init(&new->refcount);
+
+#if DEBUG_REFCOUNT
+	printk(KERN_DEBUG "kbus:   <00 ref '%s' now %d>\n",
+	       new->name, atomic_read(&new->refcount.refcount));
+#endif
+	return new;
+}
+
+/*
+ * Increment the reference count for a string reference
+ *
+ * Returns the (same) reference, for convenience.
+ */
+static struct kbus_name_ptr *kbus_raise_name_ref(struct kbus_name_ptr	*refname)
+{
+	if (refname != NULL) {
+		kref_get(&refname->refcount);
+#if DEBUG_REFCOUNT
+		printk(KERN_DEBUG "kbus:   <UP ref '%s' now %d>\n",
+		       refname->name, atomic_read(&refname->refcount.refcount));
+#endif
+	}
+	return refname;
+}
+
+/*
+ * Data release callback for string reference pointers. Called when the reference
+ * count says to...
+ */
+static void kbus_release_name_ref(struct kref *ref)
+{
+	struct kbus_name_ptr *refname = container_of(ref,
+					struct kbus_name_ptr, refcount);
+#if DEBUG_REFCOUNT
+	printk(KERN_DEBUG "kbus: RELEASE NAME\n");
+	printk(KERN_DEBUG "kbus:    refname is %p\n",refname);
+	printk(KERN_DEBUG "kbus:    refname->name is %p\n",refname->name);
+#endif
+	if (refname->name == NULL) {
+		/* XXX Do we think this can happen? */
+		printk(KERN_ERR "kbus: Removing name reference,"
+		       " but name ptr already freed\n");
+	} else {
+		kfree(refname->name);
+		refname->name = NULL;
+	}
+
+	kfree(refname);
+}
+
+/*
+ * Forget a reference to our string, and if no-one cares anymore, free it and
+ * its contents.
+ */
+static void kbus_lower_name_ref(struct kbus_name_ptr		*refname)
+{
+	if (refname == NULL)
+		return;
+
+#if DEBUG_REFCOUNT
+	printk(KERN_DEBUG "kbus:   <DN ref '%s' now %d>\n",
+	       refname->name, atomic_read(&refname->refcount.refcount)-1);
+#endif
+
+	kref_put(&refname->refcount, kbus_release_name_ref);
 }
 
 /*
@@ -899,7 +1058,7 @@ static int kbus_forget_msg_id(struct kbus_private_data	*priv,
 }
 
 /* A message is a reply iff 'in_reply_to' is non-zero */
-static int kbus_message_is_reply(struct kbus_message_header *msg)
+static int kbus_message_is_reply(struct kbus_msg *msg)
 {
 	return !kbus_same_message_id(&msg->in_reply_to,0,0);
 }
@@ -913,14 +1072,15 @@ static int kbus_message_is_reply(struct kbus_message_header *msg)
  *
  * Use kbus_free_message() to free this message when it is finished with.
  */
-static struct kbus_message_header
+static struct kbus_msg
 	*kbus_build_kbus_message(struct kbus_dev	 *dev,
 				 char			 *msg_name,
 				 uint32_t		  from,
 				 uint32_t		  to,
 				 struct kbus_msg_id	  in_reply_to)
 {
-	struct kbus_message_header	*new_msg;
+	struct kbus_msg		*new_msg;
+	struct kbus_name_ptr	*name_ref;
 
 	size_t	 msg_name_len = strlen(msg_name);
 	char	*msg_name_copy;
@@ -941,16 +1101,22 @@ static struct kbus_message_header
 	strncpy(msg_name_copy, msg_name, msg_name_len);
 	msg_name_copy[msg_name_len] = '\0';
 
+	name_ref = kbus_wrap_name_in_ref(msg_name_copy);
+	if (!name_ref) {
+		printk(KERN_ERR "kbus: Cannot kmalloc synthetic message's string ref\n");
+		kfree(new_msg);
+		kfree(msg_name_copy);
+	       	return NULL;
+	}
+
 	memset(new_msg, 0, sizeof(*new_msg));
 
-	new_msg->start_guard = KBUS_MSG_START_GUARD;
 	new_msg->from = from;
 	new_msg->to = to;
 	new_msg->in_reply_to = in_reply_to;
 	new_msg->flags = KBUS_BIT_SYNTHETIC;
+	new_msg->name_ref = name_ref;
 	new_msg->name_len = msg_name_len;
-	new_msg->name = msg_name_copy;
-	new_msg->end_guard = KBUS_MSG_END_GUARD;
 
 	new_msg->id.serial_num = kbus_next_serial_num(dev);
 
@@ -1072,84 +1238,62 @@ static int kbus_message_name_matches(char *name, size_t name_len, char *other)
 }
 
 /*
- * Check if a message header is well structured.
- *
- * If 'check_final_guard', then also check for a final end guard on an "entire"
- * message.
+ * Check if a message read by kbus_write() is well formed
  *
  * Return 0 if a message is well-formed, negative otherwise.
  */
-static int kbus_check_message_header(struct kbus_message_header	*msg,
-				     int check_final_guard)
+static int kbus_check_message_written(struct kbus_write_msg *this)
 {
-	if (msg == NULL) {
+	struct kbus_message_header	*user_msg = &this->user_msg;
+
+	if (this == NULL) {
 		printk(KERN_ERR "kbus: Tried to check NULL message\n");
 		return -EINVAL;
 	}
 
-	/*
-	 * Check the guards match, and that lengths are "plausible"
-	 */
-	if (msg->start_guard != KBUS_MSG_START_GUARD) {
+	if (user_msg->start_guard != KBUS_MSG_START_GUARD) {
 		printk(KERN_ERR "kbus: message start guard is %08x,"
-		       " not %08x\n", msg->start_guard, KBUS_MSG_START_GUARD);
+		       " not %08x\n", user_msg->start_guard, KBUS_MSG_START_GUARD);
 		return -EINVAL;
 	}
-	if (msg->end_guard != KBUS_MSG_END_GUARD) {
+	if (user_msg->end_guard != KBUS_MSG_END_GUARD) {
 		printk(KERN_ERR "kbus: message end guard is %08x,"
-		       " not %08x\n", msg->end_guard, KBUS_MSG_END_GUARD);
+		       " not %08x\n", user_msg->end_guard, KBUS_MSG_END_GUARD);
 		return -EINVAL;
 	}
 
-	if (msg->name_len == 0) {
+	if (user_msg->name_len == 0) {
 		printk(KERN_ERR "kbus: Message name length is 0\n");
 		return -EINVAL;
 	}
-	if (msg->name_len > KBUS_MAX_NAME_LEN) {
+	if (user_msg->name_len > KBUS_MAX_NAME_LEN) {
 		printk(KERN_ERR "kbus: Message name length is %u,"
-		       " more than %u\n", msg->name_len, KBUS_MAX_NAME_LEN);
+		       " more than %u\n", user_msg->name_len, KBUS_MAX_NAME_LEN);
 		return -ENAMETOOLONG;
 	}
 
-	if (msg->name == NULL) {
-		if (msg->data != NULL) {
+	if (user_msg->name == NULL) {
+		if (user_msg->data != NULL) {
 			printk(KERN_ERR "kbus: Message name is inline, data is not\n");
 			return -EINVAL;
 		}
 	} else {
-		if (msg->data == NULL && msg->data_len != 0) {
+		if (user_msg->data == NULL && user_msg->data_len != 0) {
 			printk(KERN_ERR "kbus: Message data is inline, name is not\n");
 			return -EINVAL;
 		}
 	}
 
-	if (msg->data_len == 0 && msg->data != NULL) {
+	if (user_msg->data_len == 0 && user_msg->data != NULL) {
 		printk(KERN_ERR "kbus: Message data length is 0, but data pointer is set\n");
 		return -EINVAL;
 	}
 
 	/* It's not legal to set both ALL_OR_WAIT and ALL_OR_FAIL */
-	if ((msg->flags & KBUS_BIT_ALL_OR_WAIT) &&
-	    (msg->flags & KBUS_BIT_ALL_OR_FAIL)) {
+	if ((user_msg->flags & KBUS_BIT_ALL_OR_WAIT) &&
+	    (user_msg->flags & KBUS_BIT_ALL_OR_FAIL)) {
 		printk(KERN_ERR "kbus: Message cannot have both ALL_OR_WAIT and ALL_OR_FAIL set\n");
 		return -EINVAL;
-	}
-
-	if (msg->name == NULL && check_final_guard) {
-		struct kbus_entire_message	*entire;
-		uint32_t	*end_guard_ptr;
-
-		entire = (struct kbus_entire_message *)msg;
-		end_guard_ptr = kbus_msg_end_ptr(entire);
-
-#if DEBUG
-		if (*end_guard_ptr != KBUS_MSG_END_GUARD) {
-			printk(KERN_ERR "kbus: (entire) message end guard is %08x,"
-			       " not %08x\n", *end_guard_ptr,
-			       KBUS_MSG_END_GUARD);
-			return -EINVAL;
-		}
-#endif
 	}
 	return 0;
 }
@@ -1161,23 +1305,19 @@ static int kbus_check_message_header(struct kbus_message_header	*msg,
 
 /*
  * Output a description of an in-kernel message
- *
- * The message is assumed to be in "kernel form" - that is, the message name
- * must be in kernel space, and the message data (if any) reference counted.
  */
-static void kbus_report_message(char				*kern_prefix,
-				struct kbus_message_header	*msg)
+static void kbus_report_message(char		*kern_prefix,
+				struct kbus_msg	*msg)
 {
 	if (msg->data_len) {
-		struct kbus_data_ptr  *data_p = msg->data;
+		struct kbus_data_ptr  *data_p = msg->data_ref;
 		uint8_t   *part0 = (uint8_t *)data_p->parts[0];
-		printk("%skbus:   =%s= %u:%u '%.*s'"
+		printk("%skbus:   === %u:%u '%.*s'"
 		       " to %u from %u in-reply-to %u:%u orig %u,%u final %u:%u flags %04x:%04x"
 		       " data/%u<in%u> %02x.%02x.%02x.%02x\n",
 		       kern_prefix,
-		       msg->name==NULL?"E":"=",
 		       msg->id.network_id,msg->id.serial_num,
-		       msg->name_len,msg->name,
+		       msg->name_len,msg->name_ref->name,
 		       msg->to, msg->from,
 		       msg->in_reply_to.network_id, msg->in_reply_to.serial_num,
 		       msg->orig_from.network_id, msg->orig_from.local_id,
@@ -1187,12 +1327,11 @@ static void kbus_report_message(char				*kern_prefix,
 		       data_p->num_parts,
 		       part0[0], part0[1], part0[2], part0[3]);
 	} else {
-		printk("%skbus:   =%s= %u:%u '%.*s'"
+		printk("%skbus:   === %u:%u '%.*s'"
 		       " to %u from %u in-reply-to %u:%u orig %u,%u final %u,%u flags %04x:%04x\n",
 		       kern_prefix,
-		       msg->name==NULL?"E":"=",
 		       msg->id.network_id,msg->id.serial_num,
-		       msg->name_len,msg->name,
+		       msg->name_len,msg->name_ref->name,
 		       msg->to, msg->from,
 		       msg->in_reply_to.network_id, msg->in_reply_to.serial_num,
 		       msg->orig_from.network_id, msg->orig_from.local_id,
@@ -1205,20 +1344,19 @@ static void kbus_report_message(char				*kern_prefix,
 #if DEBUG_WRITE
 static void kbus_report_write_msg(struct kbus_private_data	*priv)
 {
-	kbus_maybe_dbg(priv->dev,"kbus: %u/%u  WRITE MSG finished %u pointy %u local %u hdr %p which %d pos %u ref %p part %u\n",
+	kbus_maybe_dbg(priv->dev,"kbus: %u/%u  WRITE MSG finished %u local %u msg %p which %d pos %u ref %p part %u\n",
 	       priv->dev->index,priv->id,
 	       priv->write.is_finished,
-	       priv->write.is_pointy,
 	       priv->write.pointers_are_local,
-	       priv->write.hdr,
+	       priv->write.msg,
 	       priv->write.which,
 	       priv->write.pos,
 	       priv->write.ref_data,
 	       priv->write.ref_data_index);
-	if (priv->write.hdr) {
+	if (priv->write.msg) {
 		kbus_maybe_dbg(priv->dev,"kbus:      msg name %p data %p\n",
-		       priv->write.hdr->name,
-		       priv->write.hdr->data);
+		       priv->write.msg->name_ref,
+		       priv->write.msg->data_ref);
 	}
 }
 #endif
@@ -1228,13 +1366,13 @@ static void kbus_report_write_msg(struct kbus_private_data	*priv)
  *
  * Copies the message header, and also copies the message name and any
  * data. The message must be a 'pointy' message with reference counted
- * data.
+ * name and data.
  */
-static struct kbus_message_header *
+static struct kbus_msg *
 	kbus_copy_message(struct kbus_private_data	*priv,
-			  struct kbus_message_header	*old_msg)
+			  struct kbus_msg		*old_msg)
 {
-	struct kbus_message_header  *new_msg;
+	struct kbus_msg  *new_msg;
 
 	new_msg = kmalloc(sizeof(*new_msg), GFP_KERNEL);
 	if (!new_msg) {
@@ -1248,21 +1386,14 @@ static struct kbus_message_header *
 	}
 
 	/* In case of error before we're finished... */
-	new_msg->name = NULL;
-	new_msg->data = NULL;
+	new_msg->name_ref = NULL;
+	new_msg->data_ref = NULL;
 
-	new_msg->name = kmalloc(new_msg->name_len + 1, GFP_KERNEL);
-	if (!new_msg->name) {
-		printk(KERN_ERR "kbus: Cannot kmalloc copy of message name\n");
-		kfree(new_msg);
-	       	return NULL;
-	}
-	strncpy(new_msg->name, old_msg->name, new_msg->name_len);
-	new_msg->name[new_msg->name_len] = 0;
+	new_msg->name_ref = kbus_raise_name_ref(old_msg->name_ref);
 
 	if (new_msg->data_len) {
 		/* Take a new reference to the data */
-		new_msg->data = kbus_ref_data(priv,old_msg->data);
+		new_msg->data_ref = kbus_raise_data_ref(old_msg->data_ref);
 	}
 	return new_msg;
 }
@@ -1270,148 +1401,76 @@ static struct kbus_message_header *
 /*
  * Free a message.
  * 
- * Also frees the message name and (dereferences) any message data.
+ * Also dereferences the message name and any message data.
  */
-static void kbus_free_message(struct kbus_private_data	 *priv,
-			      struct kbus_dev		 *dev,
-			      struct kbus_message_header *msg)
+static void kbus_free_message(struct kbus_msg		 *msg)
 {
-	if (msg->name)
-		kfree(msg->name);
+	if (msg->name_ref)
+		kbus_lower_name_ref(msg->name_ref);
 	msg->name_len = 0;
-	msg->name= NULL;
+	msg->name_ref = NULL;
 
-	if (msg->data_len && msg->data) {
-		kbus_deref_data(priv, dev, msg->data);
+	if (msg->data_len && msg->data_ref) {
+		kbus_lower_data_ref(msg->data_ref);
 	}
 	msg->data_len = 0;
-	msg->data= NULL;
+	msg->data_ref = NULL;
 	kfree(msg);
-}
-
-/* Make space to store the message being read by the user */
-static int kbus_alloc_read_msg(struct kbus_private_data *priv,
-			       int			 num_parts)
-{
-	int ii;
-
-	priv->read.parts = kmalloc(sizeof(*(priv->read.parts))*num_parts,
-				  GFP_KERNEL);
-	if (!priv->read.parts) {
-		return -ENOMEM;
-	}
-	priv->read.lengths = kmalloc(sizeof(*(priv->read.lengths))*num_parts,
-				 GFP_KERNEL);
-	if (!priv->read.lengths) {
-		kfree(priv->read.parts);
-		priv->read.parts = NULL;
-		return -ENOMEM;
-	}
-	for (ii=0; ii<num_parts; ii++) {
-		priv->read.parts[ii] = NULL;
-		priv->read.lengths[ii] = 0;
-	}
-	priv->read.num_parts = num_parts;
-	return 0;
-}
-
-static int kbus_realloc_read_msg(struct kbus_private_data *priv,
-				 int			   new_num_parts)
-{
-	int ii;
-
-	priv->read.parts = krealloc(priv->read.parts,
-				    sizeof(*(priv->read.parts))*new_num_parts,
-				    GFP_KERNEL);
-	if (!priv->read.parts) {
-		priv->read.parts = NULL;
-		return -ENOMEM;
-	}
-	priv->read.lengths = krealloc(priv->read.lengths,
-				      sizeof(*(priv->read.lengths))*new_num_parts,
-				      GFP_KERNEL);
-	if (!priv->read.lengths) {
-		kfree(priv->read.parts);
-		priv->read.parts = NULL;
-		priv->read.lengths = NULL;
-		return -ENOMEM;
-	}
-	for (ii=priv->read.num_parts; ii<new_num_parts; ii++) {
-		priv->read.parts[ii] = NULL;
-		priv->read.lengths[ii] = 0;
-	}
-	priv->read.num_parts = new_num_parts;
-	return 0;
-}
-
-static void kbus_free_read_msg(struct kbus_private_data *priv)
-{
-	if (priv->read.parts) {
-		kfree(priv->read.parts);
-		priv->read.parts = NULL;
-	}
-	if (priv->read.lengths) {
-		kfree(priv->read.lengths);
-		priv->read.lengths = NULL;
-	}
 }
 
 static void kbus_empty_read_msg(struct kbus_private_data *priv)
 {
+	struct kbus_read_msg  *this = &(priv->read);
 	int  ii;
 
-	if (priv->read.hdr) {
-		kfree(priv->read.hdr);
-		priv->read.hdr = NULL;
+#if DEBUG_WRITE
+	kbus_maybe_dbg(priv->dev,"kbus: %u/%u kbus_empty_read_msg ------------\n",
+	       priv->dev->index,priv->id);
+	if (this->msg == NULL)
+		kbus_maybe_dbg(priv->dev,"kbus:      (<msg> is NULL)\n");
+#endif
+
+	if (this->msg) {
+		kbus_free_message(this->msg);
+		this->msg = NULL;
 	}
 
-	if (priv->read.parts[KBUS_PART_NAME])
-		kfree(priv->read.parts[KBUS_PART_NAME]);
-
-	/* Take care to only "free" any data via its reference count */
-	if (priv->read.data) {
-		kbus_deref_data(priv, priv->dev, priv->read.data);
-		priv->read.data = NULL;
+	for (ii=0; ii<KBUS_NUM_PARTS; ii++) {
+		this->parts[ii] = NULL;
+		this->lengths[ii] = 0;
 	}
-
-	for (ii=0; ii<priv->read.num_parts; ii++) {
-		priv->read.parts[ii] = NULL;
-		priv->read.lengths[ii] = 0;
-	}
-
-	priv->read.which = 0;
-	priv->read.pos = 0;
+	this->which = 0;
+	this->pos = 0;
+	this->ref_data_index = 0;
 	return;
 }
 
 static void kbus_empty_write_msg(struct kbus_private_data *priv)
 {
+	struct kbus_write_msg	*this = &priv->write;
 #if DEBUG_WRITE
 	kbus_maybe_dbg(priv->dev,"kbus: %u/%u kbus_empty_write_msg ------------\n",
 	       priv->dev->index,priv->id);
 	kbus_report_write_msg(priv);
 #endif
-	if (priv->write.hdr) {
-		if (priv->write.pointers_are_local) {
-			struct kbus_message_header  *msg  = priv->write.hdr;
-			if (msg->name)
-				kfree(msg->name);
-			if (msg->data)
-				kbus_deref_data(priv, priv->dev, msg->data);
-			priv->write.pointers_are_local = false;
-		}
-		kfree(priv->write.hdr);
-		priv->write.hdr = NULL;
+	if (this->msg) {
+		kbus_free_message(this->msg);
+		this->msg = NULL;
 	}
 
-	if (priv->write.ref_data) {
-		kbus_deref_data(priv, priv->dev, priv->write.ref_data);
-		priv->write.ref_data = NULL;
+	if (this->ref_name) {
+		kbus_lower_name_ref(this->ref_name);
+		this->ref_name = NULL;
 	}
 
-	priv->write.is_finished = false;
-	priv->write.pos = 0;
-	priv->write.which = 0;
+	if (this->ref_data) {
+		kbus_lower_data_ref(this->ref_data);
+		this->ref_data = NULL;
+	}
+
+	this->is_finished = false;
+	this->pos = 0;
+	this->which = 0;
 #if DEBUG_WRITE
 	kbus_report_write_msg(priv);
 	kbus_maybe_dbg(priv->dev,"kbus: %u/%u ------------ kbus_empty_write_msg\n",
@@ -1444,34 +1503,17 @@ static void kbus_empty_write_msg(struct kbus_private_data *priv)
  * at least at the moment.
  */
 static int kbus_push_message(struct kbus_private_data	  *priv,
-			     struct kbus_message_header   *msg,
+			     struct kbus_msg		  *msg,
 			     struct kbus_message_binding  *binding,
 			     int			   for_replier)
 {
 	struct list_head		*queue = &priv->message_queue;
-	struct kbus_message_header	*new_msg = NULL;
+	struct kbus_msg			*new_msg = NULL;
 	struct kbus_message_queue_item	*item;
 
 	kbus_maybe_dbg(priv->dev,"kbus:   %u/%u Pushing message onto queue (%s)\n",
 		       priv->dev->index,priv->id,
 		       for_replier?"replier":"listener");
-
-	/* Check it makes some degreee of sense */
-	/*
-	 * XXX Is this unnecessary paranoia? If we're being called
-	 * XXX (ultimately) from kbus_send, then surely we already
-	 * XXX did these checks there. And otherwise we're being
-	 * XXX called for a synthetic message, which (a) should be
-	 * XXX correct (!), and (b) could check itself before calling
-	 * XXX us, if we want that check.
-	 */
-	if (kbus_check_message_header(msg,true)) return -EINVAL;
-	if (kbus_bad_message_name(msg->name,msg->name_len)) {
-		printk(KERN_ERR "kbus: message name '%.*s' is not allowed\n",
-		       msg->name_len,msg->name);
-		return -EBADMSG;
-	}
-
 
 	/*
 	 * 1. Check to see if this Ksock has the "only one copy
@@ -1516,7 +1558,7 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 	item = kmalloc(sizeof(*item), GFP_KERNEL);
 	if (!item) {
 		printk(KERN_ERR "kbus: Cannot kmalloc new message item\n");
-		kbus_free_message(priv,priv->dev,new_msg);
+		kbus_free_message(new_msg);
 	       	return -ENOMEM;
 	}
 
@@ -1619,7 +1661,7 @@ static void kbus_push_synthetic_message(struct kbus_dev		  *dev,
 					char			  *name)
 {
 	struct kbus_private_data	*priv = NULL;
-	struct kbus_message_header	*new_msg;
+	struct kbus_msg			*new_msg;
 
 	/* Who *was* the original message to? */
 	priv = kbus_find_open_ksock(dev,to);
@@ -1645,7 +1687,7 @@ static void kbus_push_synthetic_message(struct kbus_dev		  *dev,
 	(void) kbus_push_message(priv, new_msg, NULL, false);
 
 	/* kbus_push_message takes a copy of our message */
-	kbus_free_message(priv, dev, new_msg);
+	kbus_free_message(new_msg);
 
 	return;
 }
@@ -1660,7 +1702,7 @@ static void kbus_push_synthetic_message(struct kbus_dev		  *dev,
  * Returns 0 if all goes well, or a negative value if something goes wrong.
  */
 static int kbus_add_bind_message_data(struct kbus_private_data	 *priv,
-				      struct kbus_message_header *new_msg,
+				      struct kbus_msg		 *new_msg,
 				      uint32_t		  	  is_bind,
 				      uint32_t		  	  name_len,
 				      char			 *name)
@@ -1677,7 +1719,7 @@ static int kbus_add_bind_message_data(struct kbus_private_data	 *priv,
 
 	data = kmalloc(data_len, GFP_KERNEL);
 	if (!data) {
-		kbus_free_message(priv, priv->dev, new_msg);
+		kbus_free_message(new_msg);
 		return -ENOMEM;
 	}
 
@@ -1714,8 +1756,7 @@ static int kbus_add_bind_message_data(struct kbus_private_data	 *priv,
 	}
 	lengths[0] = data_len;
 	parts[0] = (unsigned long) data;
-	wrapped_data = kbus_new_data_ref(priv, false, 1, parts, lengths,
-					 data_len);
+	wrapped_data = kbus_wrap_data_in_ref(false, 1, parts, lengths, data_len);
 	if (!wrapped_data) {
 		kfree(lengths);
 		kfree(parts);
@@ -1724,54 +1765,41 @@ static int kbus_add_bind_message_data(struct kbus_private_data	 *priv,
 	}
 
 	new_msg->data_len = data_len;
-	new_msg->data = wrapped_data;
+	new_msg->data_ref = wrapped_data;
 	return 0;
 }
 
 /*
  * Create a new Replier Bind Event synthetic message.
  *
+ * The initial design of things didn't really expect us to be
+ * generating messages with actual data inside the kernel module,
+ * so it's all a little bit more complicated than it might otherwise
+ * be, and there's some playing with things directly that might best
+ * be done otherwise (notably, sorting out the wrapping up of the
+ * data in a reference count). I think that's excusable given this
+ * should be the only sort of message we ever generate with actual
+ * data (or so I believe).
+ *
  * Returns the new message, or NULL.
  */
-struct kbus_message_header
+struct kbus_msg
 	*kbus_new_synthetic_bind_message(struct kbus_private_data	*priv,
 					 uint32_t		  	 is_bind,
 					 uint32_t		  	 name_len,
 					 char				*name)
 {
-	ssize_t				 retval = 0;
-	struct kbus_message_header	*new_msg;
-	struct kbus_msg_id		 in_reply_to = {0,0};	/* no-one */
-	char  *msg_name_copy;
-
-	static char *msg_name = KBUS_MSG_NAME_REPLIER_BIND_EVENT;
-	size_t msg_name_len = strlen(msg_name);
+	ssize_t			 retval = 0;
+	struct kbus_msg		*new_msg;
+	struct kbus_msg_id	 in_reply_to = {0,0};	/* no-one */
 
 	kbus_maybe_dbg(priv->dev,"kbus:   %u Creating synthetic bind message for '%s'"
 		       " (%s)\n",priv->dev->index,name,is_bind?"bind":"unbind");
 
-	/*
-	 * We are building a new message with (reference counted) data.
-	 * Thus we'd like to be able to use the normal mechanisms to
-	 * free that message when we've finished with it. Which includes
-	 * freeing the message name (in the message). So when we create
-	 * the message, we need to use a "freeable" message name. That
-	 * costs us another string copy, but is worth it for the simpler
-	 * handling of the actual message.
-	 */
-
-	msg_name_copy = kmalloc(msg_name_len+1, GFP_KERNEL);
-	if (!msg_name_copy) return NULL;
-
-	strncpy(msg_name_copy, msg_name, msg_name_len);
-	msg_name_copy[msg_name_len] = '\0';
-
-	new_msg = kbus_build_kbus_message(priv->dev, msg_name_copy,
+	new_msg = kbus_build_kbus_message(priv->dev,
+					  KBUS_MSG_NAME_REPLIER_BIND_EVENT,
 					  0, 0, in_reply_to);
-	if (!new_msg) {
-		kfree(msg_name_copy);
-	       	return NULL;
-	}
+	if (!new_msg) return NULL;
 
 	/*
 	 * What happens if any one of the listeners can't receive the message
@@ -1797,7 +1825,7 @@ struct kbus_message_header
 	retval = kbus_add_bind_message_data(priv, new_msg, is_bind,
 					    name_len, name);
 	if (retval < 0) {
-		kbus_free_message(priv, priv->dev, new_msg);
+		kbus_free_message(new_msg);
 		return NULL;
 	}
 
@@ -1825,19 +1853,9 @@ static int kbus_push_synthetic_bind_message(struct kbus_private_data	*priv,
 					     uint32_t		  	 name_len,
 					     char			*name)
 {
-	/*
-	 * The initial design of things didn't really expect us to be
-	 * generating messages with actual data inside the kernel module,
-	 * so it's all a little bit more complicated than it might otherwise
-	 * be, and there's some playing with things directly that might best
-	 * be done otherwise (notably, sorting out the wrapping up of the
-	 * data in a reference count). I think that's excusable given this
-	 * should be the only sort of message we ever generate with actual
-	 * data (or so I believe).
-	 */
 
-	ssize_t				 retval = 0;
-	struct kbus_message_header	*new_msg;
+	ssize_t		 retval = 0;
+	struct kbus_msg	*new_msg;
 
 	kbus_maybe_dbg(priv->dev,"kbus:   %u Pushing synthetic bind message for '%s'"
 		       " (%s) onto queue\n",priv->dev->index,name,
@@ -1860,7 +1878,7 @@ static int kbus_push_synthetic_bind_message(struct kbus_private_data	*priv,
 	 * looks just like a user-generated message (i.e., the name
 	 * can be freed as well as the data), this is fairly simple.
 	 */
-	kbus_free_message(priv, priv->dev, new_msg);
+	kbus_free_message(new_msg);
 
 	/*
 	 * Because we used ALL_OR_FAIL, we will get -EBUSY back if we FAIL,
@@ -1878,11 +1896,11 @@ static int kbus_push_synthetic_bind_message(struct kbus_private_data	*priv,
  *
  * Returns a pointer to the message, or NULL if there is no next message.
  */
-static struct kbus_message_header *kbus_pop_message(struct kbus_private_data *priv)
+static struct kbus_msg *kbus_pop_message(struct kbus_private_data *priv)
 {
 	struct list_head		*queue = &priv->message_queue;
 	struct kbus_message_queue_item	*item;
-	struct kbus_message_header	*msg = NULL;
+	struct kbus_msg			*msg = NULL;
 
 	kbus_maybe_dbg(priv->dev,"kbus:   %u/%u Popping message from queue\n",
 		       priv->dev->index,priv->id);
@@ -1933,7 +1951,7 @@ static void kbus_empty_message_queue(struct kbus_private_data  *priv)
 		       priv->dev->index,priv->id);
 
 	list_for_each_entry_safe(ptr, next, queue, list) {
-		struct kbus_message_header	*msg = ptr->msg;
+		struct kbus_msg	*msg = ptr->msg;
 		int  is_OUR_request = (KBUS_BIT_WANT_YOU_TO_REPLY & msg->flags);
 
 #if DEBUG
@@ -1955,7 +1973,7 @@ static void kbus_empty_message_queue(struct kbus_private_data  *priv)
 		/* Remove it from the list */
 		list_del(&ptr->list);
 		/* And forget all about it... */
-		kbus_free_message(priv, priv->dev, ptr->msg);
+		kbus_free_message(ptr->msg);
 
 		priv->message_count --;
 	}
@@ -1973,7 +1991,7 @@ static void kbus_empty_message_queue(struct kbus_private_data  *priv)
  * a reply.
  */
 static int kbus_reply_needed(struct kbus_private_data   *priv,
-			     struct kbus_message_header	*msg)
+			     struct kbus_msg		*msg)
 {
 	struct list_head		*queue = &priv->replies_unsent;
 	struct kbus_unreplied_item	*item;
@@ -1989,19 +2007,14 @@ static int kbus_reply_needed(struct kbus_private_data   *priv,
 	       	return -ENOMEM;
 	}
 
-	/* For the moment, take a *copy* of the message name */
-	item->name = kmalloc(msg->name_len+1, GFP_KERNEL);
-	if (!item->name) {
-		printk(KERN_ERR "kbus: Cannot kmalloc reply-needed item's name\n");
-		kfree(item);
-		return -ENOMEM;
-	}
-	strncpy(item->name, kbus_msg_name_ptr(msg), msg->name_len);
-	item->name[msg->name_len] = 0;
-
 	item->id = msg->id;
 	item->from = msg->from;
 	item->name_len = msg->name_len;
+	/*
+	 * It seems sensible to use a reference to the name. I believe
+	 * we are safe to do this because we have the message "in hand".
+	 */
+	item->name_ref = kbus_raise_name_ref(msg->name_ref);
 
 	list_add(&item->list, queue);
 
@@ -2037,12 +2050,13 @@ static int kbus_reply_now_sent(struct kbus_private_data  *priv,
 			kbus_maybe_dbg(priv->dev,"kbus:   %u/%u Reply to %u:%u %.*s now sent\n",
 				       priv->dev->index,priv->id,
 				       msg_id->network_id, msg_id->serial_num,
-				       ptr->name_len, ptr->name);
+				       ptr->name_len,
+				       ptr->name_ref->name);
 
 			/* Remove it from the list */
 			list_del(&ptr->list);
 			/* And forget all about it... */
-			kfree(ptr->name);
+			kbus_lower_name_ref(ptr->name_ref);
 			kfree(ptr);
 
 			priv->num_replies_unsent --;
@@ -2084,7 +2098,7 @@ static void kbus_empty_replies_unsent(struct kbus_private_data  *priv)
 		/* Remove it from the list */
 		list_del(&ptr->list);
 		/* And forget all about it... */
-		kfree(ptr->name);
+		kbus_lower_name_ref(ptr->name_ref);
 		kfree(ptr);
 
 		priv->num_replies_unsent --;
@@ -2396,7 +2410,7 @@ static void kbus_forget_matching_messages(struct kbus_private_data    *priv,
 		       priv->dev->index,priv->id);
 
 	list_for_each_entry_safe(ptr, next, queue, list) {
-		struct kbus_message_header	*msg = ptr->msg;
+		struct kbus_msg	*msg = ptr->msg;
 		int  is_OUR_request = (KBUS_BIT_WANT_YOU_TO_REPLY & msg->flags);
 
 		/*
@@ -2435,7 +2449,7 @@ static void kbus_forget_matching_messages(struct kbus_private_data    *priv,
 		/* Remove it from the list */
 		list_del(&ptr->list);
 		/* And forget all about it... */
-		kbus_free_message(priv, priv->dev, ptr->msg);
+		kbus_free_message(ptr->msg);
 
 		priv->message_count --;
 
@@ -2541,20 +2555,15 @@ static int kbus_forget_binding(struct kbus_dev		*dev,
  */
 static int kbus_remember_unsent_unbind_event(struct kbus_dev		 *dev,
 					     struct kbus_private_data	 *priv,
-					     struct kbus_message_header	 *msg,
+					     struct kbus_msg		 *msg,
 					     struct kbus_message_binding *binding)
 {
 	struct kbus_unsent_message_item *new;
-	struct kbus_message_header	*new_msg = NULL;
+	struct kbus_msg	*new_msg = NULL;
 
 	kbus_maybe_dbg(priv->dev,"kbus:   %u Remembering unsent unbind event %u '%.*s' to %u\n",
 		       dev->index, dev->unsent_unbind_msg_count,
-		       msg->name_len, msg->name, priv->id);
-
-	// XXX But only if we may, otherwise make sure "we" have a tragic world message
-	// 1. is list already "tragic"
-	// 2. is list already too long
-	// (if not using this message, remember to free it!)
+		       msg->name_len, msg->name_ref->name, priv->id);
 
 	new = kmalloc(sizeof(*new), GFP_KERNEL);
 	if (!new) return -ENOMEM;
@@ -2595,10 +2604,9 @@ static int kbus_listener_already_got_tragic_msg(struct kbus_dev		  *dev,
 	kbus_maybe_dbg(dev,"kbus:   %u Checking for 'gone tragic' event for %u\n",
 		       dev->index, listener->id);
 
-	/* Go backwards over the list */
 	list_for_each_entry_safe_reverse(ptr, next, &dev->unsent_unbind_msg_list, list) {
 
-		if (kbus_message_name_matches(ptr->msg->name,
+		if (kbus_message_name_matches(ptr->msg->name_ref->name,
 					      ptr->msg->name_len,
 					      KBUS_MSG_NAME_REPLIER_BIND_EVENT)) {
 			/*
@@ -2637,7 +2645,7 @@ static void kbus_safe_report_unbinding(struct kbus_private_data *priv,
 	//    the "maybe got something on the set-aside list" flag for
 	//    each recipient
 	
-	struct kbus_message_header 	 *msg;
+	struct kbus_msg		 	 *msg;
 	struct kbus_message_binding	**listeners = NULL;
 	struct kbus_message_binding	 *replier = NULL;
 	int	retval = 0;
@@ -2680,7 +2688,8 @@ static void kbus_safe_report_unbinding(struct kbus_private_data *priv,
 	 * whether we suddenly have a replier popping up unexpectedly...
 	 */
 	num_listeners = kbus_find_listeners(priv->dev, &listeners, &replier,
-					    msg->name_len, msg->name);
+					    msg->name_len,
+					    msg->name_ref->name);
 	if (num_listeners < 0) {
 		kbus_maybe_dbg(priv->dev,"kbus:   Error %d finding listeners\n",
 			       num_listeners);
@@ -2699,7 +2708,7 @@ static void kbus_safe_report_unbinding(struct kbus_private_data *priv,
 		priv->dev->unsent_unbind_is_tragic = true;
 
 		/* In which case we need a different message */
-		kbus_free_message(priv, priv->dev, msg);
+		kbus_free_message(msg);
 		msg = kbus_build_kbus_message(priv->dev,
 					      KBUS_MSG_NAME_UNBIND_EVENTS_LOST,
 					      0, 0, in_reply_to);
@@ -2740,7 +2749,7 @@ done_sending:
 		kfree(listeners);
 	/* Don't forget to free our copy of the message */
 	if (msg)
-		kbus_free_message(priv, priv->dev, msg);
+		kbus_free_message(msg);
 	/* We aren't returning any status code. Oh well. */
 	return;
 }
@@ -2808,7 +2817,7 @@ static int kbus_maybe_move_unsent_unbind_msg(struct kbus_private_data *priv)
 			/* Remove it from the list */
 			list_del(&ptr->list);
 			/* Mustn't forget to free *our* copy of the message */
-			kbus_free_message(priv, dev, ptr->msg);
+			kbus_free_message(ptr->msg);
 			kfree(ptr);
 			dev->unsent_unbind_msg_count --;
 			goto check_tragic;
@@ -2854,7 +2863,7 @@ static void kbus_forget_unbound_unsent_unbind_msgs(struct kbus_private_data	*pri
 			/* Remove it from the list */
 			list_del(&ptr->list);
 			/* And forget all about it... */
-			kbus_free_message(priv, dev, ptr->msg);
+			kbus_free_message(ptr->msg);
 			kfree(ptr);
 			dev->unsent_unbind_msg_count --;
 			count ++;
@@ -2893,7 +2902,7 @@ static void kbus_forget_my_unsent_unbind_msgs(struct kbus_private_data	*priv)
 			/* Remove it from the list */
 			list_del(&ptr->list);
 			/* And forget all about it... */
-			kbus_free_message(priv, dev, ptr->msg);
+			kbus_free_message(ptr->msg);
 			kfree(ptr);
 			dev->unsent_unbind_msg_count --;
 			count ++;
@@ -2928,7 +2937,7 @@ static void kbus_forget_unsent_unbind_msgs(struct kbus_dev	*dev)
 
 #if DEBUG
 		if (dev->verbose &&
-		    !kbus_message_name_matches(ptr->msg->name,
+		    !kbus_message_name_matches(ptr->msg->name_ref->name,
 					       ptr->msg->name_len,
 					       KBUS_MSG_NAME_REPLIER_BIND_EVENT)) {
 			kbus_report_message(KERN_DEBUG, ptr->msg);
@@ -2937,7 +2946,7 @@ static void kbus_forget_unsent_unbind_msgs(struct kbus_dev	*dev)
 		/* Remove it from the list */
 		list_del(&ptr->list);
 		/* And forget all about it... */
-		kbus_free_message(NULL, dev, ptr->msg);
+		kbus_free_message(ptr->msg);
 		kfree(ptr);
 		dev->unsent_unbind_msg_count --;
 	}
@@ -3146,14 +3155,8 @@ static int kbus_open(struct inode *inode, struct file *filp)
 	priv->num_replies_unsent = 0;
 	priv->max_replies_unsent = 0;
 
-	if (kbus_alloc_read_msg(priv, KBUS_MIN_NUM_PARTS))
-	{
-		kfree(priv);
-		return -ENOMEM;
-	}
-
 	if (kbus_init_msg_id_memory(priv)) {
-		kbus_free_read_msg(priv);
+		kbus_empty_read_msg(priv);
 		kfree(priv);
 		return -EFAULT;
 	}
@@ -3197,7 +3200,6 @@ static int kbus_release(struct inode *inode, struct file *filp)
 #endif
 
 	kbus_empty_read_msg(priv);
-	kbus_free_read_msg(priv);
 	kbus_empty_write_msg(priv);
 
 	kbus_empty_msg_id_memory(priv);
@@ -3260,7 +3262,7 @@ static int kbus_queue_is_full(struct kbus_private_data	*priv,
 	 * queue.
 	 *
 	 * Of course, if we're checking because we want to send one
-	 * of the Replies who we are keeping room for, we need to
+	 * of the Replies that we are keeping room for, we need to
 	 * remember to account for that!
 	 */
 	int already_accounted_for = priv->message_count +
@@ -3309,9 +3311,9 @@ static int kbus_queue_is_full(struct kbus_private_data	*priv,
  *
  * Otherwise, it returns a negative value for error.
  */
-static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
-					struct kbus_dev		   *dev,
-					struct kbus_message_header *msg)
+static int32_t kbus_write_to_recipients(struct kbus_private_data *priv,
+					struct kbus_dev		 *dev,
+					struct kbus_msg		 *msg)
 {
 	struct kbus_message_binding	**listeners = NULL;
 	struct kbus_message_binding	 *replier = NULL;
@@ -3334,7 +3336,7 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data   *priv,
 	 * (c) the replier is *not* one of the listeners.
 	 */
 	num_listeners = kbus_find_listeners(dev,&listeners,&replier,
-					    msg->name_len,msg->name);
+					    msg->name_len,msg->name_ref->name);
 	if (num_listeners < 0) {
 		kbus_maybe_dbg(priv->dev,"kbus:   Error %d finding listeners\n",
 			       num_listeners);
@@ -3634,19 +3636,18 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 			    size_t			*buf_pos,
 			    size_t			*count)
 {
-	struct kbus_dev			*dev = priv->dev;
 	struct kbus_write_msg		*this = &(priv->write);
 	ssize_t				 retval = 0;
 
 	size_t	 bytes_needed;		/* ...to fill the current part */
 	size_t	 bytes_to_use;		/* ...from the user's data */
 
-	struct kbus_message_header *msg = this->hdr;	/* for convenience */
+	struct kbus_message_header *user_msg = &this->user_msg;
+	struct kbus_msg		   *msg = this->msg;
 
 	if (this->is_finished) {
-		printk(KERN_ERR "kbus: Attempt to write data after the %send guard in a"
-		       " message (%d extra byte%s)\n",this->is_pointy?"":"final ",
-		       *count,*count==1?"":"s");
+		printk(KERN_ERR "kbus: Attempt to write data after the end guard in a"
+		       " message (%d extra byte%s)\n", *count,*count==1?"":"s");
 		return -EMSGSIZE;
 	}
 
@@ -3656,31 +3657,46 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 #endif
 
 	switch (this->which) {
-	case KBUS_PART_HDR:
-		bytes_needed  = sizeof(struct kbus_message_header) - this->pos;
-		bytes_to_use = min(bytes_needed, *count);
 
+	case KBUS_PART_HDR:
+		bytes_needed  = sizeof(*user_msg) - this->pos;
+		bytes_to_use = min(bytes_needed, *count);
 #if DEBUG_WRITE
 		printk(KERN_DEBUG "kbus:      HDR bytes_needed %u, bytes_to_use %u\n",
 		       bytes_needed, bytes_to_use);
 		kbus_report_write_msg(priv);
 		printk(KERN_DEBUG "kbus:      copy from user(%p + %u, %p + %u, %u)\n",
-		       msg,this->pos, buf,*buf_pos, bytes_to_use);
+		       user_msg,this->pos, buf,*buf_pos, bytes_to_use);
 #endif
-
-		if (copy_from_user((char *)msg + this->pos,
-				   buf + *buf_pos,
-				   bytes_to_use)) {
+		if (copy_from_user((char *)user_msg + this->pos,
+				   buf + *buf_pos, bytes_to_use)) {
 			printk(KERN_ERR "kbus: copy from user failed (msg hdr: %d of %d to %p + %u)\n",
 			       bytes_to_use,*count,msg,this->pos);
 			return -EFAULT;
 		}
-
-		if (bytes_to_use == bytes_needed) {
-			retval = kbus_check_message_header(msg, false);
+		if (bytes_needed == bytes_to_use) {
+			/*
+			 * At this point, we can check the message header makes
+			 * sense
+			 */
+			retval = kbus_check_message_written(this);
 			if (retval) return retval;
-			this->is_pointy = (msg->name != NULL);
-			if (this->is_pointy) {
+
+			msg->id          = user_msg->id;
+			msg->in_reply_to = user_msg->in_reply_to;
+			msg->to          = user_msg->to;
+			msg->from        = user_msg->from;
+			msg->orig_from   = user_msg->orig_from;
+			msg->final_to    = user_msg->final_to;
+			msg->extra       = user_msg->extra;
+			msg->flags       = user_msg->flags;
+			msg->name_len    = user_msg->name_len;
+			msg->data_len    = user_msg->data_len;
+
+			this->user_name_ptr = user_msg->name;
+			this->user_data_ptr = user_msg->data;
+
+			if (user_msg->name) {
 				/*
 				 * If we're reading a "pointy" message header,
 				 * then that's all we need - we shan't try to
@@ -3688,13 +3704,11 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 				 * user says to SEND.
 				 */
 				this->is_finished = true;
-				this->pointers_are_local = false;
 			} else {
 				this->pointers_are_local = true;
 			}
 #if DEBUG_WRITE
-			printk(KERN_DEBUG "kbus:      HDR finished (%s, %s, %s)\n",
-			       this->is_pointy?"pointy":"entire",
+			printk(KERN_DEBUG "kbus:      HDR finished (%s, %s)\n",
 			       this->is_finished?"finished":"not finished",
 			       this->pointers_are_local?"local":"nonlocal");
 #endif
@@ -3702,31 +3716,34 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 		break;
 
 	case KBUS_PART_NAME:
-		if (msg->name == NULL) {
-			msg->name = kmalloc(msg->name_len + 1, GFP_KERNEL);
-			if (!msg->name) {
-				printk(KERN_ERR "kbus: Cannot kmalloc copy of"
+		if (this->ref_name == NULL) {
+			char *name = kmalloc(msg->name_len + 1, GFP_KERNEL);
+			if (!name) {
+				printk(KERN_ERR "kbus: Cannot kmalloc"
 				       " message name\n");
 				return -ENOMEM;
 			}
-			msg->name[msg->name_len] = 0;	/* always */
-			msg->name[0] = 0; /* we don't know the name yet */
+			name[msg->name_len] = 0;	/* always */
+			name[0] = 0; /* we don't know the name yet */
+			this->ref_name = kbus_wrap_name_in_ref(name);
+			if (!this->ref_name) {
+				kfree(name);
+				printk(KERN_ERR "kbus: Cannot kmalloc ref to"
+				       " message name\n");
+				return -ENOMEM;
+			}
 		}
-
 		bytes_needed = msg->name_len - this->pos;
 		bytes_to_use = min(bytes_needed, *count);
-
 #if DEBUG_WRITE
 		printk(KERN_DEBUG "kbus:      NAME bytes_needed %u, bytes_to_use %u\n",
 		       bytes_needed, bytes_to_use);
 #endif
-
-		if (copy_from_user(msg->name + this->pos,
-				   buf + *buf_pos,
-				   bytes_to_use)) {
+		if (copy_from_user(this->ref_name->name + this->pos,
+				   buf + *buf_pos, bytes_to_use)) {
 			printk(KERN_ERR "kbus: copy from user failed"
 			       " (name: %d of %d to %p + %u)\n",
-			       bytes_to_use,*count,msg->name,this->pos);
+			       bytes_to_use,*count,this->ref_name->name,this->pos);
 			return -EFAULT;
 		}
 		if (bytes_needed == bytes_to_use) {
@@ -3738,8 +3755,11 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 			 * want to do this before we sort out the data, since
 			 * that can involve a *lot* of copying...
 			 */
-			if (kbus_invalid_message_name(msg->name,msg->name_len))
+			if (kbus_invalid_message_name(this->ref_name->name,msg->name_len))
 				return -EBADMSG;
+
+			this->msg->name_ref = this->ref_name;
+			this->ref_name = NULL;
 		}
 		break;
 
@@ -3747,14 +3767,13 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 		bytes_needed = KBUS_PADDED_NAME_LEN(msg->name_len) -
 			msg->name_len - this->pos;
 		bytes_to_use = min(bytes_needed, *count);
-
 #if DEBUG_WRITE
 		printk(KERN_DEBUG "kbus:      NPAD bytes_needed %u, bytes_to_use %u\n",
 		       bytes_needed, bytes_to_use);
 #endif
 		break;
 
-	case KBUS_PART_DATA_START:
+	case KBUS_PART_DATA:
 		if (msg->data_len == 0) {
 			bytes_needed = 0;
 			bytes_to_use = 0;
@@ -3774,27 +3793,24 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 		/* Overall, how far are we through the message's data? */
 		bytes_needed = msg->data_len - this->pos;
 		bytes_to_use = min(bytes_needed, *count);
-
 #if DEBUG_WRITE
 		printk(KERN_DEBUG "kbus:      DATA bytes_needed %u, bytes_to_use %u\n",
 		       bytes_needed, bytes_to_use);
 #endif
-
 		/* So let's add 'bytes_to_use' bytes to our message data */
 		retval = kbus_write_data_parts(priv, buf, *buf_pos,
 					       bytes_to_use);
 		if (retval) {
-			kbus_deref_data(priv,dev,this->ref_data);
+			kbus_lower_data_ref(this->ref_data);
 			this->ref_data = NULL;
 		       	return retval;
 		}
-
 		if (bytes_needed == bytes_to_use) {
 #if DEBUG_WRITE
 			printk(KERN_DEBUG "kbus:      DATA finished\n");
 #endif
 			/* Hooray - we've finished our data */
-			this->hdr->data = this->ref_data;
+			this->msg->data_ref = this->ref_data;
 			this->ref_data = NULL;
 		}
 		break;
@@ -3803,7 +3819,6 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 		bytes_needed = KBUS_PADDED_DATA_LEN(msg->data_len) -
 			msg->data_len - this->pos;
 		bytes_to_use = min(bytes_needed, *count);
-
 #if DEBUG_WRITE
 		printk(KERN_DEBUG "kbus:      DPAD bytes_needed %u, bytes_to_use %u\n",
 		       bytes_needed, bytes_to_use);
@@ -3813,16 +3828,22 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 	case KBUS_PART_FINAL_GUARD:
 		bytes_needed = 4 - this->pos;
 		bytes_to_use = min(bytes_needed, *count);
-
-#if DEBUG_WRITE
-		printk(KERN_DEBUG "kbus:      FINAL bytes_needed %u, bytes_to_use %u\n",
-		       bytes_needed, bytes_to_use);
-#endif
-
+		if (copy_from_user((char *)(&this->guard) + this->pos,
+				   buf + *buf_pos, bytes_to_use)) {
+			printk(KERN_ERR "kbus: copy from user failed"
+			       " (final guard: %d of %d to %p + %u)\n",
+			       bytes_to_use,*count,&this->guard,this->pos);
+			return -EFAULT;
+		}
 		if (bytes_needed == bytes_to_use) {
 #if DEBUG_WRITE
-			printk(KERN_DEBUG "kbus:      FINAL finished\n");
+			printk(KERN_DEBUG "kbus:      FINAL END GUARD finished\n");
 #endif
+			if (this->guard != KBUS_MSG_END_GUARD) {
+				printk(KERN_ERR "kbus: (entire) message end guard is %08x,"
+				       " not %08x\n", this->guard, KBUS_MSG_END_GUARD);
+				return -EINVAL;
+			}
 			this->is_finished = true;
 		}
 		break;
@@ -3844,8 +3865,8 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 		this->pos += bytes_to_use;
 
 #if DEBUG_WRITE
-		printk(KERN_DEBUG "kbus:      count = %u, buf_pos = %u, which = %d, pos = %u\n",
-		       *count, *buf_pos, this->which, this->pos);
+	printk(KERN_DEBUG "kbus:      count = %u, buf_pos = %u, which = %d, pos = %u\n",
+	       *count, *buf_pos, this->which, this->pos);
 #endif
 	return 0;
 }
@@ -3858,6 +3879,8 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 	ssize_t				 retval = 0;
 	size_t				 bytes_left = count;
 	size_t				 buf_pos = 0;
+
+	struct kbus_write_msg		*this = &priv->write;
 
 
 	if (down_interruptible(&dev->sem))
@@ -3875,19 +3898,16 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 		goto done;
 	}
 
-	if (priv->write.hdr == NULL) {
+	if (this->msg == NULL) {
 		/* Clearly, the start of a new message */
-		priv->write.hdr = kmalloc(sizeof(*(priv->write.hdr)),
-					  GFP_KERNEL);
-		if (!priv->write.hdr) {
+		memset(this, 0, sizeof(*this));
+
+		/* This is the new (internal) message we're preparing */
+		this->msg = kmalloc(sizeof(*(this->msg)), GFP_KERNEL);
+		if (!this->msg) {
 			retval = -ENOMEM;
 			goto done;
 		}
-		memset(priv->write.hdr, 0, sizeof(*(priv->write.hdr)));
-		priv->write.is_finished = false;
-		priv->write.pointers_are_local = false;
-		priv->write.which = KBUS_PART_HDR;
-		priv->write.pos = 0;
 #if DEBUG_WRITE
 		kbus_report_write_msg(priv);
 #endif
@@ -3921,9 +3941,10 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 {
 	struct kbus_private_data	*priv = filp->private_data;
 	struct kbus_dev			*dev = priv->dev;
+	struct kbus_read_msg		*this = &(priv->read);
 	ssize_t				 retval = 0;
 	uint32_t			 len, left;
-	uint32_t			 which = priv->read.which;
+	uint32_t			 which = this->which;
 
 	if (down_interruptible(&dev->sem))
 		return -EAGAIN;			/* Just try again later */
@@ -3931,47 +3952,42 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 	kbus_maybe_dbg(priv->dev,"kbus: %u/%u READ count %d, pos %d\n",
 		       dev->index,priv->id,count,(int)*f_pos);
 
-	if (priv->read.hdr == NULL) {
+	if (this->msg == NULL) {
 		/* No message to read at the moment */
 		kbus_maybe_dbg(priv->dev,"kbus:   Nothing to read\n");
-
 		retval = 0;
 		goto done;
 	}
 
-	if (which == KBUS_PART_HDR && priv->read.pos == 0) {
-		/*
-		 * We're just starting the read. Make sure that when
-		 * we write the message header out, it doesn't look like
-		 * a "pointy" header. Note that after we do this, it's
-		 * technically broken, since (as it stands) it's not a
-		 * legitimate "entire" header, either...
-		 */
-		kbus_maybe_dbg(priv->dev,"kbus:   xx kbus_read ========================\n");
-		kbus_maybe_dbg(priv->dev,"kbus:   xx Unsetting name and header pointers\n");
-
-		priv->read.hdr->name = NULL;
-		priv->read.hdr->data = NULL;
-	}
-
 	/*
-	 * Read each of the parts of a message (header, name, padding, data,
-	 * padding, final end guard), until we're read 'count' characters, or
-	 * run off the end of the message.
+	 * Read each of the parts of a message until we're read 'count'
+	 * characters, or run off the end of the message.
 	 */
-	while (which < priv->read.num_parts && count > 0) {
-		if (priv->read.lengths[which]) {
-			left = priv->read.lengths[which] - priv->read.pos;
+	while (which < KBUS_NUM_PARTS && count > 0) {
+		if (this->lengths[which] == 0) {
+			kbus_maybe_dbg(priv->dev,"kbus:   xx which %d, read_len[%d] %u\n",
+				       which,which,this->lengths[which]);
+			this->pos = 0;
+			which ++;
+			continue;
+		}
+
+		if (which == KBUS_PART_DATA) {
+			struct kbus_data_ptr *dp = this->msg->data_ref;
+
+			left = dp->lengths[this->ref_data_index] - this->pos;
 			len = min(left,count);
-
-			kbus_maybe_dbg(priv->dev,"kbus:   xx which %d, read_len[%d] %u, pos %u,"
+#if DEBUG_READ
+			kbus_maybe_dbg(priv->dev,"kbus:   xx which %d, part %d length %u, pos %u,"
 				       " left %u, len %u, count %u\n",
-				       which,which,priv->read.lengths[which],priv->read.pos,left,len,
-				       count);
-
+				       which, this->ref_data_index,
+				       dp->lengths[this->ref_data_index],
+				       this->pos,left, len, count);
+#endif
 			if (len) {
 				if (copy_to_user(buf,
-						 priv->read.parts[which] + priv->read.pos,
+						 (void *)dp->parts[this->ref_data_index] +
+						 this->pos,
 						 len)) {
 					printk(KERN_ERR "kbus: error reading from dev %u/%u\n",
 					       dev->index,priv->id);
@@ -3981,32 +3997,58 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 				buf += len;
 				retval += len;
 				count  -= len;
-				priv->read.pos += len;
-#if 0
-				printk(KERN_DEBUG "kbus:      so far %d, count %u, pos %u\n",
-				       retval, count, priv->read.pos);
-#endif
+				this->pos += len;
 			}
 
-			if (priv->read.pos == priv->read.lengths[which]) {
-				priv->read.pos = 0;
+			if (this->pos == dp->lengths[this->ref_data_index]) {
+				this->pos = 0;
+				this->ref_data_index ++;
+			}
+			if (this->ref_data_index == dp->num_parts) {
+				this->pos = 0;
 				which ++;
 			}
 		} else {
-			kbus_maybe_dbg(priv->dev,"kbus:   xx which %d, read_len[%d] %u\n",
-				       which,which,priv->read.lengths[which]);
+			left = this->lengths[which] - this->pos;
+			len = min(left,count);
+#if DEBUG_READ
+			kbus_maybe_dbg(priv->dev,"kbus:   xx which %d, read_len[%d] %u, pos %u,"
+				       " left %u, len %u, count %u\n",
+				       which,which,this->lengths[which],this->pos,left,len,
+				       count);
+#endif
+			if (len) {
+				if (copy_to_user(buf,
+						 this->parts[which] + this->pos,
+						 len)) {
+					printk(KERN_ERR "kbus: error reading from dev %u/%u\n",
+					       dev->index,priv->id);
+					retval = -EFAULT;
+					goto done;
+				}
+				buf += len;
+				retval += len;
+				count  -= len;
+				this->pos += len;
+			}
 
-			priv->read.pos = 0;
-			which ++;
+			if (this->pos == this->lengths[which]) {
+				this->pos = 0;
+				which ++;
+			}
 		}
 	}
 
-	if (which < priv->read.num_parts) {
+	if (which < KBUS_NUM_PARTS) {
+#if DEBUG_READ
 		kbus_maybe_dbg(priv->dev,"kbus:   Read %d bytes, now in part %d, read %d of %d\n",
-			       retval,which,priv->read.pos,priv->read.lengths[which]);
-		priv->read.which = which;
+			       retval,which,this->pos,this->lengths[which]);
+#endif
+		this->which = which;
 	} else {
+#if DEBUG_READ
 		kbus_maybe_dbg(priv->dev,"kbus:   Read %d bytes, finished\n",retval);
+#endif
 		kbus_empty_read_msg(priv);
 	}
 
@@ -4041,7 +4083,6 @@ static int kbus_bind(struct kbus_private_data	*priv,
 		goto done;
 	}
 
-
 	name = kmalloc(bind->name_len+1, GFP_KERNEL);
 	if (!name) {
 		retval = -ENOMEM;
@@ -4052,7 +4093,6 @@ static int kbus_bind(struct kbus_private_data	*priv,
 		goto done;
 	}
 	name[bind->name_len] = 0;
-
 
 	if (kbus_bad_message_name(name,bind->name_len)) {
 		retval = -EBADMSG;
@@ -4241,15 +4281,14 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 			unsigned long			 arg)
 {
 	int	retval = 0;
-	int     total_parts;
-	int     ii;
-	struct kbus_message_header *msg;
-	struct kbus_data_ptr       *refdata;
+	struct kbus_msg			*msg;
+	struct kbus_read_msg		*this = &(priv->read);
+	struct kbus_message_header	*user_msg;
 
 	kbus_maybe_dbg(priv->dev,"kbus: %u/%u NEXTMSG\n",priv->dev->index,priv->id);
 
 	/* If we were partway through a message, lose it */
-	if (priv->read.hdr) {
+	if (this->msg) {
 		kbus_maybe_dbg(priv->dev,"kbus:   Dropping partial message\n");
 		kbus_empty_read_msg(priv);
 	}
@@ -4269,56 +4308,65 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 	kbus_maybe_dbg(priv->dev,"kbus:   xx Setting up read_hdr\n");
 #endif
 
-	refdata = msg->data;
+	user_msg = &(this->user_hdr);
+	user_msg->start_guard = KBUS_MSG_START_GUARD;
+	user_msg->id          = msg->id;
+	user_msg->in_reply_to = msg->in_reply_to;
+	user_msg->to          = msg->to;
+	user_msg->from        = msg->from;
+	user_msg->orig_from   = msg->orig_from;
+	user_msg->final_to    = msg->final_to;
+	user_msg->extra       = msg->extra;
+	user_msg->flags       = msg->flags;
+	user_msg->name_len    = msg->name_len;
+	user_msg->data_len    = msg->data_len;
+	user_msg->name        = NULL;
+	user_msg->data        = NULL;
+	user_msg->end_guard   = KBUS_MSG_END_GUARD;
 
-	/* How many parts will our output data be in? */
-	total_parts = KBUS_MIN_NUM_PARTS;
-	if (msg->data_len)
-		total_parts += refdata->num_parts + 1;
+	this->msg = msg;	/* Remember it so we can free it later */
 
-	if (priv->read.parts == NULL) {
-		retval = kbus_alloc_read_msg(priv, total_parts);
-		if (retval) return retval;
-	} else if (priv->read.num_parts < total_parts) {
-		retval = kbus_realloc_read_msg(priv, total_parts);
-		if (retval) return retval;
-	}
+	this->parts[KBUS_PART_HDR] = (char *)user_msg;
+	this->parts[KBUS_PART_NAME] = msg->name_ref->name;	/* direct to the string */
+	this->parts[KBUS_PART_NPAD] = static_zero_padding;
 
-	priv->read.hdr = msg;
-	priv->read.data = msg->data;
+	/* The data is treated specially - see kbus_read() */
+	this->parts[KBUS_PART_DATA] = (char *)msg->data_ref;
 
-	priv->read.parts[KBUS_PART_HDR] = (char *)msg;
-	priv->read.parts[KBUS_PART_NAME] = msg->name;
-	priv->read.parts[KBUS_PART_NPAD] = static_zero_padding;
-	if (msg->data) {
-		for (ii=0; ii<refdata->num_parts; ii++)
-			priv->read.parts[KBUS_PART_DATA_START+ii] = (void *)refdata->parts[ii];
-		priv->read.parts[total_parts-2] = static_zero_padding;
-	}
-	priv->read.parts[total_parts-1] = (char *)&static_end_guard;
+	this->parts[KBUS_PART_DPAD] = static_zero_padding;
+	this->parts[KBUS_PART_FINAL_GUARD] = (char *)&static_end_guard;
 
-	priv->read.lengths[KBUS_PART_HDR]  = sizeof(struct kbus_message_header);
-	priv->read.lengths[KBUS_PART_NAME] = msg->name_len;
-	priv->read.lengths[KBUS_PART_NPAD] = KBUS_PADDED_NAME_LEN(msg->name_len) - msg->name_len;
-	if (msg->data) {
-		for (ii=0; ii<refdata->num_parts; ii++)
-			priv->read.lengths[KBUS_PART_DATA_START+ii] = refdata->lengths[ii];
-		priv->read.lengths[total_parts-2] = KBUS_PADDED_DATA_LEN(msg->data_len) - msg->data_len;
-	}
-	priv->read.lengths[total_parts-1]  = 4;
+	this->lengths[KBUS_PART_HDR]  = sizeof(*user_msg);
+	this->lengths[KBUS_PART_NAME] = msg->name_len;
+	this->lengths[KBUS_PART_NPAD] = KBUS_PADDED_NAME_LEN(msg->name_len) - msg->name_len;
 
-	priv->read.num_parts = total_parts;
+	/* The data is treated specially - see kbus_read() */
+	this->lengths[KBUS_PART_DATA] = msg->data_len;
+	this->lengths[KBUS_PART_DPAD] = KBUS_PADDED_DATA_LEN(msg->data_len) - msg->data_len;
+
+	this->lengths[KBUS_PART_FINAL_GUARD] = 4;
 
 	/* And we'll be starting by writing out the first thing first */
-	priv->read.which = 0;
-	priv->read.pos = 0;
+	this->which = 0;
+	this->pos = 0;
+	this->ref_data_index = 0;
 
-#if DEBUG
+#if DEBUG_READ
 	if (priv->dev->verbose) {
-		printk(KERN_DEBUG "kbus:   @@ Next message, %d parts, lengths ",total_parts);
-		for (ii=0; ii<total_parts; ii++)
-			printk("%u ",priv->read.lengths[ii]);
-		printk("\n");
+		int     ii;
+		printk(KERN_DEBUG "kbus:   @@ Next message, %d parts, lengths\n",KBUS_NUM_PARTS);
+		for (ii=0; ii<KBUS_NUM_PARTS; ii++)
+			printk(KERN_DEBUG "kbus:         %d: %6u @ %p\n",ii,
+			       this->lengths[ii], this->parts[ii]);
+		printk(KERN_DEBUG "kbus:         HDR: %u %u %u %u ...\n",
+		       this->parts[KBUS_PART_HDR][0],
+		       this->parts[KBUS_PART_HDR][1],
+		       this->parts[KBUS_PART_HDR][2],
+		       this->parts[KBUS_PART_HDR][3]);
+		printk(KERN_DEBUG "kbus:         NAME: '%*s'\n",
+		       msg->name_len, this->parts[KBUS_PART_NAME]);
+		printk(KERN_DEBUG "kbus          read_msg @ %p\n", this);
+		printk(KERN_DEBUG "kbus          user_hdr @ %p\n", &(this->user_hdr));
 	}
 #endif
 
@@ -4328,7 +4376,7 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 	 * replied to" -- although that *sounds* as if we should be doing it in
 	 * kbus_read, we might never get round to reading the content of the
 	 * message (we might call NEXTMSG again, or DISCARD), and also
-	 * kbus_read can get called multiple times for a single message body.*
+	 * kbus_read can get called multiple times for a single message body.
 	 * If we do our remembering here, then we guarantee to get one memory
 	 * for each request, as it leaves the message queue and is (in whatever
 	 * way) dealt with.
@@ -4363,18 +4411,40 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 /* How much of the current message is left to read? */
 static uint32_t kbus_lenleft(struct kbus_private_data	*priv)
 {
-	if (priv->read.hdr) {
-		int      ii;
+	struct kbus_read_msg	*this = &(priv->read);
+	if (this->msg) {
+		int      ii, jj;
 		uint32_t sofar = 0;
-		uint32_t total = KBUS_ENTIRE_MSG_LEN(priv->read.hdr->name_len,
-						     priv->read.hdr->data_len);
+		uint32_t total = KBUS_ENTIRE_MSG_LEN(this->msg->name_len,
+						     this->msg->data_len);
 		/* Add up the items we're read all of, so far */
-		for (ii=0; ii<priv->read.which; ii++) {
-			sofar += priv->read.lengths[ii];
+		for (ii=0; ii<this->which; ii++) {
+			if (this->which == KBUS_PART_DATA &&
+			    this->msg->data_len > 0) {
+				struct kbus_data_ptr *dp = this->msg->data_ref;
+				for (jj=0; jj<this->ref_data_index; jj++) {
+					sofar += dp->lengths[jj];
+				}
+				if (this->ref_data_index < dp->num_parts)
+					sofar += this->pos;
+			} else {
+				sofar += this->lengths[ii];
+			}
 		}
 		/* Plus what we're read of the last one */
-		if (priv->read.which < priv->read.num_parts)
-			sofar += priv->read.pos;
+		if (this->which < KBUS_NUM_PARTS) {
+			if (this->which == KBUS_PART_DATA &&
+			    this->msg->data_len > 0) {
+				struct kbus_data_ptr *dp = this->msg->data_ref;
+				for (jj=0; jj<this->ref_data_index; jj++) {
+					sofar += dp->lengths[jj];
+				}
+				if (this->ref_data_index < dp->num_parts)
+					sofar += this->pos;
+			} else {
+				sofar += this->pos;
+			}
+		}
 		return total - sofar;
 	} else {
 		return 0;
@@ -4458,9 +4528,8 @@ static int kbus_alloc_ref_data(struct kbus_private_data	 *priv,
 			lengths[ii] = 0;
 		}
 	}
-	/* Wrap the result up in a reference */
-	ref_data = kbus_new_data_ref(priv,as_pages,num_parts,parts,lengths,
-				     last_page_len);
+	ref_data = kbus_wrap_data_in_ref(as_pages,num_parts,parts,lengths,
+					 last_page_len);
 	if (!ref_data) {
 		int jj;
 		if (as_pages)
@@ -4480,9 +4549,10 @@ static int kbus_alloc_ref_data(struct kbus_private_data	 *priv,
  * Does what it says on the box - take the user data and promote it to kernel
  * space, as a reference counted quantity, possibly spread over multiple pages.
  */
-static int kbus_wrap_user_data(struct kbus_private_data		 *priv,
-			       struct kbus_message_header	 *msg,
-			       struct kbus_data_ptr		**new_data)
+static int kbus_wrap_user_data(struct kbus_private_data	 *priv,
+			       uint32_t			  data_len,
+			       void			 *user_data_ptr,
+			       struct kbus_data_ptr	**new_data)
 {
 	struct kbus_data_ptr	*ref_data = NULL;
 	int           		 num_parts;
@@ -4491,7 +4561,7 @@ static int kbus_wrap_user_data(struct kbus_private_data		 *priv,
 	int           		 ii;
 	uint8_t		 	*data_ptr;
 
-	int retval = kbus_alloc_ref_data(priv, msg->data_len, &ref_data);
+	int retval = kbus_alloc_ref_data(priv, data_len, &ref_data);
 	if (retval) return retval;
 
 	num_parts = ref_data->num_parts;
@@ -4502,7 +4572,7 @@ static int kbus_wrap_user_data(struct kbus_private_data		 *priv,
 		       ref_data->as_pages?"as pages":"as kmalloc'ed data");
 
 	/* Given all of the *space* for our data, populate it */
-	data_ptr = msg->data;
+	data_ptr = user_data_ptr;
 	for (ii=0; ii<num_parts; ii++) {
 		unsigned len;
 		if (ii == num_parts-1)
@@ -4515,7 +4585,7 @@ static int kbus_wrap_user_data(struct kbus_private_data		 *priv,
 
 		if (copy_from_user((void *)parts[ii],
 				   (void *)data_ptr, len)) {
-			kbus_deref_data(priv, priv->dev, ref_data);
+			kbus_lower_data_ref(ref_data);
 			return -EFAULT;
 		}
 		lengths[ii] = len;
@@ -4529,7 +4599,7 @@ static int kbus_wrap_user_data(struct kbus_private_data		 *priv,
  * Given a "pointy" message header, copy the message name and data from
  * user space into kernel space.
  *
- * The message name is just copied.
+ * The message name is copied as a reference-counted string.
  *
  * The message data (if any) is copied as reference-counted data.
  *
@@ -4537,19 +4607,18 @@ static int kbus_wrap_user_data(struct kbus_private_data		 *priv,
  * kernel space to do that, but prefer to do the check before copying any
  * data (which can be expensive).
  */
-static int kbus_copy_pointy_parts(struct kbus_private_data	  *priv,
-				  struct kbus_message_header   **original)
+static int kbus_copy_pointy_parts(struct kbus_private_data  *priv,
+				  struct kbus_write_msg	    *this)
 {
-	struct kbus_message_header *msg = *original;
-	char			   *new_name = NULL;
-	struct kbus_data_ptr	   *new_data = NULL;
+	struct kbus_msg		*msg = this->msg;
+	char			*new_name = NULL;
+	struct kbus_name_ptr	*name_ref;
+	struct kbus_data_ptr	*new_data = NULL;
 
 	/* First, let's deal with the name */
 	new_name = kmalloc(msg->name_len + 1, GFP_KERNEL);
-	if (!new_name) {
-		return -ENOMEM;
-	}
-	if (copy_from_user(new_name, (void *)msg->name, msg->name_len+1)) {
+	if (!new_name) return -ENOMEM;
+	if (copy_from_user(new_name, (void *)this->user_name_ptr, msg->name_len+1)) {
 		kfree(new_name);
 		return -EFAULT;
 	}
@@ -4563,22 +4632,31 @@ static int kbus_copy_pointy_parts(struct kbus_private_data	  *priv,
 		kfree(new_name);
 		return -EBADMSG;
 	}
+	name_ref = kbus_wrap_name_in_ref(new_name);
+	if (!name_ref) {
+		kfree(new_name);
+	       	return -ENOMEM;
+	}
 
 	/* Now for the data. */
 	if (msg->data_len) {
-		int retval = kbus_wrap_user_data(priv, msg, &new_data);
+		int retval = kbus_wrap_user_data(priv, msg->data_len,
+						 this->user_data_ptr, &new_data);
 		if (retval) {
-			kfree(new_name);
+			kbus_lower_name_ref(name_ref);
 			return retval;
 		}
 	}
 
 	kbus_maybe_dbg(priv->dev,"kbus:   'pointy' message normalised\n");
 
-	msg->name = new_name;
-	msg->data = new_data;
+	msg->name_ref = name_ref;
+	msg->data_ref = new_data;
 
-	*original = msg;
+	this->user_name_ptr = NULL;
+	this->user_data_ptr = NULL;
+	this->pointers_are_local = true;
+
 	return 0;
 }
 
@@ -4595,12 +4673,12 @@ static int kbus_send(struct kbus_private_data	*priv,
 		     struct kbus_dev		*dev,
 		     unsigned long		 arg)
 {
-	ssize_t		 retval = 0;
-	struct kbus_message_header *msg = priv->write.hdr;
+	ssize_t	retval = 0;
+	struct kbus_msg *msg = priv->write.msg;
 
 	kbus_maybe_dbg(priv->dev,"kbus: %u/%u SEND\n",priv->dev->index,priv->id);
 
-	if (priv->write.hdr == NULL)
+	if (priv->write.msg == NULL)
 		return -ENOMSG;
 
 	if (!priv->write.is_finished) {
@@ -4642,9 +4720,8 @@ static int kbus_send(struct kbus_private_data	*priv,
 	 *     hence the check we actually make.
 	 */
 	if (!priv->write.pointers_are_local) {
-		retval = kbus_copy_pointy_parts(priv, &msg);
+		retval = kbus_copy_pointy_parts(priv, &priv->write);
 		if (retval) goto done;
-		priv->write.pointers_are_local = true;
 	}
 
 	/* ================================================================= */
@@ -5084,9 +5161,7 @@ static int kbus_poll_try_send_again(struct kbus_private_data	*priv,
 				    struct kbus_dev		*dev)
 {
 	int retval;
-	struct kbus_message_header *msg;
-
-	msg = priv->write.hdr;
+	struct kbus_msg *msg = priv->write.msg;
 
 	retval = kbus_write_to_recipients(priv, dev, msg);
 
@@ -5324,9 +5399,9 @@ static int kbus_stats_seq_show(struct seq_file *s, void *v)
 
 			uint32_t	left = kbus_lenleft(ptr);
 			uint32_t	total;
-			if (ptr->read.hdr)
-				total = KBUS_ENTIRE_MSG_LEN(ptr->read.hdr->name_len,
-							    ptr->read.hdr->data_len);
+			if (ptr->read.msg)
+				total = KBUS_ENTIRE_MSG_LEN(ptr->read.msg->name_len,
+							    ptr->read.msg->data_len);
 			else
 				total = 0;
 
@@ -5343,7 +5418,7 @@ static int kbus_stats_seq_show(struct seq_file *s, void *v)
 				   (ptr->write.which==KBUS_PART_HDR?"HDR":
 				    ptr->write.which==KBUS_PART_NAME?"NAME":
 				    ptr->write.which==KBUS_PART_NPAD?"NPAD":
-				    ptr->write.which==KBUS_PART_DATA_START?"DATA":
+				    ptr->write.which==KBUS_PART_DATA?"DATA":
 				    ptr->write.which==KBUS_PART_DPAD?"DPAD":
 				    ptr->write.which==KBUS_PART_FINAL_GUARD?"FINAL":
 				    "???"),
@@ -5411,6 +5486,10 @@ static int kbus_setup_new_device(int which)
 	this_devno = MKDEV(kbus_major,kbus_minor+which);
 	kbus_setup_cdev(new, this_devno);
 	new->index = which;
+
+#if DEBUG_ASSUME_VERBOSE
+	new->verbose = true;
+#endif
 
 	/* ================================================================= */
 	/* +++ NB: before kernel 2.6.13, the functions we use were
