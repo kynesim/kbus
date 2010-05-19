@@ -26,7 +26,7 @@
 #
 # ***** END LICENSE BLOCK *****
 
-LIBKBUSDIR=libkbus
+RULES_NAME = 45-kbus.rules
 
 ifneq ($(KERNELRELEASE),)
 	# We are being invoked from inside a kernel build
@@ -48,37 +48,15 @@ endif
 	KREL_DIR = modules/$(shell uname -r)
 
 
-# Build the KBUS kernel module.
-# Copy it to a directory named after the kernel version used to so build
-# - this allows someone building multiple different versions of the module
-#   to have some hope of keeping track
-# We use a "modules/<uname -r>" because that mirrors /lib/modules/ in the
-# "real" Linux layout
-.PHONY: default
-default:
-	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= modules
-	mkdir -p $(KREL_DIR)
-	cp kbus.ko $(KREL_DIR)
-
-
 # For kbus global builds - build everything here, then move the target
 # out of the way and clean up. Turns out that the Kernel makefile
 # really doesn't like building object files in non-source directories,
-.PHONY: all
-all: 
-	rm -f kbus.mod.c *.o kbus.ko .kbus*.cmd Module.* modules.order 
-	rm -rf .tmp_versions
+
+all: kbus.ko $(RULES_NAME)
+
+kbus.ko :
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= modules
-	-mkdir -p $(O)/kbus
-	mv kbus.ko $(O)/kbus
-
-
-# On Ubuntu, if we want ordinary users (in the admin group) to be able to
-# read/write '/dev/kbus<n>' then we need to have a rules file to say so.
-# This target is provided as a convenience in this matter.
-RULES_NAME = 45-kbus.rules
-RULES_FILE = "/etc/udev/rules.d/$(RULES_NAME)"
-RULES_LINE = "KERNEL==\"kbus[0-9]*\",  MODE=\"0666\", GROUP=\"admin\""
+	
 # The mechanism is a bit hacky (!) - first we make sure we've got a local
 # copy of the file we want, then we copy it into place
 #
@@ -86,39 +64,37 @@ RULES_LINE = "KERNEL==\"kbus[0-9]*\",  MODE=\"0666\", GROUP=\"admin\""
 # /lib/udev/rules.d - putting it in the previous location doesn't seem
 # to do anything (at least on a fresh install of 9.10). It *does*, however
 # appear to be enough to link one to the other...
-.PHONY: rules
-rules:
-	@ if [ ! -e $(RULES_NAME) ]; \
-	then echo $(RULES_LINE) > $(RULES_NAME); \
-	fi
+
+# On Ubuntu, if we want ordinary users (in the admin group) to be able to
+# read/write '/dev/kbus<n>' then we need to have a rules file to say so.
+# This target is provided as a convenience in this matter.
+RULES_FILE = "/etc/udev/rules.d/$(RULES_NAME)"
+RULES_LINE = "KERNEL==\"kbus[0-9]*\",  MODE=\"0666\", GROUP=\"admin\""
+
+$(RULES_NAME) : 
+	@echo $(RULES_LINE) > $(RULES_NAME)
+
+rules: $(RULES_NAME)
 	@ if [ -e $(RULES_FILE) ]; \
 	then echo $(RULES_FILE) already exists ; \
-	else sudo cp $(RULES_NAME) $(RULES_FILE) ; \
+	else cp $(RULES_NAME) $(RULES_FILE) ; \
 	fi
 	@ if [ -d /lib/udev/rules.d ]; \
-	then sudo ln -sf /etc/udev/rules.d/45-kbus.rules /lib/udev/rules.d/; \
+	then ln -sf $(RULES_FILE) /lib/udev/rules.d/; \
 	fi
 
 
-.PHONY: install
 install:
-	-mkdir -p $(DESTDIR)/kmodules
-	install -m 0755 $(O)/kbus/kbus.ko $(DESTDIR)/kmodules/kbus.ko
+	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= modules_install
 	-mkdir -p $(DESTDIR)/include/kbus
 	install -m 0644 kbus_defns.h $(DESTDIR)/include/kbus/kbus_defns.h
-	-mkdir -p $(DESTDIR)/etc/udev/rules.d
-	echo $(RULES_LINE) >$(DESTDIR)/etc/udev/rules.d/$(RULES_NAME)
-	-mkdir -p $(DESTDIR)/lib/udev/rules.d
-	ln -sf /etc/udev/rules.d/45-kbus.rules /lib/udev/rules.d/
 
 # Only remove "modules" if we're doing a bigger clean, as there might
 # be subdirectories from previous builds that we don't want to lose on
 # a normal clean
-.PHONY: distclean
 distclean:
 	rm -rf modules
 
-.PHONY: clean
 clean:
 	rm -f kbus.mod.c *.o kbus.ko .kbus*.cmd Module.* modules.order 
 	rm -rf .tmp_versions
