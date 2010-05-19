@@ -62,8 +62,8 @@ all: dirs $(SHARED_TARGET) $(STATIC_TARGET)
 .PHONY: install
 install:
 	-mkdir -p $(DESTDIR)/lib
-	-mkdir -p $(DESTDIR)/include/libkbus
-	install -m 0644 kbus.h $(DESTDIR)/include/libkbus/kbus.h
+	-mkdir -p $(DESTDIR)/include/kbus
+	install -m 0644 kbus.h $(DESTDIR)/include/kbus/kbus.h
 	install -m 0755 $(SHARED_TARGET) $(DESTDIR)/lib/$(SHARED_NAME)
 	install -m 0755 $(STATIC_TARGET) $(DESTDIR)/lib/$(STATIC_NAME)
 

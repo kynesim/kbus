@@ -12,7 +12,7 @@ endif
 
 # Note we assume a traditional Linux style environment in our flags
 CFLAGS=-I..
-LDFLAGS=-L$(LIBKBUSDIR)
+LDFLAGS=-L$(LIBKBUSDIR) -static
 LIBS=-lkbus
 
 ifeq ($(O),)
