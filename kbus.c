@@ -37,7 +37,7 @@
  * decision by deleting the provisions above and replace them with the notice
  * and other provisions required by the GPL.  If you do not delete the
  * provisions above, a recipient may use your version of this file under either
- * the MPL or the GPL. 
+ * the MPL or the GPL.
  *
  * ***** END LICENSE BLOCK *****
  */
@@ -126,7 +126,7 @@ static struct device    **kbus_class_devices;
 
 /* We need a way of remembering message bindings */
 struct kbus_message_binding {
-	struct list_head list;
+	struct list_head	  list;
 	struct kbus_private_data *bound_to;	/* who we're bound to */
 	uint32_t		  bound_to_id;	/* but the id is often useful */
 	uint32_t		  is_replier;	/* bound as a replier */
@@ -159,7 +159,7 @@ struct kbus_msg_id_mem {
 
 /* An item in the list of requests that a Ksock has not yet replied to */
 struct kbus_unreplied_item {
-	struct list_head 	 list;
+	struct list_head	 list;
 	struct kbus_msg_id	 id;		/* the request's id */
 	uint32_t		 from;		/* the sender's id */
 	struct kbus_name_ptr	*name_ref;	/* and its name... */
@@ -446,7 +446,7 @@ struct kbus_unsent_message_item {
 struct kbus_private_data {
 	struct list_head	 list;
 	struct kbus_dev		*dev;		 /* Which device we are on */
-	uint32_t	 	 id;		 /* Our own id */
+	uint32_t		 id;		 /* Our own id */
 	struct kbus_msg_id	 last_msg_id_sent;  /* As it says - see above */
 	uint32_t		 message_count;	 /* How many messages for us */
 	uint32_t		 max_messages;	 /* How many messages allowed */
@@ -468,7 +468,7 @@ struct kbus_private_data {
 	struct kbus_write_msg	 write;
 
 	/* Are we currently sending that message? */
-	int		 	 sending;
+	int			 sending;
 
 	/*
 	 * Each request we send should (eventually) generate us a reply, or
@@ -499,7 +499,7 @@ struct kbus_private_data {
 	 * XXX in an unbounded manner? The limitation is set by the ability
 	 * XXX of the sender(s) to send requests, which in turn is limited
 	 * XXX by the number of slots they can reserve for the replies to
-	 * XXX those requests, in their own message queues. 
+	 * XXX those requests, in their own message queues.
 	 * XXX
 	 * XXX If I do impose a limit, then I would also need to stop a
 	 * XXX sender sending a request because the replier has too many
@@ -544,7 +544,7 @@ struct kbus_private_data {
 	 * and to a wildcard including it as Listener), and a Reqest of that
 	 * name is sent to that Ksock, it will get the message once as Replier
 	 * (marked "WANT_YOU_TO_REPLY"), and once as listener.
-	 * 
+	 *
 	 * This is technically sensible, but can be irritating to the end user
 	 * who really often only wants to receive the message once.
 	 *
@@ -589,7 +589,7 @@ struct kbus_private_data {
 /* Information belonging to each /dev/kbus<N> device */
 struct kbus_dev
 {
-	struct cdev   		cdev;	/* Character device data */
+	struct cdev		cdev;	/* Character device data */
 
 	uint32_t		index;	/* Which /dev/kbus<n> device we are */
 
@@ -602,7 +602,7 @@ struct kbus_dev
 	 * in the externally called functions. This simplifies the design
 	 * of the internal (list processing, etc.) functions, at the possible
 	 * cost of making interaction with kbus, in general, slower.
-	 * 
+	 *
 	 * On the other hand, we are not intending to provide a *fast* system.
 	 */
 	struct semaphore	sem;
@@ -611,7 +611,7 @@ struct kbus_dev
 	struct list_head	bound_message_list;
 
 	/*
-	 * The actual Ksock entries (one per 'open("/dev/kbus0")') 
+	 * The actual Ksock entries (one per 'open("/dev/kbus0")')
 	 * This is to allow us to find the 'kbus_private_data' instances,
 	 * so that we can get at all the message queues. The details of
 	 * how we do this are *definitely* going to change...
@@ -899,7 +899,7 @@ static uint32_t kbus_next_size(uint32_t		old_size)
 	if (old_size < 16)
 		/* For very small numbers, just double */
 		return old_size << 1;
-	else 
+	else
 		/*
 		 * Otherwise, try something like the mechanism used for Python
 		 * lists - doubling feels a bit over the top
@@ -915,7 +915,7 @@ static uint32_t kbus_next_serial_num(struct kbus_dev	*dev)
 	return dev->next_msg_serial_num ++;
 }
 
-static int kbus_same_message_id(struct kbus_msg_id 	*msg_id,
+static int kbus_same_message_id(struct kbus_msg_id	*msg_id,
 				uint32_t		 network_id,
 				uint32_t		 serial_num)
 {
@@ -1013,7 +1013,7 @@ done:
 
 /* Returns 0 if we found it, -1 if we couldn't find it */
 static int kbus_find_msg_id(struct kbus_private_data	*priv,
-		            struct kbus_msg_id		*id)
+			    struct kbus_msg_id		*id)
 {
 	struct kbus_msg_id_mem	*mem = &priv->outstanding_requests;
 	int ii;
@@ -1088,14 +1088,14 @@ static struct kbus_msg
 	new_msg = kmalloc(sizeof(*new_msg), GFP_KERNEL);
 	if (!new_msg) {
 		printk(KERN_ERR "kbus: Cannot kmalloc synthetic message\n");
-	       	return NULL;
+		return NULL;
 	}
 
 	msg_name_copy = kmalloc(msg_name_len+1, GFP_KERNEL);
 	if (!msg_name_copy) {
 		printk(KERN_ERR "kbus: Cannot kmalloc synthetic message's name\n");
 		kfree(new_msg);
-	       	return NULL;
+		return NULL;
 	}
 
 	strncpy(msg_name_copy, msg_name, msg_name_len);
@@ -1106,7 +1106,7 @@ static struct kbus_msg
 		printk(KERN_ERR "kbus: Cannot kmalloc synthetic message's string ref\n");
 		kfree(new_msg);
 		kfree(msg_name_copy);
-	       	return NULL;
+		return NULL;
 	}
 
 	memset(new_msg, 0, sizeof(*new_msg));
@@ -1144,7 +1144,7 @@ static int kbus_bad_message_name(char *name, size_t name_len)
 		name_len -= 2;
 	else if (name[name_len-2] == '.' && name[name_len-1] == '%')
 		name_len -= 2;
-	
+
 	if (name[name_len-1] == '.') return 1;
 
 	for (ii=2; ii<name_len; ii++) {
@@ -1298,7 +1298,7 @@ static int kbus_check_message_written(struct kbus_write_msg *this)
 	return 0;
 }
 
-/* This function only defined if DEBUG is set, to avoid 
+/* This function only defined if DEBUG is set, to avoid
  * 'function defined but not used' warnings from gcc.
  */
 #if DEBUG
@@ -1377,7 +1377,7 @@ static struct kbus_msg *
 	new_msg = kmalloc(sizeof(*new_msg), GFP_KERNEL);
 	if (!new_msg) {
 		printk(KERN_ERR "kbus: Cannot kmalloc copy of message header\n");
-	       	return NULL;
+		return NULL;
 	}
 	if (!memcpy(new_msg, old_msg, sizeof(*new_msg))) {
 		printk(KERN_ERR "kbus: Cannot copy message header\n");
@@ -1400,7 +1400,7 @@ static struct kbus_msg *
 
 /*
  * Free a message.
- * 
+ *
  * Also dereferences the message name and any message data.
  */
 static void kbus_free_message(struct kbus_msg		 *msg)
@@ -1559,7 +1559,7 @@ static int kbus_push_message(struct kbus_private_data	  *priv,
 	if (!item) {
 		printk(KERN_ERR "kbus: Cannot kmalloc new message item\n");
 		kbus_free_message(new_msg);
-	       	return -ENOMEM;
+		return -ENOMEM;
 	}
 
 #if DEBUG
@@ -1703,11 +1703,11 @@ static void kbus_push_synthetic_message(struct kbus_dev		  *dev,
  */
 static int kbus_add_bind_message_data(struct kbus_private_data	 *priv,
 				      struct kbus_msg		 *new_msg,
-				      uint32_t		  	  is_bind,
-				      uint32_t		  	  name_len,
+				      uint32_t			  is_bind,
+				      uint32_t			  name_len,
 				      char			 *name)
 {
-	struct kbus_replier_bind_event_data 	*data;
+	struct kbus_replier_bind_event_data	*data;
 	struct kbus_data_ptr			*wrapped_data;
 	uint32_t padded_name_len = KBUS_PADDED_NAME_LEN(name_len);
 	uint32_t data_len = sizeof(*data) + padded_name_len;
@@ -1785,8 +1785,8 @@ static int kbus_add_bind_message_data(struct kbus_private_data	 *priv,
  */
 struct kbus_msg
 	*kbus_new_synthetic_bind_message(struct kbus_private_data	*priv,
-					 uint32_t		  	 is_bind,
-					 uint32_t		  	 name_len,
+					 uint32_t			 is_bind,
+					 uint32_t			 name_len,
 					 char				*name)
 {
 	ssize_t			 retval = 0;
@@ -1849,8 +1849,8 @@ struct kbus_msg
  * have bound to receive it.
  */
 static int kbus_push_synthetic_bind_message(struct kbus_private_data	*priv,
-					     uint32_t		  	 is_bind,
-					     uint32_t		  	 name_len,
+					     uint32_t			 is_bind,
+					     uint32_t			 name_len,
 					     char			*name)
 {
 
@@ -2004,7 +2004,7 @@ static int kbus_reply_needed(struct kbus_private_data   *priv,
 	item = kmalloc(sizeof(*item), GFP_KERNEL);
 	if (!item) {
 		printk(KERN_ERR "kbus: Cannot kmalloc reply-needed item\n");
-	       	return -ENOMEM;
+		return -ENOMEM;
 	}
 
 	item->id = msg->id;
@@ -2199,8 +2199,8 @@ static int kbus_find_listeners(struct kbus_dev			 *dev,
 				 (r)==WILD_STAR?"WILD_STAR": \
 				 (r)==WILD_PERCENT?"WILD_PERCENT": \
 				 (r)==SPECIFIC?"SPECIFIC":"???")
-       	enum replier_type	replier_type = UNSET;
-       	enum replier_type	new_replier_type = UNSET;
+	enum replier_type	replier_type = UNSET;
+	enum replier_type	new_replier_type = UNSET;
 
 	kbus_maybe_dbg(dev,"kbus:   Looking for listeners/repliers for '%.*s'\n",
 		       name_len,name);
@@ -2325,7 +2325,7 @@ static int kbus_remember_binding(struct kbus_dev	  *dev,
 				       " already bound\n",
 				       dev->index,priv->id,
 				       name_len,name);
-		       	return -EADDRINUSE;
+			return -EADDRINUSE;
 		}
 	}
 
@@ -2364,7 +2364,7 @@ static int kbus_remember_binding(struct kbus_dev	  *dev,
  */
 static struct kbus_message_binding
 	*kbus_find_binding(struct kbus_dev		*dev,
-			   struct kbus_private_data 	*priv,
+			   struct kbus_private_data	*priv,
 			   uint32_t			 replier,
 			   uint32_t			 name_len,
 			   char				*name)
@@ -2571,7 +2571,7 @@ static int kbus_remember_unsent_unbind_event(struct kbus_dev		 *dev,
 	new_msg = kbus_copy_message(priv,msg);
 	if (!new_msg) {
 		kfree(new);
-	       	return -EFAULT;
+		return -EFAULT;
 	}
 
 	new->send_to = priv;
@@ -2644,8 +2644,8 @@ static void kbus_safe_report_unbinding(struct kbus_private_data *priv,
 	// 7. If we've added something to the set-aside list, then set
 	//    the "maybe got something on the set-aside list" flag for
 	//    each recipient
-	
-	struct kbus_msg		 	 *msg;
+
+	struct kbus_msg			 *msg;
 	struct kbus_message_binding	**listeners = NULL;
 	struct kbus_message_binding	 *replier = NULL;
 	int	retval = 0;
@@ -3224,7 +3224,7 @@ static int kbus_release(struct inode *inode, struct file *filp)
  */
 static struct kbus_private_data
 	*kbus_find_private_data(struct kbus_private_data *our_priv,
-				struct kbus_dev 	 *dev,
+				struct kbus_dev		 *dev,
 				uint32_t		  id)
 {
 	struct kbus_private_data *l_priv;
@@ -3803,7 +3803,7 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 		if (retval) {
 			kbus_lower_data_ref(this->ref_data);
 			this->ref_data = NULL;
-		       	return retval;
+			return retval;
 		}
 		if (bytes_needed == bytes_to_use) {
 #if DEBUG_WRITE
@@ -4216,7 +4216,7 @@ static int kbus_replier(struct kbus_private_data	*priv,
 {
 	struct kbus_private_data	*replier;
 	struct kbus_bind_query		*query;
-	char 				*name = NULL;
+	char				*name = NULL;
 	int				 retval = 0;
 
 	query = kmalloc(sizeof(*query), GFP_KERNEL);
@@ -4253,7 +4253,7 @@ static int kbus_replier(struct kbus_private_data	*priv,
 	if (retval < 0) goto done;
 
 	if (retval)
-	       	query->return_id = replier->id;
+		query->return_id = replier->id;
 	else
 		query->return_id = 0;
 	/*
@@ -4555,11 +4555,11 @@ static int kbus_wrap_user_data(struct kbus_private_data	 *priv,
 			       struct kbus_data_ptr	**new_data)
 {
 	struct kbus_data_ptr	*ref_data = NULL;
-	int           		 num_parts;
-	unsigned long 		*parts;
-	unsigned      		*lengths;
-	int           		 ii;
-	uint8_t		 	*data_ptr;
+	int			 num_parts;
+	unsigned long		*parts;
+	unsigned		*lengths;
+	int			 ii;
+	uint8_t			*data_ptr;
 
 	int retval = kbus_alloc_ref_data(priv, data_len, &ref_data);
 	if (retval) return retval;
@@ -4635,7 +4635,7 @@ static int kbus_copy_pointy_parts(struct kbus_private_data  *priv,
 	name_ref = kbus_wrap_name_in_ref(new_name);
 	if (!name_ref) {
 		kfree(new_name);
-	       	return -ENOMEM;
+		return -ENOMEM;
 	}
 
 	/* Now for the data. */
