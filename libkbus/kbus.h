@@ -32,7 +32,7 @@
 
 #ifdef __cplusplus
 extern "C" {
-#endif 
+#endif
 
 #include <kbus/kbus_defns.h>
 
@@ -304,7 +304,7 @@ extern int kbus_ksock_discard(kbus_ksock_t         ksock);
  *
  * Determine whether this Ksock should receive a particular message once, even
  * if it is both a Replier and Listener for the message, or if it is registered
- * more than once as a Listener for the message name.  
+ * more than once as a Listener for the message name.
  *
  * Note that in the case of a Request that the Ksock should reply to, it will
  * always get the Request, and it will be the Listener's version of the message
@@ -429,7 +429,7 @@ extern int kbus_wait_for_message(kbus_ksock_t  ksock,
  * returned 0.
  */
 extern int kbus_ksock_read_msg(kbus_ksock_t      ksock,
-                               kbus_message_t  **msg, 
+                               kbus_message_t  **msg,
                                size_t            msg_len);
 
 /*
@@ -515,7 +515,7 @@ extern int kbus_ksock_send_msg(kbus_ksock_t             ksock,
  *
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
-extern int kbus_msg_create(kbus_message_t **msg, 
+extern int kbus_msg_create(kbus_message_t **msg,
                            const char *name,
                            uint32_t name_len, /* bytes  */
                            const void *data,
@@ -546,7 +546,7 @@ extern int kbus_msg_create(kbus_message_t **msg,
  *
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
-extern int kbus_msg_create_entire(kbus_message_t        **msg, 
+extern int kbus_msg_create_entire(kbus_message_t        **msg,
                                   const char             *name,
                                   uint32_t                name_len, /* bytes  */
                                   const void             *data,
@@ -573,7 +573,7 @@ extern int kbus_msg_create_entire(kbus_message_t        **msg,
  *
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
-extern int kbus_msg_create_request(kbus_message_t **msg, 
+extern int kbus_msg_create_request(kbus_message_t **msg,
                                    const char *name,
                                    uint32_t name_len, /* bytes  */
                                    const void *data,
@@ -593,7 +593,7 @@ extern int kbus_msg_create_request(kbus_message_t **msg,
  *
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
-extern int kbus_msg_create_entire_request(kbus_message_t        **msg, 
+extern int kbus_msg_create_entire_request(kbus_message_t        **msg,
                                           const char             *name,
                                           uint32_t                name_len, /* bytes  */
                                           const void             *data,
@@ -629,7 +629,7 @@ extern int kbus_msg_create_entire_request(kbus_message_t        **msg,
  *
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
-extern int kbus_msg_create_reply_to(kbus_message_t **msg, 
+extern int kbus_msg_create_reply_to(kbus_message_t **msg,
                                     const kbus_message_t *in_reply_to,
                                     const void *data,
                                     uint32_t data_len, /* bytes */
@@ -646,12 +646,12 @@ extern int kbus_msg_create_reply_to(kbus_message_t **msg,
  * Unless you need to be able to free the original message and/or data before
  * sending * the message, it is more usual to use
  * ``kbus_msg_create_reply_to()`` instead.
- * 
+ *
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
-extern int kbus_msg_create_entire_reply_to(kbus_message_t          **msg, 
+extern int kbus_msg_create_entire_reply_to(kbus_message_t          **msg,
                                            const kbus_message_t     *in_reply_to,
-                                           const void               *data, 
+                                           const void               *data,
                                            uint32_t                  data_len, /* bytes */
                                            uint32_t                  flags);
 
@@ -690,11 +690,11 @@ extern int kbus_msg_create_entire_reply_to(kbus_message_t          **msg,
  *
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
-extern int kbus_msg_create_stateful_request(kbus_message_t         **msg, 
+extern int kbus_msg_create_stateful_request(kbus_message_t         **msg,
                                             const kbus_message_t    *earlier_msg,
                                             const char          *name,
                                             uint32_t             name_len,
-                                            const void          *data, 
+                                            const void          *data,
                                             uint32_t             data_len, /* bytes */
                                             uint32_t             flags);
 
@@ -713,11 +713,11 @@ extern int kbus_msg_create_stateful_request(kbus_message_t         **msg,
  *
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
-extern int kbus_msg_create_entire_stateful_request(kbus_message_t       **msg, 
+extern int kbus_msg_create_entire_stateful_request(kbus_message_t       **msg,
                                                    const kbus_message_t  *earlier_msg,
                                                    const char            *name,
                                                    uint32_t               name_len,
-                                                   const void            *data, 
+                                                   const void            *data,
                                                    uint32_t               data_len, /* bytes */
                                                    uint32_t               flags);
 
@@ -866,7 +866,7 @@ static inline int kbus_msg_compare_ids(const kbus_msg_id_t  *id1,
 
 #ifdef __cplusplus
 }
-#endif 
+#endif
 
 #endif /* _LKBUS_H_INCLUDED_ */
 

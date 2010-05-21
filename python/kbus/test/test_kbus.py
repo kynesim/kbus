@@ -122,12 +122,12 @@ class BindingsMemory(object):
 
     We remember bindings in a dictionary, relating Ksock instances to
     bindings made on those interfaces. So, for instance:
-    
+
        bindings[if] = [(True, False, '$.Fred.Jim.Bob'),
                        (False, True, '$.Fred')]
-    
+
     (the order in the tuple matches that in the /proc/kbus/bindings file).
-    
+
     Automatically managed by the local bind and unbind *methods*
     """
 
@@ -731,7 +731,7 @@ class TestKernelModule:
             # Top level wildcards are OK
             _ok('$.*')
             _ok('$.%')
-        
+
         finally:
             assert f.close() is None
 
@@ -797,7 +797,7 @@ class TestKernelModule:
         with RecordingKsock(0, 'rw', self.bindings) as f0:
             with RecordingKsock(0, 'r', self.bindings) as listener:
                 listener.bind('$.Fred.Message', False)
-                
+
                 # A listener receives Messages
                 m = Message('$.Fred.Message')
                 f0.send_msg(m)
@@ -814,7 +814,7 @@ class TestKernelModule:
                     r = listener.read_next_msg()
                     assert r.equivalent(m)
                     assert not r.wants_us_to_reply()
-                    
+
                     # The Replier receives the Request (and should reply)
                     r = replier.read_next_msg()
                     assert r.equivalent(m)
@@ -3029,7 +3029,7 @@ class TestKernelModule:
 
                 # So, there still shouldn't be any more messages
                 assert listener.num_messages() == 1
-                
+
                 # But if we stop asking for reports
                 state = binder.report_replier_binds(False)
                 assert state
@@ -3111,7 +3111,7 @@ class TestKernelModule:
                     # So, there still shouldn't be any more messages
                     assert listener1.num_messages() == 1
                     assert listener2.num_messages() == 1
-                    
+
                     # But if we stop asking for reports
                     state = binder.report_replier_binds(False)
                     assert state
@@ -3235,7 +3235,7 @@ class TestKernelModule:
 
             rep = reply_to(msg)
             check_IOError(errno.EADDRNOTAVAIL, replier.send_msg, rep)
-            
+
     def test_bind_replier_event_as_replier(self):
         """Test that we can't bind $.KBUS.ReplierBindEvent as a Replier
         """
@@ -3288,13 +3288,13 @@ class TestKernelModule:
             with Ksock(0, 'rw') as second:
                 second_id = second.ksock_id()
                 for ii in xrange(TOO_MANY_MESSAGES):
-                    # Of course, each message name needs to be unique 
+                    # Of course, each message name needs to be unique
                     second.bind('$.Question%d'%ii,True)
                     # Read the bind message, so it doesn't stack up
                     msg = first.read_next_msg()
                     is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
                     assert is_bind
-                    assert binder_id ==second_id 
+                    assert binder_id ==second_id
 
             # If this is a good test, then we won't have remembered all
             # of the messages we're "meant" to have stacked up
@@ -3337,13 +3337,13 @@ class TestKernelModule:
                 with Ksock(0, 'rw') as second:
                     second_id = second.ksock_id()
                     for ii in xrange(TOO_MANY_MESSAGES):
-                        # Of course, each message name needs to be unique 
+                        # Of course, each message name needs to be unique
                         second.bind('$.Question%d'%ii,True)
                         # Read the bind message, so it doesn't stack up
                         msg = first.read_next_msg()
                         is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
                         assert is_bind
-                        assert binder_id ==second_id 
+                        assert binder_id ==second_id
                         msg2 = other.read_next_msg()
                         assert msg == msg2
 
@@ -3396,13 +3396,13 @@ class TestKernelModule:
                 with Ksock(0, 'rw') as second:
                     second_id = second.ksock_id()
                     for ii in xrange(TOO_MANY_MESSAGES):
-                        # Of course, each message name needs to be unique 
+                        # Of course, each message name needs to be unique
                         second.bind('$.Question%d'%ii,True)
                         # Read the bind message, so it doesn't stack up
                         msg = first.read_next_msg()
                         is_bind, binder_id, name = split_replier_bind_event_data(msg.data)
                         assert is_bind
-                        assert binder_id ==second_id 
+                        assert binder_id ==second_id
                         msg2 = other.read_next_msg()
                         assert msg == msg2
 

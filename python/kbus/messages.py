@@ -1678,7 +1678,7 @@ class Reply(Message):
     def __init__(self, arg, data=None, to=None, from_=None, orig_from=None, in_reply_to=None, flags=None, id=None):
         """Just do what the user asked, but they must give 'in_reply_to'.
         """
-        
+
         super(Reply, self).__init__(arg, data=data, to=to, from_=from_,
                                     orig_from=orig_from,
                                     in_reply_to=in_reply_to, flags=flags,
@@ -1819,7 +1819,7 @@ def stateful_request(earlier_msg, arg, data=None, from_=None,
     This is intended to be the normal way of constructing a stateful request.
 
     'earlier_msg' is either:
-        
+
     1. an earlier Reply, whose 'from_' field will be used as the new Request's
        'to' field, and whose 'orig_from' field will be used as the new Request's
        'final_to' field.

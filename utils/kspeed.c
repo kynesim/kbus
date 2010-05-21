@@ -243,7 +243,7 @@ int main(int argn, char *args[])
     {
       int nr_bytes;
 
-      if (argn != 4)	  
+      if (argn != 4)
       {
         fprintf(stderr, "Not enough arguments\n");
         usage();

@@ -28,7 +28,7 @@
  * ***** END LICENSE BLOCK *****
  */
 
-/** 
+/**
  *  How long do inotifies take?
  */
 

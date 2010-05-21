@@ -32,7 +32,7 @@
  * decision by deleting the provisions above and replace them with the notice
  * and other provisions required by the GPL.  If you do not delete the
  * provisions above, a recipient may use your version of this file under either
- * the MPL or the GPL. 
+ * the MPL or the GPL.
  *
  * ***** END LICENSE BLOCK *****
  */
@@ -64,7 +64,7 @@
  * The negative value will be ``-errno``.
  */
 extern kbus_ksock_t kbus_ksock_open(uint32_t device_number,
-                                    int      flags) 
+                                    int      flags)
 {
   int   rv;
   int   mask  = O_RDONLY | O_WRONLY | O_RDWR;
@@ -95,7 +95,7 @@ extern kbus_ksock_t kbus_ksock_open(uint32_t device_number,
  * The negative value will be ``-errno``.
  */
 extern kbus_ksock_t kbus_ksock_open_by_name(const char *device_name,
-                                            int         flags) 
+                                            int         flags)
 {
   int mask  = O_RDONLY | O_WRONLY | O_RDWR;
   int rv = open(device_name, flags & mask);
@@ -110,7 +110,7 @@ extern kbus_ksock_t kbus_ksock_open_by_name(const char *device_name,
  *
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
-extern int kbus_ksock_close(kbus_ksock_t ksock) 
+extern int kbus_ksock_close(kbus_ksock_t ksock)
 {
   int rv = close(ksock);
   if (rv < 0)
@@ -186,7 +186,7 @@ extern int kbus_ksock_unbind(kbus_ksock_t         ksock,
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
 extern int kbus_ksock_id(kbus_ksock_t   ksock,
-                         uint32_t      *ksock_id) 
+                         uint32_t      *ksock_id)
 {
   int rv = ioctl(ksock, KBUS_IOC_KSOCKID, ksock_id);
   if (rv < 0)
@@ -210,7 +210,7 @@ extern int kbus_ksock_id(kbus_ksock_t   ksock,
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
 extern int kbus_ksock_next_msg(kbus_ksock_t     ksock,
-                               uint32_t        *message_length) 
+                               uint32_t        *message_length)
 {
   int rv = ioctl(ksock, KBUS_IOC_NEXTMSG, message_length);
   if (rv < 0)
@@ -230,7 +230,7 @@ extern int kbus_ksock_next_msg(kbus_ksock_t     ksock,
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
 extern int kbus_ksock_len_left(kbus_ksock_t   ksock,
-                               uint32_t      *len_left) 
+                               uint32_t      *len_left)
 {
   int rv = ioctl(ksock, KBUS_IOC_LENLEFT, len_left);
   if (rv < 0)
@@ -266,7 +266,7 @@ extern int kbus_ksock_last_msg_id(kbus_ksock_t          ksock,
  */
 extern int kbus_ksock_find_replier(kbus_ksock_t   ksock,
                                    const char    *name,
-                                   uint32_t      *replier_ksock_id) 
+                                   uint32_t      *replier_ksock_id)
 {
   int                 rv;
   kbus_bind_query_t   bind_query;
@@ -290,7 +290,7 @@ extern int kbus_ksock_find_replier(kbus_ksock_t   ksock,
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
 extern int kbus_ksock_max_messages(kbus_ksock_t   ksock,
-                                   uint32_t      *max_messages) 
+                                   uint32_t      *max_messages)
 {
   int rv = ioctl(ksock, KBUS_IOC_MAXMSGS, max_messages);
   if (rv < 0)
@@ -312,7 +312,7 @@ extern int kbus_ksock_max_messages(kbus_ksock_t   ksock,
  * maximum number of messages, or a negative number (``-errno``) for failure.
  */
 extern int kbus_ksock_num_messages(kbus_ksock_t   ksock,
-                                   uint32_t      *num_messages) 
+                                   uint32_t      *num_messages)
 {
   int rv = ioctl(ksock, KBUS_IOC_NUMMSGS, num_messages);
   if (rv < 0)
@@ -328,7 +328,7 @@ extern int kbus_ksock_num_messages(kbus_ksock_t   ksock,
  * number (``-errno``) for failure.
  */
 extern int kbus_ksock_num_unreplied_to(kbus_ksock_t   ksock,
-                                       uint32_t      *num_messages) 
+                                       uint32_t      *num_messages)
 {
   int rv = ioctl(ksock, KBUS_IOC_UNREPLIEDTO, num_messages);
   if (rv < 0)
@@ -383,7 +383,7 @@ extern int kbus_ksock_discard(kbus_ksock_t         ksock)
  *
  * Determine whether this Ksock should receive a particular message once, even
  * if it is both a Replier and Listener for the message, or if it is registered
- * more than once as a Listener for the message name.  
+ * more than once as a Listener for the message name.
  *
  * Note that in the case of a Request that the Ksock should reply to, it will
  * always get the Request, and it will be the Listener's version of the message
@@ -538,7 +538,7 @@ extern int kbus_ksock_kernel_module_verbose(kbus_ksock_t       ksock,
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
 extern int kbus_ksock_new_device(kbus_ksock_t  ksock,
-                                 uint32_t     *device_number) 
+                                 uint32_t     *device_number)
 {
   int rv = ioctl(ksock, KBUS_IOC_NEWDEVICE, device_number);
   if (rv < 0)
@@ -576,13 +576,13 @@ extern int kbus_wait_for_message(kbus_ksock_t  ksock,
   int rv;
 
   fds[0].fd = (int)ksock;
-  fds[0].events = ((wait_for & KBUS_KSOCK_READABLE) ? POLLIN  : 0) | 
+  fds[0].events = ((wait_for & KBUS_KSOCK_READABLE) ? POLLIN  : 0) |
                   ((wait_for & KBUS_KSOCK_WRITABLE) ? POLLOUT : 0);
   fds[0].revents =0;
   rv = poll(fds, 1, -1);
   if (rv < 0)
     return -errno;
-  else 
+  else
     return ((fds[0].revents & POLLIN)  ? KBUS_KSOCK_READABLE : 0) |
            ((fds[0].revents & POLLOUT) ? KBUS_KSOCK_WRITABLE : 0);
 }
@@ -602,13 +602,13 @@ extern int kbus_wait_for_message(kbus_ksock_t  ksock,
  * returned 0.
  */
 extern int kbus_ksock_read_msg(kbus_ksock_t      ksock,
-                               kbus_message_t  **msg, 
-                               size_t            msg_len) 
+                               kbus_message_t  **msg,
+                               size_t            msg_len)
 {
   ssize_t        so_far = 0;
   ssize_t        length = 0;
   char          *buf;
- 
+
   buf = malloc(msg_len);
   if (!buf) return -ENOMEM;
 
@@ -619,7 +619,7 @@ extern int kbus_ksock_read_msg(kbus_ksock_t      ksock,
 #endif
     if (length > 0) {
       msg_len -= length;
-      so_far += length; 
+      so_far += length;
     } else if (length == 0) {
       free(buf);
       *msg = NULL;
@@ -693,7 +693,7 @@ extern int kbus_ksock_write_msg(kbus_ksock_t             ksock,
     length = KBUS_ENTIRE_MSG_LEN(msg->name_len, msg->data_len);
   else
     length = sizeof(*msg);
-  
+
   while (written < length) {
     rv = write(ksock, data + written, length - written);
     if (rv > 0)
@@ -778,12 +778,12 @@ extern int kbus_ksock_send_msg(kbus_ksock_t             ksock,
  *
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
-extern int kbus_msg_create(kbus_message_t **msg, 
+extern int kbus_msg_create(kbus_message_t **msg,
                            const char *name,
                            uint32_t name_len, /* bytes  */
                            const void *data,
                            uint32_t data_len, /* bytes */
-                           uint32_t flags) 
+                           uint32_t flags)
 {
   kbus_message_t *buf;
   size_t          length = sizeof(*buf);
@@ -801,7 +801,7 @@ extern int kbus_msg_create(kbus_message_t **msg,
   buf->name = (char *) name;
   buf->data = (void *) data;
   buf->end_guard = KBUS_MSG_END_GUARD;
-  
+
   *msg = buf;
 
   return 0;
@@ -831,7 +831,7 @@ extern int kbus_msg_create(kbus_message_t **msg,
  *
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
-extern int kbus_msg_create_entire(kbus_message_t        **msg, 
+extern int kbus_msg_create_entire(kbus_message_t        **msg,
                                   const char             *name,
                                   uint32_t                name_len, /* bytes  */
                                   const void             *data,
@@ -844,7 +844,7 @@ extern int kbus_msg_create_entire(kbus_message_t        **msg,
   size_t length = KBUS_ENTIRE_MSG_LEN(name_len, data_len);
 
   *msg = NULL;
- 
+
   buf = malloc(length);
   if (!buf) return -ENOMEM;
 
@@ -886,12 +886,12 @@ extern int kbus_msg_create_entire(kbus_message_t        **msg,
  *
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
-extern int kbus_msg_create_request(kbus_message_t **msg, 
+extern int kbus_msg_create_request(kbus_message_t **msg,
                                    const char *name,
                                    uint32_t name_len, /* bytes  */
                                    const void *data,
                                    uint32_t data_len, /* bytes */
-                                   uint32_t flags) 
+                                   uint32_t flags)
 {
   int rv = kbus_msg_create(msg, name, name_len, data, data_len, flags);
   if (rv) return rv;
@@ -914,7 +914,7 @@ extern int kbus_msg_create_request(kbus_message_t **msg,
  *
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
-extern int kbus_msg_create_entire_request(kbus_message_t        **msg, 
+extern int kbus_msg_create_entire_request(kbus_message_t        **msg,
                                           const char             *name,
                                           uint32_t                name_len, /* bytes  */
                                           const void             *data,
@@ -958,7 +958,7 @@ extern int kbus_msg_create_entire_request(kbus_message_t        **msg,
  *
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
-extern int kbus_msg_create_reply_to(kbus_message_t **msg, 
+extern int kbus_msg_create_reply_to(kbus_message_t **msg,
                                     const kbus_message_t *in_reply_to,
                                     const void *data,
                                     uint32_t data_len, /* bytes */
@@ -990,12 +990,12 @@ extern int kbus_msg_create_reply_to(kbus_message_t **msg,
  * Unless you need to be able to free the original message and/or data before
  * sending * the message, it is more usual to use
  * ``kbus_msg_create_reply_to()`` instead.
- * 
+ *
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
-extern int kbus_msg_create_entire_reply_to(kbus_message_t          **msg, 
+extern int kbus_msg_create_entire_reply_to(kbus_message_t          **msg,
                                            const kbus_message_t     *in_reply_to,
-                                           const void               *data, 
+                                           const void               *data,
                                            uint32_t                  data_len, /* bytes */
                                            uint32_t                  flags)
 {
@@ -1006,7 +1006,7 @@ extern int kbus_msg_create_entire_reply_to(kbus_message_t          **msg,
     return -EBADMSG;
 
   name = kbus_msg_name_ptr(in_reply_to);
-  rv = kbus_msg_create_entire(msg, name, in_reply_to->name_len, 
+  rv = kbus_msg_create_entire(msg, name, in_reply_to->name_len,
                               data, data_len, flags);
   if (rv) return rv;
 
@@ -1050,11 +1050,11 @@ extern int kbus_msg_create_entire_reply_to(kbus_message_t          **msg,
  *
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
-extern int kbus_msg_create_stateful_request(kbus_message_t         **msg, 
+extern int kbus_msg_create_stateful_request(kbus_message_t         **msg,
                                             const kbus_message_t    *earlier_msg,
                                             const char          *name,
                                             uint32_t             name_len,
-                                            const void          *data, 
+                                            const void          *data,
                                             uint32_t             data_len, /* bytes */
                                             uint32_t             flags)
 {
@@ -1097,11 +1097,11 @@ extern int kbus_msg_create_stateful_request(kbus_message_t         **msg,
  *
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
-extern int kbus_msg_create_entire_stateful_request(kbus_message_t       **msg, 
+extern int kbus_msg_create_entire_stateful_request(kbus_message_t       **msg,
                                                    const kbus_message_t  *earlier_msg,
                                                    const char            *name,
                                                    uint32_t               name_len,
-                                                   const void            *data, 
+                                                   const void            *data,
                                                    uint32_t               data_len, /* bytes */
                                                    uint32_t               flags)
 {
@@ -1143,7 +1143,7 @@ extern void kbus_msg_delete(kbus_message_t **msg_p)
     kbus_message_t *msg = (kbus_message_t *)(*msg_p);
     free(msg);
     (*msg_p) = NULL;
-  } 
+  }
   return;
 }
 
@@ -1320,7 +1320,7 @@ extern void kbus_msg_print(FILE                 *stream,
  * If `dump_data` is true, also print out the message data (in several forms).
  */
 extern void kbus_msg_dump(const kbus_message_t *msg,
-                          int                   dump_data) 
+                          int                   dump_data)
 {
   int i;
 
@@ -1335,7 +1335,7 @@ extern void kbus_msg_dump(const kbus_message_t *msg,
 
   printf("  orig_from:   {%u,%u}\n", msg->orig_from.network_id, msg->orig_from.local_id);
   printf("  final_to:    {%u,%u}\n", msg->final_to.network_id, msg->final_to.local_id);
-  
+
   printf("  flags:       %08x\n", msg->flags);
   printf("  name_len:    %u\n", msg->name_len);
   printf("  data_len:    %u\n", msg->data_len);
@@ -1350,7 +1350,7 @@ extern void kbus_msg_dump(const kbus_message_t *msg,
   for (i = 0; i < msg->name_len; i ++) {
     if (isgraph(name_ptr[i]) || name_ptr[i] == ' ')
       printf("%c", name_ptr[i]);
-    else 
+    else
       printf("?");
   }
 
@@ -1361,7 +1361,7 @@ extern void kbus_msg_dump(const kbus_message_t *msg,
   for (i = 0; i < msg->data_len; i ++) {
     if (isgraph(data_cptr[i]) || data_cptr[i] == ' ')
       printf("%c", data_cptr[i]);
-    else 
+    else
       printf("?");
   }
 

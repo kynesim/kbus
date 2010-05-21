@@ -33,12 +33,12 @@
  * decision by deleting the provisions above and replace them with the notice
  * and other provisions required by the GPL.  If you do not delete the
  * provisions above, a recipient may use your version of this file under either
- * the MPL or the GPL. 
+ * the MPL or the GPL.
  *
  * ***** END LICENSE BLOCK *****
  */
 
-/* A program you can use to listen for or send kbus messages 
+/* A program you can use to listen for or send kbus messages
  */
 
 #include <libkbus/kbus.h>
@@ -48,12 +48,12 @@ static void usage(void);
 
 
 static int create_kbus_message(kbus_message_t **out_hdr,
-			       const char *msg_name, const char *fmt, 
+			       const char *msg_name, const char *fmt,
 			       const char *data, int expect_reply);
 
 static int do_reply(const char *msg_name, int bus_number);
 static int do_listen(const char *msg_name, int bus_number);
-static int do_send(const char *msg_name, const char *fmt, 
+static int do_send(const char *msg_name, const char *fmt,
 		   const char *data, int expect_reply, int bus_number);
 
 static const char *bus_device_name(int bus_number);
@@ -68,7 +68,7 @@ int main(int argn, char *args[])
       usage();
       return 1;
     }
-  
+
   if (!strcmp(args[1], "-bus") || !strcmp(args[1], "--bus"))
     {
       if (argn < 3)
@@ -104,8 +104,7 @@ int main(int argn, char *args[])
 	}
       return do_reply(args[2], bus_number);
     }
-  else if (!strcmp(cmd, "send") || 
-	   !strcmp(cmd, "call"))
+  else if (!strcmp(cmd, "send") || !strcmp(cmd, "call"))
     {
       if (argn != 5)
 	{
@@ -114,7 +113,7 @@ int main(int argn, char *args[])
 	  return 3;
 	}
       // We're expecting a reply iff the command is not 'send'
-      return do_send(args[2], args[3], args[4], 
+      return do_send(args[2], args[3], args[4],
 		     strcmp(cmd, "send"), bus_number);
     }
   else
@@ -151,7 +150,7 @@ static int do_listen(const char *msg_name, int bus_number)
   the_socket = kbus_ksock_open_by_name(bus_device_name(bus_number), O_RDONLY);
   if (the_socket < 0)
     {
-      fprintf(stderr, "Cannot open /dev/kbus0 - %s [%d] \n", 
+      fprintf(stderr, "Cannot open /dev/kbus0 - %s [%d] \n",
 	      strerror(errno), errno);
       return 10;
     }
@@ -179,7 +178,7 @@ static int do_listen(const char *msg_name, int bus_number)
 		  strerror(errno), errno);
 	  return 3;
 	}
-		  
+
       rv = kbus_ksock_read_next_msg(the_socket, &msg);
       if (rv < 0)
 	{
@@ -187,7 +186,7 @@ static int do_listen(const char *msg_name, int bus_number)
 		  strerror(errno), errno);
 	  return 2;
 	}
-      
+
       kbus_msg_print(stdout, msg); fprintf(stdout,"\n");
       //kbus_msg_dump(msg, 1);
       kbus_msg_delete(&msg);
@@ -205,7 +204,7 @@ static int do_reply(const char *msg_name, int bus_number)
   the_socket = kbus_ksock_open_by_name(bus_device_name(bus_number), O_RDWR);
   if (the_socket < 0)
     {
-      fprintf(stderr, "Cannot open /dev/kbus0 - %s [%d] \n", 
+      fprintf(stderr, "Cannot open /dev/kbus0 - %s [%d] \n",
 	      strerror(errno), errno);
       return 10;
     }
@@ -236,7 +235,7 @@ static int do_reply(const char *msg_name, int bus_number)
 		  strerror(errno), errno);
 	  return 3;
 	}
-		  
+
       rv = kbus_ksock_read_next_msg(the_socket, &msg);
       if (rv < 0)
 	{
@@ -244,7 +243,7 @@ static int do_reply(const char *msg_name, int bus_number)
 		  strerror(errno), errno);
 	  return 2;
 	}
-      
+
       kbus_msg_print(stdout, msg); fprintf(stdout,"\n");
       //kbus_msg_dump(msg, 1);
 
@@ -283,7 +282,7 @@ static int hex_to_value(char c)
     {
       return c-'0';
     }
-  else if (c >= 'A' && c <= 'F') 
+  else if (c >= 'A' && c <= 'F')
     {
       return c-'A' + 10;
     }
@@ -298,7 +297,7 @@ static int hex_to_value(char c)
 }
 
 static int create_kbus_message(kbus_message_t **out_hdr,
-			       const char *msg_name, const char *fmt, 
+			       const char *msg_name, const char *fmt,
 			       const char *data, int expect_reply)
 {
   uint8_t *msg_data = NULL;
@@ -316,7 +315,7 @@ static int create_kbus_message(kbus_message_t **out_hdr,
       int in_len;
 
       /* Hex. This is rather harder .. */
-      
+
       in_len = strlen(data);
       data_len = (in_len>>1)& ~1;
       msg_data = (uint8_t *)malloc(data_len);
@@ -325,20 +324,20 @@ static int create_kbus_message(kbus_message_t **out_hdr,
       for (i = 0 ; i < in_len; ++i)
 	{
 	  int v;
-	  
+
 	  v = hex_to_value(data[i]);
 	  if (v < 0)
 	    {
 	      fprintf(stderr, " '%c' is not a valid hex digit. \n", data[i]);
 	      return 20;
 	    }
-	  
-	  printf("i = %d -> [%d, %d] v = %d \n", 
+
+	  printf("i = %d -> [%d, %d] v = %d \n",
 		 i, (i>>1), i&1, v);
 	  msg_data[(i>>1)] |= (i&1) ? (v) : (v<<4);
 	}
     }
-  
+
   {
     int i;
 
@@ -350,13 +349,13 @@ static int create_kbus_message(kbus_message_t **out_hdr,
     printf("\n");
   }
 
-  return kbus_msg_create(out_hdr, 
+  return kbus_msg_create(out_hdr,
 			 msg_name, strlen(msg_name),
-			 msg_data, data_len, 
+			 msg_data, data_len,
 			 (expect_reply ? KBUS_BIT_WANT_A_REPLY : 0));
 }
 
-static int do_send(const char *msg_name, const char *fmt, 
+static int do_send(const char *msg_name, const char *fmt,
 		   const char *data, int expect_reply, int bus_number)
 {
   int rv;
@@ -375,14 +374,14 @@ static int do_send(const char *msg_name, const char *fmt,
   ks = kbus_ksock_open_by_name(bus_device_name(bus_number), O_RDWR);
   if (ks < 0)
     {
-      fprintf(stderr, "Cannot open /dev/kbus0 - %s [%d]\n", 
+      fprintf(stderr, "Cannot open /dev/kbus0 - %s [%d]\n",
 	      strerror(errno), errno);
       return 20;
     }
-  
+
   struct kbus_msg_id id;
 
-  printf("> Sending %s [want_reply? %d]\n", 
+  printf("> Sending %s [want_reply? %d]\n",
 	 msg_name, expect_reply);
 
 
@@ -403,7 +402,7 @@ static int do_send(const char *msg_name, const char *fmt,
       while (1)
 	{
 	  kbus_message_t *inmsg = NULL;
-	  
+
 
 	  rv = kbus_wait_for_message(ks, KBUS_KSOCK_READABLE);
 	  if (rv < 0)
@@ -418,14 +417,14 @@ static int do_send(const char *msg_name, const char *fmt,
 	  rv = kbus_ksock_read_next_msg(ks, &inmsg);
 	  if (rv < 0)
 	    {
-	      fprintf(stderr, "Cannot read next message: %s [%d] \n", 
+	      fprintf(stderr, "Cannot read next message: %s [%d] \n",
 		      strerror(errno), errno);
 	      return 20;
 	    }
-	  
+
           kbus_msg_print(stdout, inmsg); fprintf(stdout,"\n");
 	  //kbus_msg_dump(inmsg, 1);
-	  
+
 	  if (!kbus_msg_compare_ids(&(inmsg->in_reply_to), &id))
 	    {
 	      fprintf(stderr, "> Got Reply!\n");
@@ -435,9 +434,9 @@ static int do_send(const char *msg_name, const char *fmt,
 	  kbus_msg_delete(&inmsg);
 	}
     }
-	   
-  // No need to kill everything - we're about exit .. 
-   
+
+  // No need to kill everything - we're about exit ..
+
   return 0;
 }
 

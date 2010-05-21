@@ -36,7 +36,7 @@ library libKBUS (ick).
 * The kernel code rules mean we can't define a typedef for the KBUS message
   datastructures in kbus_defn.h itself. Normal C coding rules mean we want
   such a thing, so it does need declaring in kbus.h.
- 
+
   However, why can't ``kbus_message_t`` be a typedef for ``struct
   kbus_message_header``, without adding an extra indirection, so that one is
   always having to access fields as ``msg->header.id`` instead of just
@@ -48,7 +48,7 @@ library libKBUS (ick).
   (always) return 0 (which is ignored) and use an output argument.
 
 * No setting of errno. Using errno as out-of-band error reporting is BAD. And
-  nasty to use. Return a proper error code instead. Really. 
+  nasty to use. Return a proper error code instead. Really.
 
 * Add the library documentation to the overall KBUS documentation. Check again
   to see if I can do that via Sphinx itself (and some appropriate plugin).

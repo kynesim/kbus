@@ -272,7 +272,7 @@ class TestLimpets(object):
 
                 m = Request('$.Fred.Message')
                 sender.send_msg(m)
-                
+
                 # The Replier receives the Request (and should reply)
                 r = replier.wait_for_msg(TIMEOUT)
                 assert r.equivalent(m)
@@ -297,7 +297,7 @@ class TestLimpets(object):
             with Ksock(KBUS_LISTENER, 'r') as listener:
                 print 'Listener',str(listener)
                 listener.bind('$.Fred.Message', False)
-                
+
                 # A listener receives Messages
                 m = Message('$.Fred.Message')
                 sender.send_msg(m)
@@ -321,7 +321,7 @@ class TestLimpets(object):
                     r = listener.wait_for_msg(TIMEOUT)
                     assert r.equivalent(m)
                     assert not r.wants_us_to_reply()
-                    
+
                     # The Replier receives the Request (and should reply)
                     r = replier.wait_for_msg(TIMEOUT)
                     assert r.equivalent(m)
@@ -478,7 +478,7 @@ class TestLimpets(object):
 
 
 import traceback
-    
+
 if __name__ == '__main__':
 
     if len(sys.argv) == 1:

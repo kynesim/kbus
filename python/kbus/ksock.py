@@ -63,7 +63,7 @@ _IOC_READ  = 2
 
 # Mustn't use "type" as an argument, since Python already has it...
 def _IOC(d, t, nr, size):
-    return ((d << _IOC_DIRSHIFT) | (ord(t) << _IOC_TYPESHIFT) | 
+    return ((d << _IOC_DIRSHIFT) | (ord(t) << _IOC_TYPESHIFT) |
             (nr << _IOC_NRSHIFT) | (size << _IOC_SIZESHIFT))
 def _IO(t, nr):
     return _IOC(_IOC_NONE, t, nr, 0)

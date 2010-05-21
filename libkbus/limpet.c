@@ -456,7 +456,7 @@ static int amend_request_from_socket(kbus_limpet_context_t   *context,
         printf("\n");
         kbus_msg_print(stdout, *error);
         printf("\n");
-        
+
         return 2;
     }
 
@@ -488,7 +488,7 @@ static int amend_request_from_socket(kbus_limpet_context_t   *context,
             printf("\n");
             kbus_msg_print(stdout, *error);
             printf("\n");
-        
+
             return 2;
         }
     }
@@ -708,7 +708,7 @@ extern void kbus_limpet_free_context(kbus_limpet_context_t  **context)
  * * 0 if the message has successfully been amended, and should be sent to
  *   KBUS.
  * * 1 if the message is not of interest and should be ignored.
- * * A negative number (``-errno``) for failure. 
+ * * A negative number (``-errno``) for failure.
  */
 extern int kbus_limpet_amend_msg_from_kbus(kbus_limpet_context_t *context,
                                            kbus_message_t        *msg)

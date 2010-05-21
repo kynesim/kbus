@@ -153,7 +153,7 @@ proxying as Sender for).
        allow them to choose to listen to something other then '$.*', then
        we also need to CHECK that the thing-listened-to includes the replier
        bind events, and if not, add them in as well.
-       
+
        Which is luckily solved if I use MSGONLYONCE to ask for messages
        to be sent only once to the Limpet's Ksock - which is really what
        I want anyway, I think...
@@ -204,7 +204,7 @@ That is:
     * when we read a message from KBUS, if it's not a message we're the
       replier for (i.e., if we got it as a Listener), and its id is one we've
       remembered, then:
-      
+
       1. don't send it to the other Limpet
       2. forget its id -- this assumes that we're only listening to this
          message name once, if we allow otherwise, then we need to be a bit
