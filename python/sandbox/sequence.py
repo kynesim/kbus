@@ -41,8 +41,28 @@ class Outputter():
 
 class Console(InteractiveConsole):
 
+    def __init__(self, index, name, *args, **kwargs):
+        InteractiveConsole.__init__(self, *args, **kwargs)
+
+        self.name = name
+        self.index = index
+        self.needsmore = False
+
+        # The following leaves us having "implicitly" imported sys,
+        # so far as the user is concerned. Oh well.
+        self.push("import sys; sys.stdout=outputter")
+
     def write(self, data):
         sys.__stdout__.write(indenter(data))
+
+    def do(self, lines):
+        sys.stdout.write(INTRO%(self.index, self.name), indent=False)
+        for line in lines:
+            if self.needsmore:
+                print PROMPT2%line
+            else:
+                print PROMPT1%line
+            self.needsmore = self.push(line)
 
 class Terminal():
     """This class represents one "terminal" in our example.
@@ -63,22 +83,12 @@ class Terminal():
         if "outputter" not in self.globals:
             self.globals["outputter"] = Outputter()
 
-        self.console = Console(locals=self.globals,
+        self.console = Console(index, name,
+                               locals=self.globals,
                                filename='<%s>'%name)
-        self.needsmore = False
-
-        # The following leaves us having "implicitly" imported sys,
-        # so far as the user is concerned. Oh well.
-        self.console.push("import sys; sys.stdout=outputter")
 
     def do(self, *lines):
-        sys.stdout.write(INTRO%(self.index, self.name), indent=False)
-        for line in lines:
-            if self.needsmore:
-                print PROMPT2%line
-            else:
-                print PROMPT1%line
-            self.needsmore = self.console.push(line)
+        self.console.do(lines)
 
 
 def main():
