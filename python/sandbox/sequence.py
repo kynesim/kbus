@@ -73,41 +73,50 @@ class Terminal(object):
             stuff = self.interp.stdout.read()
             new = []
             lines = stuff.split('\n')
+            if lines[-1] in ('>>> ', '... '):
+                # It's our next prompt
+                done_prompt = True
+            else:
+                done_prompt = False
+            ##print lines, done_prompt
             for line in lines:
                 new.append('%s%s'%(INDENT, line))
             lines = '\n'.join(new)
             sys.stdout.write(lines)
-            return False
+            return done_prompt
         except IOError as exc:
             if exc.errno == errno.EAGAIN:
-                return True
+                ##print '<nothing to read>'
+                return False
             else:
                 raise
+
+    do_kwargs = set(['wait', 'prompt'])
 
     def do(self, *lines, **kwargs):
         """
 
         * 'wait' is seconds to wait before each read
-        * if 'output' (default, True) then we expect output from our
-          command(s), otherwise we do not...
+        * 'prompt' (default True) indicates if we're expecting the
+          interpreter to output a prompt. This should be False if we are,
+          for instance, just expecting output from some sort or ongoing loop.
         """
-        if 'wait' in kwargs:
-            wait = kwargs['wait']
-        else:
-            wait = DEFAULT_WAIT
-        if 'output' in kwargs:
-            output = kwargs['output']
-        else:
-            output = True
+        if kwargs and set(kwargs.keys()).difference(self.do_kwargs):
+            raise ValueError('Unexpected keyword argument in %s'%kwargs.keys())
+        wait = kwargs.get('wait', DEFAULT_WAIT)
+        prompt = kwargs.get('prompt', True)
+
+        done_prompt = False
         sys.stdout.write(INTRO%(self.index, self.name))
         for line in lines:
-            if self.read(wait):     # read any left-over output, and the prompt
-                sys.stdout.write('%s>>> '%INDENT)
+            if not self.read(wait): # read any left-over output, and the prompt
+                if not done_prompt and prompt:
+                    sys.stdout.write('%s>>> '%INDENT)
+                    done_prompt = True
             self.interp.stdin.write('%s\n'%line)
             self.interp.stdin.flush()
             print line
-            if output:
-                self.read(wait)
+            done_prompt = self.read(wait)
         sys.stdout.write('\n')
 
     def control_c(self, wait=DEFAULT_WAIT):
@@ -132,16 +141,17 @@ def main():
         print
         print 'Next...'
 
-    x = Terminal(0, "Test")
-    x.do('import os', ouptut=False)
-    x.do('dir(os)')
-    x.do("import time",
-         "while 1:",
-         "   time.sleep(1)",
-         "", output=False)
-    x.control_c()
-    x.read()
-    return
+    if 0:
+        x = Terminal(0, "Test")
+        x.do('import os')
+        x.do('dir(os)')
+        x.do("import time",
+             "while 1:",
+             "   time.sleep(1)",
+             "")
+        x.control_c()
+        x.read()
+        return
 
     r = Terminal(1, "Rosencrantz")
     r.do("from kbus import Ksock, Message",
@@ -176,7 +186,7 @@ def main():
 
     r.do("rosencrantz.send_msg(ahem)")
 
-    a.do("")
+    a.do("", prompt=False)
 
 
 if __name__ == '__main__':
