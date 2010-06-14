@@ -80,6 +80,9 @@ class Terminal(object):
                 done_prompt = False
             ##print lines, done_prompt
             for line in lines:
+                if line == '>>> >>> ':
+                    # This seems to happen after CTRL-C?
+                    line = '>>> '
                 new.append('%s%s'%(INDENT, line))
             lines = '\n'.join(new)
             sys.stdout.write(lines)
@@ -120,6 +123,7 @@ class Terminal(object):
         sys.stdout.write('\n')
 
     def control_c(self, wait=DEFAULT_WAIT):
+        sys.stdout.write(INTRO%(self.index, self.name))
         time.sleep(wait)
         # Don't try to read anything, as we assume that we're
         # trying to break out of (for instance) an infinite loop
@@ -187,6 +191,8 @@ def main():
     r.do("rosencrantz.send_msg(ahem)")
 
     a.do("", prompt=False)
+    a.control_c()
+    a.do("print audience.read_next_msg()")
 
 
 if __name__ == '__main__':
