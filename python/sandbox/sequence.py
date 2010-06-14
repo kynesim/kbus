@@ -52,8 +52,9 @@ class Terminal(object):
     """
 
     def __init__(self, index, name, *args, **kwargs):
-        self.interp = subprocess.Popen('python -u -i -',
-                                       shell=True,
+        # Certainly on Linux (Ubuntu) things don't seem to work
+        # properly if we use "shell=True".
+        self.interp = subprocess.Popen(['python', '-u', '-i', '-'],
                                        stdin=subprocess.PIPE,
                                        stdout=subprocess.PIPE,
                                        stderr=subprocess.STDOUT,
@@ -157,7 +158,7 @@ def main():
              "   time.sleep(1)",
              "")
         x.control_c()
-        x.read()
+        x.show()
         return
 
     r = Terminal(1, "Rosencrantz")
