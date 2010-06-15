@@ -330,7 +330,7 @@ And rosencrantz himself will also have received a copy:"""
 
     print "\nGuildenstern can then reply:"
 
-    g.do("reply = reply_to(msg2, 'Yes, I was')",
+    g.do("reply = reply_to(msg2, 'Yes, yes I was')",
          "print reply",
          "guildenstern.send_msg(reply)")
 
@@ -350,12 +350,20 @@ generate a "gone away" message for him).
 And, of course:"""
 
     a.show()
+    a.control_c()
+    a.do("exit()")
 
-#    r.do("rosencrantz.send_msg(ahem)")
+    print "\nTidy everyone else up as well (note iterating over messages)"
 
-#    a.show()
-#    a.control_c()
-#    a.do("print audience.read_next_msg()")
+    r.do("for msg in rosencrantz:",
+         "    print msg",
+         "",
+         "exit()")
+
+    g.do("for msg in guildenstern:",
+         "    print msg",
+         "",
+         "exit()")
 
 
 if __name__ == '__main__':
