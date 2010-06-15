@@ -4,72 +4,93 @@
 
 from rst_terminal import Terminal
 
+print "Introducing Rosencrantz"
 r = Terminal(1, "Rosencrantz")
-r.do("from kbus import Ksock, Message",
+r.do("from kbus import Ksock",
      "rosencrantz = Ksock(0)",
-     "print rosencrantz",
+     "print rosencrantz")
+
+print
+print "Rosencrantz can send a message."
+r.do("from kbus import Message",
      "ahem = Message('$.Actor.Speak', 'Ahem')",
      "rosencrantz.send_msg(ahem)")
 
+print
+print "But no-one is listening."
+print
+print "    (explain about message ids, though)"
+print
+print "Introduce the audience, who bind to the message Rosencrantz was using."
 a = Terminal(2, "Audience")
 a.do("from kbus import *",
      "audience = Ksock(0)",
      "audience.bind('$.Actor.Speak')")
 
+print
+print "If Rosencrantz sends the message again, the audience can receive it."
+print
+print "    (note the new message id)"
+r.do("rosencrantz.send_msg(ahem)")
+a.do("audience.read_next_msg()")
+
+print
+print "Or, more prettily"
+print
+print "    (note how the message id matches that given to Rosencrantz)"
+a.do("print _")
+
+print
+print "We can set the audience to listening using 'select'"
+a.do("import select",
+      "while 1:",
+      "   (r,w,x) = select.select([audience], [], [])",
+      "   # At this point, r should contain audience",
+      "   print audience.read_next_msg()",
+      "")
+
+print
+print "So now if Rosencrantz talks..."
+r.do("rosencrantz.send_msg(Message('$.Actor.Speak', 'Hello there'))",
+     "rosencrantz.send_msg(Message('$.Actor.Speak', 'Can you hear me?'))")
+
+print
+print "...the audience should be able to hear him:"
+a.show()
+
+print
+print "Introducing Guildenstern."
 g = Terminal(3, "Guildenstern")
 g.do("from kbus import *",
      "guildenstern = Ksock(0)",
      "print guildenstern")
 
-r.do("rosencrantz.send_msg(ahem)")
-
-a.do("audience.read_next_msg()")
-a.do("print _")
-a.do("msg = audience.read_next_msg()",
-     "print msg")
-a.do("import select",
-      "while 1:",
-      "   (r,w,x) = select.select([audience], [], [])",
-      "   # At this point, r should contain audience",
-      "   msg = audience.read_next_msg()",
-      "   print 'We heard', msg.name, msg.data",
-      "")
-
-
-r.do("rosencrantz.send_msg(Message('$.Actor.Speak', 'Hello there'))",
-     "rosencrantz.send_msg(Message('$.Actor.Speak', 'Can you hear me?'))")
+print
+print "Who also starts listening - this time using a wildcard"
+g.do("guildenstern.bind('$.Actor.*')")
 
 print
-print "the audience should be able to hear him:"
-a.show()
+print "In retrospect this makes sense for the audience, too - let's fix that"
+print "(and use the KBUS provided way of doing our 'select' loop as well)"
 
-print
-print "So now we'll introduce another participant:"
-g = Terminal(3, "Guldenstern")
-g.do("from kbus import *",
-     "guildenstern = Ksock(0)",
-     "guildenstern.bind('$.Actor.*')")
-
-print
-print "Here, guildenstern is binding to any message whose name starts with"
-print "``$.Actor.``. In retrospect this, of course, makes sense for the"
-print "audience, too - let's fix that:"
-
-a.control_c()
-a.do("audience.bind('$.Actor.*')",
+a.do("<CONTROL_C>",
+    "audience.bind('$.Actor.*')",
      "while 1:",
-     "   msg = audience.wait_for_msg()",
-     "   print 'We heard', msg.name, msg.data",
+     "   print audience.wait_for_msg()",
      "")
 
 print
-print "And maybe rosencrantz will want to hear his colleague:"
+print "There's nothing for Guildenstern to hear yet, of course."
+g.do("print guildenstern.read_next_msg()")
+
+print
+print "Maybe rosencrantz will want to hear his colleague:"
 r.do("rosencrantz.bind('$.Actor.*')")
 
 print
 print "So let guildenstern speak:"
 g.do("guildenstern.send_msg(Message('$.Actor.Speak', 'Pssst!'))",
-     "# Remember guildenstern is also listening to '$.Actor.*'",
+     "# Remember guildenstern is himself listening to '$.Actor.*'",
      "print guildenstern.read_next_msg()")
 
 print
@@ -81,40 +102,44 @@ print
 print "However, when we look to the audience, we see:"
 a.show()
 
-
 print
 print "This is because the audience has bound to the message twice - it is hearing it"
 print "once because it asked to receive every ``$.Actor.Speak`` message, and again"
 print "because it asked to hear any message matching ``$.Actor.*``."
 print
-print "The solution is simple - ask not to hear the more specific version:"
+print "The solution is simple - ask not to hear the more specific version"
+print "(an unbinding must match the binding exactly)."
 
-a.control_c()
-a.do("audience.unbind('$.Actor.Speak')",
+a.do("<CONTROL-C>",
+     "audience.unbind('$.Actor.Speak')",
      "while 1:",
      "   msg = audience.wait_for_msg()",
-     "   print 'We heard', msg.from_, 'say', msg.name, msg.data",
+     "   print msg",
      "")
 
 print """
-Note that we've also amended the printout to say who the message was from.
+Note that messages also say who they are from.
 Each Ksock connection has an id associated with it - for instance:"""
 
 r.do("rosencrantz.ksock_id()")
 
-print "\nand every message indicates who sent it, so:"
+print
+print "and every message indicates who sent it, so:"
 
-r.do("print 'I heard', msg.from_, 'say', msg.name, msg.data")
+r.do("print msg")
 
 print """
 We've shown that KBUS allows one to "announce" (or, less politely,
-"shout") messages, but KBUS also supports asking questions. Thus:"""
+"shout") messages, but KBUS also supports asking questions.
 
-g.do("guildenstern.bind('$.Actor.Guildenstern.query', True)")
+So let's make Guildenstern listen to "Speak" messages, and act as a
+Replier for "query" messages..."""
+
+g.do("guildenstern.unbind('$.Actor.*')",
+     "guildenstern.bind('$.Actor.Speak')",
+     "guildenstern.bind('$.Actor.Guildenstern.Query', True)")
 
 print """
-allows Guildenstern to bind to this new message name as a Replier.
-
    *(Only one person may be bound as Replier for a particular message
    name at any one time, so that it is unambiguous who is expected to do
    the replying.*
@@ -127,13 +152,19 @@ allows Guildenstern to bind to this new message name as a Replier.
 If Rosencrantz then sends a Request of that name:"""
 
 r.do("from kbus import Request",
-     "req = Request('$.Actor.Guildenstern.query', 'Were you speaking to me?')",
+     "req = Request('$.Actor.Guildenstern.Query', 'Were you speaking to me?')",
      "rosencrantz.send_msg(req)")
+
+print
+print "Remember, Rosencrantz still hears himself speaking - so"
+print "let's undo that..."
+r.do("print rosencrantz.read_next_msg()",
+     "rosencrantz.unbind('$.Actor.*')")
 
 print "\nGuildenstern can receive it:"
 
 g.do("msg2 = guildenstern.read_next_msg()",
-     "print 'I heard', msg2",
+     "print msg2",
      "msg3 = guildenstern.read_next_msg()",
      "print msg3")
 
@@ -152,45 +183,44 @@ guildenstern, which he is meant to answer:"""
 
 g.do("print msg2.wants_us_to_reply()")
 
-print """
-(and that is what the ``YOU`` in the flags means).
-
-And rosencrantz himself will also have received a copy:"""
-
-r.do("print rosencrantz.read_next_msg()")
-
-print "\nGuildenstern can then reply:"
+print
+print "(and that is what the ``YOU`` in the flags means)."
+print
+print "Guildenstern can then reply:"
 
 g.do("reply = reply_to(msg2, 'Yes, yes I was')",
      "print reply",
-     "guildenstern.send_msg(reply)")
+     "guildenstern.send_msg(reply)",
+     "guildenstern.read_next_msg()")
 
 print """
 The ``reply_to`` convenience function crafts a new ``Reply`` message, with the
 various message parts set in an appropriate manner. And thus:"""
 
 r.do("rep = rosencrantz.read_next_msg()",
-     "print 'I heard', rep.from_, 'say', rep.name, rep.data")
+     "print rep")
 
 print """
-Note that Rosencrantz didn't need to bind to this message to receive it - he
-will always get a Reply to any Request he sends (KBUS goes to some lengths to
-guarantee this, so that even if Guildenstern closes his Ksock, it will
-generate a "gone away" message for him).
+Note that Rosencrantz didn't need to be bound to this message to receive it -
+he will always get a Reply to any Request he sends (KBUS goes to some lengths
+to guarantee this, so that even if Guildenstern closes his Ksock, it will
+generate a "gone away" message for him)."""
 
-And, of course:"""
-
+print
+print "Of course, the audience was listening."
 a.show()
-a.control_c()
-a.do("exit()")
 
-print "\nTidy everyone else up as well (note iterating over messages)"
-
+# ============================================================================
+print
+print "And to end things..."
+a.do("<CONTROL_C>",
+     "exit()")
+print
+print "Tidy everyone else up as well (note iterating over messages)"
 r.do("for msg in rosencrantz:",
      "    print msg",
      "",
      "exit()")
-
 g.do("for msg in guildenstern:",
      "    print msg",
      "",

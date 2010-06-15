@@ -5,6 +5,8 @@ It attempts to output the result in a form that can be cut-and-pasted
 straight into the reStructuredText document.
 
 Note that just about everything about this script is exceedingly hacky...
+
+Use -debug to see the indentation explicitly.
 """
 
 import os
@@ -15,15 +17,17 @@ import sys
 import subprocess
 import time
 
-INTRO = """
+DEFAULT_WAIT = 0.1
+DEFAULT_INTRO = """
   .. compound::
 
      *Terminal %d: %s* ::
 
 """
+DEFAULT_INDENT  = "       "
 
-INDENT  = "       "
-DEFAULT_WAIT = 0.1
+# The various ways people commonly represent control-c
+CONTROL_C_STRINGS = ("^C", "<CTRL-C>", "<CONTROL-C>", "<CTRL_C>", "<CONTROL_C>")
 
 class Terminal(object):
     """This class represents one "terminal" in our example.
@@ -51,10 +55,19 @@ class Terminal(object):
         fcntl.fcntl(self.interp.stdout, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
         # Add the interpreter announcement text to the first prompt
-        text, prompt = self.read()
+        text, prompt = self._read()
         self.last_prompt = '%s\n%s'%(text,prompt)
 
-    def read(self, wait=DEFAULT_WAIT):
+    INTRO = DEFAULT_INTRO
+    INDENT  = DEFAULT_INDENT
+
+    def debug(self, on=True):
+        if on:
+            self.INDENT = "~~~~~~~"
+        else:
+            self.INDENT = DEFAULT_INDENT
+
+    def _read(self, wait=DEFAULT_WAIT):
         if wait:
             time.sleep(wait)
         try:
@@ -80,6 +93,16 @@ class Terminal(object):
             else:
                 raise
 
+    def _control_c(self, wait=DEFAULT_WAIT):
+        time.sleep(wait)
+        # Don't try to read anything, as we assume that we're
+        # trying to break out of (for instance) an infinite loop
+        self._write_indented('<CTRL-C>')
+        self.interp.send_signal(signal.SIGINT)
+        text, prompt = self._read(wait)
+        self._write('\n')
+        return text, prompt
+
     def _write(self, text):
         sys.stdout.write(text)
 
@@ -88,22 +111,23 @@ class Terminal(object):
             lines = text.split('\n')
             new = []
             for line in lines:
-                new.append('%s%s'%(INDENT, line))
+                new.append('%s%s'%(self.INDENT, line))
             sys.stdout.write('\n'.join(new))
 
     def do(self, *lines, **kwargs):
         """
 
         * 'wait' is seconds to wait before each read
-        * 'prompt' (default True) indicates if we're expecting the
-          interpreter to output a prompt. This should be False if we are,
-          for instance, just expecting output from some sort or ongoing loop.
+
+        The string <CONTROL-C> (or any of the allowed variants,
+        see the CONTROL_C_STRINGS value) is treated as an instruction
+        to send a control-c (SIGINT) to the interpreter.
         """
         wait = kwargs.get('wait', DEFAULT_WAIT)
 
         prompt = None
         text = None
-        self._write(INTRO%(self.index, self.name))
+        self._write(self.INTRO%(self.index, self.name))
         if self.last_prompt:
             self._write_indented(self.last_prompt)
             self.last_prompt = None
@@ -112,10 +136,13 @@ class Terminal(object):
                 self._write('\n')
             if prompt:
                 self._write_indented(prompt)
-            self.interp.stdin.write('%s\n'%line)
-            self.interp.stdin.flush()
-            self._write('%s\n'%line)
-            text, prompt = self.read(wait)
+            if line in CONTROL_C_STRINGS:
+                text, prompt = self._control_c()
+            else:
+                self.interp.stdin.write('%s\n'%line)
+                self.interp.stdin.flush()
+                self._write('%s\n'%line)
+                text, prompt = self._read(wait)
             self._write_indented(text)
         if prompt:
             self.last_prompt = prompt
@@ -126,44 +153,42 @@ class Terminal(object):
         """Call when there's output but no input or prompt.
         """
         text = None
-        self._write(INTRO%(self.index, self.name))
-        text, prompt = self.read(wait)
+        self._write(self.INTRO%(self.index, self.name))
+        text, prompt = self._read(wait)
         self._write_indented(text)
         if prompt:
             self.last_prompt = prompt
 
-    def control_c(self, wait=DEFAULT_WAIT):
-        self._write(INTRO%(self.index, self.name))
-        time.sleep(wait)
-        # Don't try to read anything, as we assume that we're
-        # trying to break out of (for instance) an infinite loop
-        self._write_indented('<CONTROL-C>')
-        self._write('\n')
-        self.interp.send_signal(signal.SIGINT)
-        text, prompt = self.read(wait)
-        self._write_indented(text)
-        if prompt:
-            self.last_prompt = prompt
-        self._write('\n')
 
+def main(args):
+    if args[0] in ('-help', '--help', '-h'):
+        print __doc__
+        return
 
-def main():
+    if args[0] == '-debug':
+        debugging = True
+    else:
+        debugging = False
+
     x = Terminal(0, "Test")
+    if debugging:
+        x.debug()
+
     x.do('import os')
     x.do('print dir(os)[:4]')
     x.do("import time",
          "while 1:",
          "   time.sleep(1)",
          "")
-    x.control_c()
-    x.do("import sys",
+    x.do("<CTRL-C>",
+         "import sys",
          "print sys.argv")
     x.do(r"print '12345\n67890'",
          "print 'Bye'",
          "exit()")
 
 if __name__ == '__main__':
-    main()
+    main(sys.argv[1:])
     print
 
 # vim: set tabstop=8 softtabstop=4 shiftwidth=4 expandtab:

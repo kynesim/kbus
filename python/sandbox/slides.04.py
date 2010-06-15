@@ -10,7 +10,13 @@ extra at the end.
 
 from rst_terminal import Terminal
 
+import sys
+debugging = sys.argv and sys.argv[1] == '-debug'
+print debugging
+
 r = Terminal(1, "Rosencrantz")
+if debugging: r.debug()
+
 r.do("from kbus import Ksock, Message",
      "rosencrantz = Ksock(0)",
      "print rosencrantz",
@@ -18,14 +24,11 @@ r.do("from kbus import Ksock, Message",
      "rosencrantz.send_msg(ahem)")
 
 a = Terminal(2, "Audience")
+if debugging: a.debug()
+
 a.do("from kbus import *",
      "audience = Ksock(0)",
      "audience.bind('$.Actor.Speak')")
-
-g = Terminal(3, "Guildenstern")
-g.do("from kbus import *",
-     "guildenstern = Ksock(0)",
-     "print guildenstern")
 
 r.do("rosencrantz.send_msg(ahem)")
 
@@ -52,6 +55,8 @@ a.show()
 print
 print "So now we'll introduce another participant:"
 g = Terminal(3, "Guldenstern")
+if debugging: g.debug()
+
 g.do("from kbus import *",
      "guildenstern = Ksock(0)",
      "guildenstern.bind('$.Actor.*')")
@@ -61,8 +66,8 @@ print "Here, guildenstern is binding to any message whose name starts with"
 print "``$.Actor.``. In retrospect this, of course, makes sense for the"
 print "audience, too - let's fix that:"
 
-a.control_c()
-a.do("audience.bind('$.Actor.*')",
+a.do("<CTRL-C>",
+     "audience.bind('$.Actor.*')",
      "while 1:",
      "   msg = audience.wait_for_msg()",
      "   print 'We heard', msg.name, msg.data",
@@ -95,8 +100,8 @@ print "because it asked to hear any message matching ``$.Actor.*``."
 print
 print "The solution is simple - ask not to hear the more specific version:"
 
-a.control_c()
-a.do("audience.unbind('$.Actor.Speak')",
+a.do("<CTRL-C>",
+     "audience.unbind('$.Actor.Speak')",
      "while 1:",
      "   msg = audience.wait_for_msg()",
      "   print 'We heard', msg.from_, 'say', msg.name, msg.data",
@@ -186,9 +191,8 @@ generate a "gone away" message for him).
 
 And, of course:"""
 
-a.show()
-a.control_c()
-a.do("exit()")
+a.do("<CTRL-C>",
+     "exit()")
 
 print "\nTidy everyone else up as well (note iterating over messages)"
 
