@@ -25,24 +25,6 @@ INTRO = """
 INDENT  = "       "
 DEFAULT_WAIT = 0.1
 
-def indenter(text):
-    lines = text.split('\n')
-    indented = []
-    for line in lines:
-        if line:
-            indented.append(INDENT+line)
-        else:
-            indented.append('')
-    return '\n'.join(indented)
-
-class Outputter(object):
-
-    def write(self, text, indent=True):
-        if indent:
-            sys.__stdout__.write(indenter(text))
-        else:
-            sys.__stdout__.write(text)
-
 class Terminal(object):
     """This class represents one "terminal" in our example.
 
@@ -62,9 +44,15 @@ class Terminal(object):
         self.name = name
         self.index = index
 
+        self._debug = False
+
         # Make the process's standard output non-blocking
         fl = fcntl.fcntl(self.interp.stdout, fcntl.F_GETFL)
         fcntl.fcntl(self.interp.stdout, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+
+        # Add the interpreter announcement text to the first prompt
+        text, prompt = self.read()
+        self.last_prompt = '%s\n%s'%(text,prompt)
 
     def read(self, wait=DEFAULT_WAIT):
         if wait:
@@ -72,30 +60,36 @@ class Terminal(object):
         try:
             self.interp.stdin.flush()
             stuff = self.interp.stdout.read()
-            new = []
             lines = stuff.split('\n')
-            if lines[-1] in ('>>> ', '... '):
+            if lines[-1] in ('>>> ', '... ', '>>> >>> '):
                 # It's our next prompt
-                done_prompt = True
-            else:
-                done_prompt = False
-            ##print lines, done_prompt
-            for line in lines:
-                if line == '>>> >>> ':
+                prompt = lines.pop(-1)
+                if prompt == '>>> >>> ':
                     # This seems to happen after CTRL-C?
-                    line = '>>> '
-                new.append('%s%s'%(INDENT, line))
-            lines = '\n'.join(new)
-            sys.stdout.write(lines)
-            return done_prompt
+                    prompt = '>>> '
+            else:
+                prompt = None
+            if self._debug:
+                print lines, prompt
+            return '\n'.join(lines), prompt
         except IOError as exc:
             if exc.errno == errno.EAGAIN:
-                ##print '<nothing to read>'
-                return False
+                if self._debug:
+                    print '<nothing to read>'
+                return None, None
             else:
                 raise
 
-    do_kwargs = set(['wait', 'prompt'])
+    def _write(self, text):
+        sys.stdout.write(text)
+
+    def _write_indented(self, text):
+        if text:
+            lines = text.split('\n')
+            new = []
+            for line in lines:
+                new.append('%s%s'%(INDENT, line))
+            sys.stdout.write('\n'.join(new))
 
     def do(self, *lines, **kwargs):
         """
@@ -105,36 +99,51 @@ class Terminal(object):
           interpreter to output a prompt. This should be False if we are,
           for instance, just expecting output from some sort or ongoing loop.
         """
-        if kwargs and set(kwargs.keys()).difference(self.do_kwargs):
-            raise ValueError('Unexpected keyword argument in %s'%kwargs.keys())
         wait = kwargs.get('wait', DEFAULT_WAIT)
-        prompt = kwargs.get('prompt', True)
 
-        done_prompt = False
-        sys.stdout.write(INTRO%(self.index, self.name))
+        prompt = None
+        text = None
+        self._write(INTRO%(self.index, self.name))
+        if self.last_prompt:
+            self._write_indented(self.last_prompt)
+            self.last_prompt = None
         for line in lines:
-            if not self.read(wait): # read any left-over output, and the prompt
-                if not done_prompt and prompt:
-                    sys.stdout.write('%s>>> '%INDENT)
-                    done_prompt = True
+            if text:
+                self._write('\n')
+            if prompt:
+                self._write_indented(prompt)
             self.interp.stdin.write('%s\n'%line)
             self.interp.stdin.flush()
-            print line
-            done_prompt = self.read(wait)
-        sys.stdout.write('\n')
+            self._write('%s\n'%line)
+            text, prompt = self.read(wait)
+            self._write_indented(text)
+        if prompt:
+            self.last_prompt = prompt
+        if text:
+            self._write('\n')
 
-    def show(self):
-        self.do('', prompt=False)
+    def show(self, wait=DEFAULT_WAIT):
+        """Call when there's output but no input or prompt.
+        """
+        text = None
+        self._write(INTRO%(self.index, self.name))
+        text, prompt = self.read(wait)
+        self._write_indented(text)
+        if prompt:
+            self.last_prompt = prompt
 
     def control_c(self, wait=DEFAULT_WAIT):
-        sys.stdout.write(INTRO%(self.index, self.name))
+        self._write(INTRO%(self.index, self.name))
         time.sleep(wait)
         # Don't try to read anything, as we assume that we're
         # trying to break out of (for instance) an infinite loop
-        sys.stdout.write('%s<CONTROL-C>\n'%INDENT)
+        self._write_indented('<CONTROL-C>\n')
         self.interp.send_signal(signal.SIGINT)
-        self.read(wait)
-        sys.stdout.write('\n')
+        text, prompt = self.read(wait)
+        self._write_indented(text)
+        if prompt:
+            self.last_prompt = prompt
+        self._write('\n')
 
 
 def main():
@@ -152,13 +161,16 @@ def main():
     if 0:
         x = Terminal(0, "Test")
         x.do('import os')
-        x.do('dir(os)')
+        x.do('print dir(os)[:4]')
         x.do("import time",
              "while 1:",
              "   time.sleep(1)",
              "")
         x.control_c()
-        x.show()
+        x.do("import sys",
+             "print sys.argv")
+        x.do(r"print '12345\n67890'",
+             "print 'Bye'")
         return
 
     r = Terminal(1, "Rosencrantz")
@@ -294,7 +306,7 @@ If Rosencrantz then sends a Request of that name:"""
          "msg3 = guildenstern.read_next_msg()",
          "print msg3")
 
-    print """"
+    print """
 As we should expect, guildenstern is getting the message twice, once because
 he has bound as a listener to '$.Actor.*', and once because he is bound as a
 Replier to this specific message.
