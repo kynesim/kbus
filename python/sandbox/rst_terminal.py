@@ -18,7 +18,7 @@ import subprocess
 import time
 
 DEFAULT_WAIT = 0.1
-DEFAULT_INTRO = """
+DEFAULT_INTRO = """\
   .. compound::
 
      *Terminal %d: %s* ::
@@ -161,11 +161,11 @@ class Terminal(object):
 
 
 def main(args):
-    if args[0] in ('-help', '--help', '-h'):
+    if args and args[0] in ('-help', '--help', '-h'):
         print __doc__
         return
 
-    if args[0] == '-debug':
+    if args and args[0] == '-debug':
         debugging = True
     else:
         debugging = False
@@ -174,15 +174,20 @@ def main(args):
     if debugging:
         x.debug()
 
+    print
     x.do('import os')
+    print
     x.do('print dir(os)[:4]')
+    print
     x.do("import time",
          "while 1:",
          "   time.sleep(1)",
          "")
+    print
     x.do("<CTRL-C>",
          "import sys",
          "print sys.argv")
+    print
     x.do(r"print '12345\n67890'",
          "print 'Bye'",
          "exit()")
