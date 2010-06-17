@@ -171,7 +171,7 @@ Replier for "query" messages...
 .. [[[
     g.do("guildenstern.unbind('$.Actor.*')",
          "guildenstern.bind('$.Actor.Speak')",
-         "guildenstern.bind('$.Actor.Guildenstern.Query', True)")
+         "guildenstern.bind('$.Actor.Ask.Guildenstern', True)")
 .. ]]]
 
    *(Only one person may be bound as Replier for a particular message
@@ -187,7 +187,7 @@ If Rosencrantz then sends a Request of that name:
 
 .. [[[
     r.do("from kbus import Request",
-         "req = Request('$.Actor.Guildenstern.Query', 'Were you speaking to me?')",
+         "req = Request('$.Actor.Ask.Guildenstern', 'Were you speaking to me?')",
          "rosencrantz.send_msg(req)")
 .. ]]]
 
@@ -254,7 +254,110 @@ Of course, the audience was listening.
     a.show()
 .. ]]]
 
-.. ============================================================================
+-------------------------------------------------------------------------------
+
+Stateful transactions - explanations to be added later.
+
+.. [[[
+    r.do("# About to start tossing coins",
+         "req = rosencrantz.send_msg(Request('$.Actor.Ask.Guildenstern',",
+         "'Will you count heads for me?'))")
+.. ]]]
+
+.. [[[
+    g.do("req = guildenstern.read_next_msg()",
+         "guildenstern.send_msg(reply_to(req, 'Yes, yes I shall'))",
+         "guildenstern.bind('$.Actor.CoinToss', True)",
+         "heads = 0")
+.. ]]]
+
+.. [[[
+    r.do("rep = rosencrantz.read_next_msg()",
+         "print rep.from_",
+         "# Throws a head",
+         "from kbus import stateful_request",
+         "sreq = stateful_request(rep, '$.Actor.CoinToss', 'Head')",
+         "rosencrantz.send_msg(sreq)")
+.. ]]]
+
+.. [[[
+    g.do("while True:",
+         "    toss = guildenstern.wait_for_msg()",
+         "    if toss.data == 'Head':",
+         "       print 'A head - amazing'",
+         "       heads += 1",
+         "    else:",
+         "       print 'Bah, tails'",
+         "    guildenstern.send_msg(reply_to(toss, 'Head count is %d'%heads))",
+         "")
+.. ]]]
+
+.. [[[
+    r.do("count = rosencrantz.read_next_msg()",
+         "print 'So,',count.data",
+         "# Throws a head",
+         "sreq = stateful_request(rep, '$.Actor.CoinToss', 'Head')",
+         "rosencrantz.send_msg(sreq)")
+.. ]]]
+
+The same again:
+
+.. [[[
+    g.show()
+.. ]]]
+
+Rosencrantz is good at throwing heads:
+
+.. [[[
+    r.do("count = rosencrantz.read_next_msg()",
+         "print 'So,',count.data",
+         "# Throws a head")
+.. ]]]
+
+But, aha, Falstaff intervenes, and forces Guildenstern to disconnect:
+
+.. [[[
+    g.do("<CONTROL-C>",
+         "print 'Ouch'",
+         "guildenstern.close()")
+.. ]]]
+
+And attempts to hijack the conversation - although, of course, he has no idea
+of how many heads have been tossed, so would not actually be of any use:
+
+.. [[[
+    f = Terminal(4, "Falstaff")
+    f.do("from kbus import *",
+         "falstaff = Ksock(0)",
+         "falstaff.bind('$.Actor.CoinToss', True)")
+.. ]]]
+
+Innocently, Rosencrantz continues:
+
+.. [[[
+    r.do("sreq = stateful_request(rep, '$.Actor.CoinToss', 'Head')",
+         "rosencrantz.send_msg(sreq)")
+.. ]]]
+
+And discovers that, in fact, state has been lost, skulduggery has been done,
+and so forth.
+
+::
+
+  $ errno.py 32
+  Error 32 (0x20) is EPIPE: Broken pipe
+
+  KBUS:
+  On attempting to send 'to' a specific replier, the replier with that id
+  is no longer bound to the given message's name.
+
+From the audience's point of view:
+
+.. [[[
+    a.show()
+.. ]]]
+
+-------------------------------------------------------------------------------
 
 And to end things...
 
@@ -263,14 +366,17 @@ And to end things...
          "exit()")
 .. ]]]
 
-Tidy everyone else up as well (note iterating over messages)
+Tidy everyone else up as well (showing that no-one has any messages left):
 
 .. [[[
     r.do("for msg in rosencrantz:",
          "    print msg",
          "",
          "exit()")
-    g.do("for msg in guildenstern:",
+    print
+    g.do("exit()")
+    print
+    f.do("for msg in falstaff:",
          "    print msg",
          "",
          "exit()")
