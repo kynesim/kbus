@@ -3174,13 +3174,7 @@ static int kbus_open(struct inode *inode, struct file *filp)
 
 	up(&dev->sem);
 
-#if DEBUG
-	/* Can't conditionalise this on priv->dev->verbose, because we've only just
-	 * opened it
-	 */
-	printk(KERN_DEBUG "kbus: %u/%u OPEN\n",dev->index,priv->id);
-#endif
-
+	kbus_maybe_dbg(dev,"kbus: %u/%u OPEN\n",dev->index,priv->id);
 
 	return 0;
 }
@@ -3194,10 +3188,7 @@ static int kbus_release(struct inode *inode, struct file *filp)
 	if (down_interruptible(&dev->sem))
 		return -ERESTARTSYS;
 
-#if DEBUG
-	/* If we always show "open", we should match it here */
-	printk(KERN_DEBUG "kbus: %u/%u RELEASE\n",dev->index,priv->id);
-#endif
+	kbus_maybe_dbg(dev,"kbus: %u/%u RELEASE\n",dev->index,priv->id);
 
 	kbus_empty_read_msg(priv);
 	kbus_empty_write_msg(priv);
