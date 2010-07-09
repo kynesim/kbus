@@ -54,6 +54,8 @@ endif
 
 all: kbus.ko $(RULES_NAME)
 
+# We use 'O= ' deliberately, because kernel make, which creates the .ko
+# does not like to build object files in non-source directories.
 kbus.ko :
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= modules
 	
@@ -83,11 +85,13 @@ rules: $(RULES_NAME)
 	then ln -sf $(RULES_FILE) /lib/udev/rules.d/; \
 	fi
 
-
+# Install the header file first, since we have a user system that sometimes
+# wants to install the header file, but fails to build the kernel module,
+# and we're feeling friendly.
 install:
-	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= modules_install
 	-mkdir -p $(DESTDIR)/include/kbus
 	install -m 0644 kbus_defns.h $(DESTDIR)/include/kbus/kbus_defns.h
+	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= modules_install
 
 # Only remove "modules" if we're doing a bigger clean, as there might
 # be subdirectories from previous builds that we don't want to lose on
