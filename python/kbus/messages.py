@@ -781,19 +781,19 @@ class Message(object):
 
     A Message can be constructed from another message directly:
 
-        >>> msg2 = Message(msg1)
+        >>> msg2 = Message.from_message(msg1)
         >>> msg2 == msg1
         True
 
     or from the '.extract()' tuple:
 
-        >>> msg3 = Message(msg1.extract())
+        >>> msg3 = Message.from_sequence(msg1.extract())
         >>> msg3 == msg1
         True
 
     or from an equivalent list::
 
-        >>> msg3 = Message(list(msg1.extract()))
+        >>> msg3 = Message.from_sequence(list(msg1.extract()))
         >>> msg3 == msg1
         True
 
@@ -801,7 +801,7 @@ class Message(object):
     method:
 
         >>> msg_as_string = msg1.to_string()
-        >>> msg4 = Message(msg_as_string)
+        >>> msg4 = Message.from_string(msg_as_string)
         >>> msg4 == msg1
         True
 
@@ -817,14 +817,14 @@ class Message(object):
     and a data "string" must be plausible - that is, long enough for the
     minimal message header:
 
-        >>> Message(msg_as_string[:8])
+        >>> Message.from_string(msg_as_string[:8])
         Traceback (most recent call last):
         ...
         ValueError: Cannot form entire message from string "Kbus\x00\x00\x00\x00" of length 8
 
     and starting with a message start guard:
 
-        >>> Message('1234'+msg_as_string)
+        >>> Message.from_string('1234'+msg_as_string)
         Traceback (most recent call last):
         ...
         ValueError: Cannot form entire message from string "1234Kbus..1234subK" which does not start with message start guard
@@ -832,7 +832,7 @@ class Message(object):
     When constructing a message from another message, one may override
     particular values (but not the name):
 
-        >>> msg5 = Message(msg1, to=9, in_reply_to=MessageId(0, 3))
+        >>> msg5 = Message.from_message(msg1, to=9, in_reply_to=MessageId(0, 3))
         >>> msg5
         Message('$.Fred', data='1234', to=9L, in_reply_to=MessageId(0, 3))
 
@@ -842,14 +842,14 @@ class Message(object):
 
     However, whilst it is possible to set (for instance) 'to' back to 0 by this method:
 
-        >>> msg6 = Message(msg5, to=0)
+        >>> msg6 = Message.from_message(msg5, to=0)
         >>> msg6
         Message('$.Fred', data='1234', in_reply_to=MessageId(0, 3))
 
     (and the same for any of the integer fields), it is not possible to set any
     of the message id fields to None:
 
-        >>> msg6 = Message(msg5, in_reply_to=None)
+        >>> msg6 = Message.from_message(msg5, in_reply_to=None)
         >>> msg6
         Message('$.Fred', data='1234', to=9L, in_reply_to=MessageId(0, 3))
 
@@ -1495,7 +1495,7 @@ class Announcement(Message):
 
     So, an Announcement can be constructed from another message directly:
 
-        >>> ann2 = Announcement(ann1)
+        >>> ann2 = Announcement.from_message(ann1)
         >>> ann2 == ann1
         True
 
@@ -1514,7 +1514,7 @@ class Announcement(Message):
     and the 'in_reply_to' value in Message objects is ignored:
 
         >>> msg = Message('$.Fred', data='1234', in_reply_to=MessageId(1, 2))
-        >>> ann = Announcement(msg)
+        >>> ann = Announcement.from_message(msg)
         >>> ann
         Announcement('$.Fred', data='1234')
         >>> print ann.in_reply_to
@@ -1522,20 +1522,20 @@ class Announcement(Message):
 
     or from the '.extract()' tuple - again, 'reply_to' will be ignored:
 
-        >>> ann3 = Announcement(ann1.extract())
+        >>> ann3 = Announcement.from_sequence(ann1.extract())
         >>> ann3 == ann1
         True
 
     or from an equivalent list (and as above for 'reply_to'):
 
-        >>> ann3 = Announcement(list(ann1.extract()))
+        >>> ann3 = Announcement.from_sequence(list(ann1.extract()))
         >>> ann3 == ann1
         True
 
-    Or one can the same thing represented as a string:
+    Or one can use the same thing represented as a string:
 
         >>> ann_as_string = ann1.to_string()
-        >>> ann4 = Announcement(ann_as_string)
+        >>> ann4 = Announcement.from_string(ann_as_string)
         >>> ann4 == ann1
         True
 
@@ -1607,6 +1607,10 @@ class Announcement(Message):
         message = Announcement.__new__(Announcement,'')
         message._merge_args(msg.extract(), data, to, from_, None, None, None,
                             flags, id)
+        # Just in case...
+        message.msg.in_reply_to = MessageId(0, 0)
+        message.msg.orig_from = OrigFrom(0,0)
+        message.msg.final_to = OrigFrom(0,0)
         return message
 
     @staticmethod
@@ -1632,6 +1636,10 @@ class Announcement(Message):
         message = Announcement.__new__(Announcement,'')
         message._merge_args(seq, data, to, from_, None, None, None,
                             flags, id)
+        # Just in case...
+        message.msg.in_reply_to = MessageId(0, 0)
+        message.msg.orig_from = OrigFrom(0,0)
+        message.msg.final_to = OrigFrom(0,0)
         return message
 
     @staticmethod
@@ -1649,6 +1657,10 @@ class Announcement(Message):
         """
         message = Announcement.__new__(Announcement,'')
         message.msg = entire_message_from_string(arg)
+        # Just in case...
+        message.msg.in_reply_to = MessageId(0, 0)
+        message.msg.orig_from = OrigFrom(0,0)
+        message.msg.final_to = OrigFrom(0,0)
         return message
 
     def set_want_reply(self, value=True):
@@ -1722,20 +1734,6 @@ class Request(Message):
        Message.WANT_A_REPLY flag set. There is nothing else special about it.
     2. A stateful request message is then a request that has its 'to' flag set.
     """
-
-    # I would quite like to do::
-    #
-    #   def __init__(self, arg, **kwargs):
-    #
-    # and then::
-    #
-    #   super(Request, self).__init__(arg, **kwargs)
-    #
-    # but then I wouldn't be able to do::
-    #
-    #   r = Request('$.Fred', 'data')
-    #
-    # which I *can* do (and want to be able to do) with Message
 
     def __init__(self, arg, data=None, to=None, from_=None, final_to=None,
                  flags=None, id=None):
@@ -2158,7 +2156,7 @@ def reply_to(original, data=None, flags=0):
     # any flags from the original message.
     return Reply(name, data=data, in_reply_to=id, to=from_, flags=flags)
 
-def stateful_request(earlier_msg, arg, data=None, from_=None,
+def stateful_request(earlier_msg, name, data=None, from_=None,
                      flags=None, id=None):
     """Construct a stateful Request, based on an earlier Reply or stateful Request.
 
@@ -2216,7 +2214,7 @@ def stateful_request(earlier_msg, arg, data=None, from_=None,
         raise ValueError("The first argument of stateful_request() must be a"
                          " Reply or a previous Stateful Request")
 
-    return Request(arg, data=data, to=to, from_=from_, final_to=final_to,
+    return Request(name, data=data, to=to, from_=from_, final_to=final_to,
                    flags=flags, id=id)
 
 
