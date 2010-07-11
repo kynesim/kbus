@@ -914,7 +914,24 @@ class Message(object):
 
     Our internal values are:
 
-    - 'msg', which is the actual message datastructure
+    - 'msg', which is the actual message datastructure.
+
+    .. note:: Message data is always held as the appropriate C datastructure
+       (via ctypes), mainly to try to minimise copying of data in and out of
+       that form.  A "pointy" or "entire" form is used as appropriate.
+       
+       The Message fields ("inside" the 'msg' datastructure) are readable
+       directly (as properties of Message), but are not directly writable.
+       'set_' methods are provided for those which are likely to be sensible
+       to alter in normal use.
+
+
+       If you need to alter the Message contents, beyond use of the 'set_'
+       methods, then you will need to do so via the internal 'msg'
+       datastructure, with a clear understanding of the KBUS datastructure.
+       If you need an example of doing this, see the Limpet codebase (which
+       changes the 'id', 'orig_from' and 'final_to' fields, not something
+       normal code should need or want to do).
     """
 
     START_GUARD = 0x7375624B
@@ -970,6 +987,71 @@ class Message(object):
 
         # Make sure the result *looks* like a message
         self._check()
+
+    @staticmethod
+    def from_message(msg, data=None, to=None, from_=None, orig_from=None,
+                     final_to=None, in_reply_to=None, flags=None, id=None):
+        """Construct a Message from another message.
+
+        All the values in the old message, except the name, may be changed
+        by specifying new values in the argument list.
+
+        For instance:
+
+            >>> msg1 = Message('$.Fred', '12345678')
+            >>> msg1
+            Message('$.Fred', data='12345678')
+            >>> msg2 = Message.from_message(msg1, flags=1)
+            >>> msg2
+            Message('$.Fred', data='12345678', flags=0x00000001)
+        """
+        message = Message.__new__(Message,'')
+        message._merge_args(msg.extract(), data, to, from_, orig_from,
+                            final_to, in_reply_to, flags, id)
+        return message
+
+    @staticmethod
+    def from_sequence(seq, data=None, to=None, from_=None, orig_from=None,
+                      final_to=None, in_reply_to=None, flags=None, id=None):
+        """Construct a Message from a sequence, as returned by 'extract'.
+
+        All the values in the old message, except the name, may be changed
+        by specifying new values in the argument list.
+
+        For instance:
+
+            >>> msg1 = Message('$.Fred', '12345678')
+            >>> msg1
+            Message('$.Fred', data='12345678')
+            >>> msg2 = Message.from_sequence(msg1.extract(), flags=1)
+            >>> msg2
+            Message('$.Fred', data='12345678', flags=0x00000001)
+        """
+        if len(seq) != 9:
+            raise ValueError("Sequence arg to Message.from_sequence() must have"
+                    " 9 values, not %d"%len(seq))
+
+        message = Message.__new__(Message,'')
+        message._merge_args(seq, data, to, from_, orig_from,
+                            final_to, in_reply_to, flags, id)
+        return message
+
+    @staticmethod
+    def from_string(arg):
+        """Construct a Message from bytes, as read by the Ksock's 'read_data'.
+
+        For instance:
+
+            >>> msg1 = Message('$.Fred', '12345678')
+            >>> msg1
+            Message('$.Fred', data='12345678')
+            >>> msg2 = Message.from_string(msg1.to_string())
+            >>> msg2
+            Message('$.Fred', data='12345678')
+        """
+        message = Message.__new__(Message,'')
+        message.msg = entire_message_from_string(arg)
+        return message
 
     def _merge_args(self, extracted, this_data, this_to, this_from_,
                     this_orig_from, this_final_to, this_in_reply_to,
@@ -1506,6 +1588,69 @@ class Announcement(Message):
         self.msg.orig_from = OrigFrom(0,0)
         self.msg.final_to = OrigFrom(0,0)
 
+    @staticmethod
+    def from_message(msg, data=None, to=None, from_=None, flags=None, id=None):
+        """Construct an Announcement from another message.
+
+        The optional arguments allow changing the named fields in the new
+        Announcement.
+
+        For instance:
+
+            >>> msg1 = Message('$.Fred', '12345678')
+            >>> msg1
+            Message('$.Fred', data='12345678')
+            >>> msg2 = Announcement.from_message(msg1, flags=1)
+            >>> msg2
+            Announcement('$.Fred', data='12345678', flags=0x00000001)
+        """
+        message = Announcement.__new__(Announcement,'')
+        message._merge_args(msg.extract(), data, to, from_, None, None, None,
+                            flags, id)
+        return message
+
+    @staticmethod
+    def from_sequence(seq, data=None, to=None, from_=None, flags=None, id=None):
+        """Construct an Announcement from a sequence, as returned by 'extract'.
+
+        The optional arguments allow changing the named fields in the new
+        Announcement.
+
+        For instance:
+
+            >>> msg1 = Message('$.Fred', '12345678')
+            >>> msg1
+            Message('$.Fred', data='12345678')
+            >>> msg2 = Announcement.from_sequence(msg1.extract(), flags=1)
+            >>> msg2
+            Announcement('$.Fred', data='12345678', flags=0x00000001)
+        """
+        if len(seq) != 9:
+            raise ValueError("Sequence arg to Announcement.from_sequence() must have"
+                    " 9 values, not %d"%len(seq))
+
+        message = Announcement.__new__(Announcement,'')
+        message._merge_args(seq, data, to, from_, None, None, None,
+                            flags, id)
+        return message
+
+    @staticmethod
+    def from_string(arg):
+        """Construct a Message from bytes, as read by the Ksock's 'read_data'.
+
+        For instance:
+
+            >>> msg1 = Message('$.Fred', '12345678')
+            >>> msg1
+            Message('$.Fred', data='12345678')
+            >>> msg2 = Announcement.from_string(msg1.to_string())
+            >>> msg2
+            Announcement('$.Fred', data='12345678')
+        """
+        message = Announcement.__new__(Announcement,'')
+        message.msg = entire_message_from_string(arg)
+        return message
+
     def set_want_reply(self, value=True):
         """Announcements are not Requests.
         """
@@ -1603,6 +1748,77 @@ class Request(Message):
         # But then make sure that the "wants a reply" flag is set
         super(Request, self).set_want_reply(True)
 
+    @staticmethod
+    def from_message(msg, data=None, to=None, from_=None, final_to=None,
+                     flags=None, id=None):
+        """Construct a Request from another message.
+
+        The optional arguments allow changing the named fields in the new
+        Request.
+
+        For instance:
+
+            >>> msg1 = Message('$.Fred', '12345678')
+            >>> msg1
+            Message('$.Fred', data='12345678')
+            >>> msg2 = Request.from_message(msg1, flags=2)
+            >>> msg2
+            Request('$.Fred', data='12345678', flags=0x00000003)
+        """
+        message = Request.__new__(Request,'')
+        message._merge_args(msg.extract(), data, to, from_, None,
+                            final_to, None, flags, id)
+        # But then make sure that the "wants a reply" flag is set
+        super(Request, message).set_want_reply(True)
+        return message
+
+    @staticmethod
+    def from_sequence(seq, data=None, to=None, from_=None, final_to=None,
+                      flags=None, id=None):
+        """Construct a Request from a sequence, as returned by 'extract'.
+
+        The optional arguments allow changing the named fields in the new
+        Request.
+
+        For instance:
+
+            >>> msg1 = Message('$.Fred', '12345678')
+            >>> msg1
+            Message('$.Fred', data='12345678')
+            >>> msg2 = Request.from_sequence(msg1.extract(), flags=2)
+            >>> msg2
+            Request('$.Fred', data='12345678', flags=0x00000003)
+        """
+        if len(seq) != 9:
+            raise ValueError("Sequence arg to Request.from_sequence() must have"
+                    " 9 values, not %d"%len(seq))
+
+        message = Request.__new__(Request,'')
+        message._merge_args(seq, data, to, from_, None,
+                            final_to, None, flags, id)
+        # But then make sure that the "wants a reply" flag is set
+        super(Request, message).set_want_reply(True)
+        return message
+
+    @staticmethod
+    def from_string(arg):
+        """Construct a Request from bytes, as read by the Ksock's 'read_data'.
+
+        For instance:
+
+            >>> msg1 = Message('$.Fred', '12345678')
+            >>> msg1
+            Message('$.Fred', data='12345678')
+            >>> msg2 = Request.from_string(msg1.to_string())
+            >>> msg2
+            Request('$.Fred', data='12345678', flags=0x00000001)
+        """
+        message = Request.__new__(Request,'')
+        message.msg = entire_message_from_string(arg)
+        # But then make sure that the "wants a reply" flag is set
+        super(Request, message).set_want_reply(True)
+        return message
+
     def __repr__(self):
         (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data) = self.extract()
         args = [repr(name)]
@@ -1686,6 +1902,85 @@ class Reply(Message):
         if self.in_reply_to is None:
             raise ValueError("A Reply must specify in_reply_to")
 
+    @staticmethod
+    def from_message(msg, data=None, to=None, from_=None, orig_from=None,
+                     in_reply_to=None, flags=None, id=None):
+        """Construct a Message from another message.
+
+        All the values in the old message, except the name, may be changed
+        by specifying new values in the argument list.
+
+        'in_reply_to' must be specified explicitly, if it is not present
+        in the old/template message.
+
+        For instance:
+
+            >>> msg1 = Message('$.Fred', '12345678')
+            >>> msg1
+            Message('$.Fred', data='12345678')
+            >>> msg2 = Reply.from_message(msg1, flags=2, in_reply_to=MessageId(0,5))
+            >>> msg2
+            Reply('$.Fred', data='12345678', in_reply_to=MessageId(0, 5), flags=0x00000002)
+        """
+        message = Reply.__new__(Reply,'')
+        message._merge_args(msg.extract(), data, to, from_, orig_from,
+                            None, in_reply_to, flags, id)
+        if message.in_reply_to is None:
+            raise ValueError("A Reply must specify in_reply_to")
+        return message
+
+    @staticmethod
+    def from_sequence(seq, data=None, to=None, from_=None, orig_from=None,
+                      in_reply_to=None, flags=None, id=None):
+        """Construct a Message from a sequence, as returned by 'extract'.
+
+        All the values in the old message, except the name, may be changed
+        by specifying new values in the argument list.
+
+        'in_reply_to' must be specified explicitly, if it is not present
+        in the sequence.
+
+        For instance:
+
+            >>> msg1 = Message('$.Fred', '12345678')
+            >>> msg1
+            Message('$.Fred', data='12345678')
+            >>> msg2 = Reply.from_sequence(msg1.extract(), flags=2, in_reply_to=MessageId(0,5))
+            >>> msg2
+            Reply('$.Fred', data='12345678', in_reply_to=MessageId(0, 5), flags=0x00000002)
+        """
+        if len(seq) != 9:
+            raise ValueError("Sequence arg to Message.from_sequence() must have"
+                    " 9 values, not %d"%len(seq))
+
+        message = Reply.__new__(Reply,'')
+        message._merge_args(seq, data, to, from_, orig_from, None,
+                            in_reply_to, flags, id)
+        if message.in_reply_to is None:
+            raise ValueError("A Reply must specify in_reply_to")
+        return message
+
+    @staticmethod
+    def from_string(arg):
+        """Construct a Message from bytes, as read by the Ksock's 'read_data'.
+
+        'in_reply_to' must be set in the message data.
+
+        For instance:
+
+            >>> msg1 = Message('$.Fred', '12345678', in_reply_to=MessageId(0,5))
+            >>> msg1
+            Message('$.Fred', data='12345678', in_reply_to=MessageId(0, 5))
+            >>> msg2 = Message.from_string(msg1.to_string())
+            >>> msg2
+            Message('$.Fred', data='12345678', in_reply_to=MessageId(0, 5))
+        """
+        message = Reply.__new__(Reply,'')
+        message.msg = entire_message_from_string(arg)
+        if message.in_reply_to is None:
+            raise ValueError("A Reply must specify in_reply_to")
+        return message
+
     def __repr__(self):
         (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data) = self.extract()
         args = [repr(name)]
@@ -1728,6 +2023,10 @@ class Status(Message):
     """
 
     def __init__(self, original):
+        # TODO: Arguably, when the 'from_xxx' static methods become the
+        #       preferred means of doing such stuff, construction of a
+        #       Status message via its __init__ should be forbidden...
+
         # Actually, this is slightly more forgiving than the docstring
         # suggests, but conversely I'm not going to hold the user's hand
         # if they do something that's not supported...
@@ -1735,6 +2034,53 @@ class Status(Message):
         # And, in case 'orig_from' got set by that
         self.msg.orig_from = OrigFrom(0,0)
         self.msg.final_to = OrigFrom(0,0)
+
+    @staticmethod
+    def from_message(msg, data=None, to=None, from_=None, orig_from=None,
+                     final_to=None, in_reply_to=None, flags=None, id=None):
+        """Status does not support the 'from_message' static method:
+
+            >>> msg1 = Message('$.Fred', '12345678')
+            >>> msg1
+            Message('$.Fred', data='12345678')
+            >>> msg2 = Status.from_message(msg1, in_reply_to=MessageId(0,5))
+            Traceback (most recent call last):
+            ...
+            NotImplementedError: Status does not support the from_message() static method
+        """
+        raise NotImplementedError('Status does not support the from_message() static method')
+
+    @staticmethod
+    def from_sequence(seq, data=None, to=None, from_=None, orig_from=None,
+                      final_to=None, in_reply_to=None, flags=None, id=None):
+        """Status does not support the 'from_sequence' static method:
+
+            >>> msg1 = Message('$.Fred', '12345678')
+            >>> msg1
+            Message('$.Fred', data='12345678')
+            >>> msg2 = Status.from_sequence(msg1.extract())
+            Traceback (most recent call last):
+            ...
+            NotImplementedError: Status does not support the from_string() static method
+        """
+        raise NotImplementedError('Status does not support the from_string() static method')
+
+    @staticmethod
+    def from_string(arg):
+        """Construct a Status from bytes, as read by the Ksock's 'read_data'.
+
+        For instance:
+
+            >>> msg1 = Message('$.Fred', '12345678')
+            >>> msg1
+            Message('$.Fred', data='12345678')
+            >>> msg2 = Status.from_string(msg1.to_string())
+            >>> msg2
+            Status('$.Fred', data='12345678')
+        """
+        message = Status.__new__(Status,'')
+        message.msg = entire_message_from_string(arg)
+        return message
 
     def __repr__(self):
         (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data) = self.extract()
