@@ -69,9 +69,9 @@ from itertools import permutations
 from kbus import Ksock, Message, MessageId, Announcement, \
                  Request, Reply, Status, reply_to, OrigFrom
 from kbus import read_bindings
-from kbus import entire_message_from_parts, entire_message_from_string
-from kbus import message_from_string
-from kbus.messages import _struct_to_string, _struct_from_string
+from kbus import entire_message_from_parts, entire_message_from_bytes
+from kbus import message_from_bytes
+from kbus.messages import _struct_to_bytes, _struct_from_bytes
 from kbus.messages import _MessageHeaderStruct
 from kbus.messages import split_replier_bind_event_data
 
@@ -345,7 +345,7 @@ class TestKernelModule:
 
             # We can't write to it, by any of the obvious means
             msg2 = Message('$.Fred', 'dada')
-            check_IOError(errno.EBADF, f.write_data, msg2.to_string())
+            check_IOError(errno.EBADF, f.write_data, msg2.to_bytes())
             check_IOError(errno.EBADF, f.write_msg, msg2)
             check_IOError(errno.EBADF, f.send_msg, msg2)
         finally:
@@ -642,7 +642,7 @@ class TestKernelModule:
 
                 # Writing to $.Fred on f1 - writes message id N
                 msgF = Message('$.Fred', 'dada')
-                total_length = len(msgF.to_string())
+                total_length = len(msgF.to_bytes())
 
                 n0 = f1.send_msg(msgF)
 
@@ -763,7 +763,7 @@ class TestKernelModule:
             f.send_msg(m)
 
             # Nor is there (now) a limit on "entire" messages
-            d = m.to_string()
+            d = m.to_bytes()
             f.write_data(d)
             f.send()
         finally:
@@ -1343,10 +1343,10 @@ class TestKernelModule:
 
                 # Low level reading, using explicit next_msg() and byte reading
                 length = f1.next_msg()
-                assert length == len(m1.to_string())
+                assert length == len(m1.to_bytes())
                 data = f1.read_data(length)
                 assert len(data) == length
-                msg = Message(data)
+                msg = Message.from_bytes(data)
                 assert msg.equivalent(m1)
 
                 # Low level reading, using explicit next_msg() and byte reading
@@ -1374,7 +1374,7 @@ class TestKernelModule:
                 for ii in range(length-1):
                     data += f1.read_data(1)
                 assert len(data) == length
-                msg = Message(data)
+                msg = Message.from_bytes(data)
                 assert msg.equivalent(m2)
 
                 # Reading in parts
@@ -1429,7 +1429,7 @@ class TestKernelModule:
                     # we can expect to be writing single bytes to our file
                     # descriptor -- maximally inefficient!
                     assert f1.next_msg() == 0
-                    data = m.to_string()
+                    data = m.to_bytes()
                     for ch in data:
                         f0.write_data(ch)        # which also flushes
                         assert f1.next_msg() == 0
@@ -2165,7 +2165,7 @@ class TestKernelModule:
                 # We are not allowed to send a random Reply
                 # - let's construct one with an unexpected message id
                 r = reply_to(m)
-                x = Reply(r, in_reply_to=msg_id+100)
+                x = Reply.from_message(r, in_reply_to=msg_id+100)
 
                 check_IOError(errno.ECONNREFUSED, listener.send_msg, x)
 
@@ -2408,13 +2408,13 @@ class TestKernelModule:
         assert header.data_len == len(data)
 
         # and whilst we're at it
-        strhdr = _struct_to_string(header)
+        strhdr = _struct_to_bytes(header)
         #print 'As string:',
         #for char in strhdr:
         #    print ' %02x'%ord(char),
         #print
 
-        h2 = _struct_from_string(_MessageHeaderStruct, strhdr)
+        h2 = _struct_from_bytes(_MessageHeaderStruct, strhdr)
         #print 'h2', h2
 
         assert h2==header
@@ -2510,7 +2510,7 @@ class TestKernelModule:
             # "entire" message), then the length will include the
             # message name, appropriately padded (as well as the
             # extra end guard at the very end, of course)
-            s = m.to_string()
+            s = m.to_bytes()
             assert len(s) == 76 + increments[length]
             assert len(s) == m.total_length()
 
@@ -2535,7 +2535,7 @@ class TestKernelModule:
             # message), then the length will include the message name,
             # appropriately padded, the extra end guard at the very end,
             # and the data itself, also padded
-            s = m.to_string()
+            s = m.to_bytes()
             assert len(s) == 76 + 4 + increments[length]
             assert len(s) == m.total_length()
 
@@ -2568,11 +2568,11 @@ class TestKernelModule:
             length = listener.next_msg()
             data = listener.read_data(length)
 
-            entire = entire_message_from_string(data)
+            entire = entire_message_from_bytes(data)
             print 'Entire   ',entire
             assert message.equivalent(entire)
 
-            m = message_from_string(data)
+            m = message_from_bytes(data)
             print 'm        ',m
             assert message.equivalent(m)
 
@@ -2691,7 +2691,7 @@ class TestKernelModule:
 
                 data = 'x' * (max_data_len -1)
                 msg = Announcement('$.Fred', data=data)
-                msg_string = msg.to_string()
+                msg_string = msg.to_bytes()
                 print 'Message length is',len(msg_string)
                 sender.write_data(msg_string)
                 sender.send()
@@ -2701,7 +2701,7 @@ class TestKernelModule:
 
                 data = 'x' * max_data_len
                 msg = Announcement('$.Fred', data=data)
-                msg_string = msg.to_string()
+                msg_string = msg.to_bytes()
                 print 'Message length is',len(msg_string)
                 sender.write_data(msg_string)
                 sender.send()
@@ -2711,7 +2711,7 @@ class TestKernelModule:
 
                 data = 'x' * (max_data_len +1)
                 msg = Announcement('$.Fred', data=data)
-                msg_string = msg.to_string()
+                msg_string = msg.to_bytes()
                 print 'Message length is',len(msg_string)
                 sender.write_data(msg_string)
                 sender.send()

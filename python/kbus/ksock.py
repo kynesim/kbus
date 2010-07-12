@@ -455,7 +455,7 @@ class Ksock(object):
         """
         data = self.fd.read(length)
         if data:
-            return Message(data)
+            return Message.from_bytes(data)
         else:
             return None
 
@@ -470,7 +470,7 @@ class Ksock(object):
         """
         data = self.fd.read(self.next_msg())
         if data:
-            return Message(data)
+            return Message.from_bytes(data)
         else:
             return None
 

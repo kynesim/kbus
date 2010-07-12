@@ -377,10 +377,10 @@ class _MessageHeaderStruct(ctypes.Structure):
         """
         return _equivalent_message_struct(self, other)
 
-def _struct_to_string(struct):
+def _struct_to_bytes(struct):
     return ctypes.string_at(ctypes.addressof(struct), ctypes.sizeof(struct))
 
-def _struct_from_string(struct_class, data):
+def _struct_from_bytes(struct_class, data):
     thing = struct_class()
     ctypes.memmove(ctypes.addressof(thing), data, ctypes.sizeof(thing))
     return thing
@@ -466,12 +466,12 @@ def message_from_parts(id, in_reply_to, to, from_, orig_from, final_to, flags, n
                                 name_len, data_len,
                                 name_ptr, data_ptr, Message.END_GUARD)
 
-def message_from_string(msg_data):
+def message_from_bytes(msg_data):
     """Return a "pointy" message structure from the given data.
 
     'data' is a string-like object (as, for instance, returned by 'read')
     """
-    h = _struct_from_string(_MessageHeaderStruct, msg_data)
+    h = _struct_from_bytes(_MessageHeaderStruct, msg_data)
 
     # Don't forget that the string will be terminated with a 0 byte
     padded_name_len = calc_padded_name_len(h.name_len)
@@ -714,7 +714,7 @@ def entire_message_from_parts(id, in_reply_to, to, from_, orig_from, final_to,
 
     return local_class(header, name, data_array, Message.END_GUARD)
 
-def entire_message_from_string(data):
+def entire_message_from_bytes(data):
     """Return a message structure of a size that satisfies.
 
     'data' is a string-like object (as, for instance, returned by 'read')
@@ -731,9 +731,9 @@ def entire_message_from_string(data):
     debug = False
     if debug:
         print
-        print 'entire_message_from_string(%d:%s)'%(len(data),hexify(data))
+        print 'entire_message_from_bytes(%d:%s)'%(len(data),hexify(data))
     ## ===================================
-    h = _struct_from_string(_MessageHeaderStruct, data)
+    h = _struct_from_bytes(_MessageHeaderStruct, data)
     ## ===================================
     if debug:
         print '_MessageHeaderStruct: %s'%h
@@ -751,12 +751,12 @@ def entire_message_from_string(data):
     ## ===================================
     if debug:
         print 'name_len %d -> %d, data_len %d -> %d'%(h.name_len, padded_name_len, h.data_len, padded_data_len)
-        x = _struct_from_string(local_class, data)
+        x = _struct_from_bytes(local_class, data)
         print '_specific_class:      %s'%x
         print
     ## ===================================
 
-    return _struct_from_string(local_class, data)
+    return _struct_from_bytes(local_class, data)
 
 class Message(object):
     r"""A wrapper for a KBUS message
@@ -800,8 +800,8 @@ class Message(object):
     or one can use a "string" -- for instance, as returned by the Ksock 'read'
     method:
 
-        >>> msg_as_string = msg1.to_string()
-        >>> msg4 = Message.from_string(msg_as_string)
+        >>> msg_as_string = msg1.to_bytes()
+        >>> msg4 = Message.from_bytes(msg_as_string)
         >>> msg4 == msg1
         True
 
@@ -817,14 +817,14 @@ class Message(object):
     and a data "string" must be plausible - that is, long enough for the
     minimal message header:
 
-        >>> Message.from_string(msg_as_string[:8])
+        >>> Message.from_bytes(msg_as_string[:8])
         Traceback (most recent call last):
         ...
         ValueError: Cannot form entire message from string "Kbus\x00\x00\x00\x00" of length 8
 
     and starting with a message start guard:
 
-        >>> Message.from_string('1234'+msg_as_string)
+        >>> Message.from_bytes('1234'+msg_as_string)
         Traceback (most recent call last):
         ...
         ValueError: Cannot form entire message from string "1234Kbus..1234subK" which does not start with message start guard
@@ -978,7 +978,7 @@ class Message(object):
                     raise ValueError('Message name "%s" not allowed:'
                                      ' does not start "$."'%arg)
                 # Assume it's sensible data...
-                self.msg = entire_message_from_string(arg)
+                self.msg = entire_message_from_bytes(arg)
             else:
                 raise ValueError('If message data is given as a string,'
                                  ' no other arguments are allowed')
@@ -1037,7 +1037,7 @@ class Message(object):
         return message
 
     @staticmethod
-    def from_string(arg):
+    def from_bytes(arg):
         """Construct a Message from bytes, as read by the Ksock's 'read_data'.
 
         For instance:
@@ -1045,12 +1045,12 @@ class Message(object):
             >>> msg1 = Message('$.Fred', '12345678')
             >>> msg1
             Message('$.Fred', data='12345678')
-            >>> msg2 = Message.from_string(msg1.to_string())
+            >>> msg2 = Message.from_bytes(msg1.to_bytes())
             >>> msg2
             Message('$.Fred', data='12345678')
         """
         message = Message.__new__(Message,'')
-        message.msg = entire_message_from_string(arg)
+        message.msg = entire_message_from_bytes(arg)
         return message
 
     def _merge_args(self, extracted, this_data, this_to, this_from_,
@@ -1253,7 +1253,7 @@ class Message(object):
         The actual "pointy" or "entire" message data is held in the
         'msg' value of the Message instance.
 
-        The 'to_string()' method returns the data for an "entire" message.
+        The 'to_bytes()' method returns the data for an "entire" message.
 
         This function calculates the length of the equivalent "entire"
         message for this Message.
@@ -1261,7 +1261,7 @@ class Message(object):
         # And we're going to do it the slow and wasteful way
         #
         # XXX Just calculate this, instead of copying stuff...
-        return len(self.to_string())
+        return len(self.to_bytes())
 
     def equivalent(self, other):
         """Returns true if the two messages are mostly the same.
@@ -1416,7 +1416,7 @@ class Message(object):
         return (self.id, self.in_reply_to, self.to, self.from_, self.orig_from,
                 self.final_to, self.flags, self.name, self.data)
 
-    def to_string(self):
+    def to_bytes(self):
         """Return the message as a string.
 
         This returns the entirety of the message as a Python string.
@@ -1428,7 +1428,7 @@ class Message(object):
         (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data) = self.extract()
         tmp = entire_message_from_parts(id, in_reply_to, to, from_, orig_from,
                                         final_to, flags, name, data)
-        return _struct_to_string(tmp)
+        return _struct_to_bytes(tmp)
 
     def is_reply(self):
         """A convenience method - are we a Reply?
@@ -1534,8 +1534,8 @@ class Announcement(Message):
 
     Or one can use the same thing represented as a string:
 
-        >>> ann_as_string = ann1.to_string()
-        >>> ann4 = Announcement.from_string(ann_as_string)
+        >>> ann_as_string = ann1.to_bytes()
+        >>> ann4 = Announcement.from_bytes(ann_as_string)
         >>> ann4 == ann1
         True
 
@@ -1643,7 +1643,7 @@ class Announcement(Message):
         return message
 
     @staticmethod
-    def from_string(arg):
+    def from_bytes(arg):
         """Construct a Message from bytes, as read by the Ksock's 'read_data'.
 
         For instance:
@@ -1651,12 +1651,12 @@ class Announcement(Message):
             >>> msg1 = Message('$.Fred', '12345678')
             >>> msg1
             Message('$.Fred', data='12345678')
-            >>> msg2 = Announcement.from_string(msg1.to_string())
+            >>> msg2 = Announcement.from_bytes(msg1.to_bytes())
             >>> msg2
             Announcement('$.Fred', data='12345678')
         """
         message = Announcement.__new__(Announcement,'')
-        message.msg = entire_message_from_string(arg)
+        message.msg = entire_message_from_bytes(arg)
         # Just in case...
         message.msg.in_reply_to = MessageId(0, 0)
         message.msg.orig_from = OrigFrom(0,0)
@@ -1799,7 +1799,7 @@ class Request(Message):
         return message
 
     @staticmethod
-    def from_string(arg):
+    def from_bytes(arg):
         """Construct a Request from bytes, as read by the Ksock's 'read_data'.
 
         For instance:
@@ -1807,12 +1807,12 @@ class Request(Message):
             >>> msg1 = Message('$.Fred', '12345678')
             >>> msg1
             Message('$.Fred', data='12345678')
-            >>> msg2 = Request.from_string(msg1.to_string())
+            >>> msg2 = Request.from_bytes(msg1.to_bytes())
             >>> msg2
             Request('$.Fred', data='12345678', flags=0x00000001)
         """
         message = Request.__new__(Request,'')
-        message.msg = entire_message_from_string(arg)
+        message.msg = entire_message_from_bytes(arg)
         # But then make sure that the "wants a reply" flag is set
         super(Request, message).set_want_reply(True)
         return message
@@ -1881,7 +1881,7 @@ class Reply(Message):
     It's also possible to construct a Reply in most of the other ways a Message
     can be constructed. For instance:
 
-        >>> rep2 = Reply(direct.to_string())
+        >>> rep2 = Reply(direct.to_bytes())
         >>> rep2 == direct
         True
         >>> rep4 = Reply(direct.extract())
@@ -1959,7 +1959,7 @@ class Reply(Message):
         return message
 
     @staticmethod
-    def from_string(arg):
+    def from_bytes(arg):
         """Construct a Message from bytes, as read by the Ksock's 'read_data'.
 
         'in_reply_to' must be set in the message data.
@@ -1969,12 +1969,12 @@ class Reply(Message):
             >>> msg1 = Message('$.Fred', '12345678', in_reply_to=MessageId(0,5))
             >>> msg1
             Message('$.Fred', data='12345678', in_reply_to=MessageId(0, 5))
-            >>> msg2 = Message.from_string(msg1.to_string())
+            >>> msg2 = Message.from_bytes(msg1.to_bytes())
             >>> msg2
             Message('$.Fred', data='12345678', in_reply_to=MessageId(0, 5))
         """
         message = Reply.__new__(Reply,'')
-        message.msg = entire_message_from_string(arg)
+        message.msg = entire_message_from_bytes(arg)
         if message.in_reply_to is None:
             raise ValueError("A Reply must specify in_reply_to")
         return message
@@ -2010,7 +2010,7 @@ class Status(Message):
         >>> msg = Message('$.KBUS.Dummy', from_=27, to=99, in_reply_to=MessageId(0, 132))
         >>> msg
         Message('$.KBUS.Dummy', to=99L, from_=27L, in_reply_to=MessageId(0, 132))
-        >>> status = Status(msg.to_string())
+        >>> status = Status(msg.to_bytes())
         >>> status
         Status('$.KBUS.Dummy', to=99L, from_=27L, in_reply_to=MessageId(0, 132))
 
@@ -2059,12 +2059,12 @@ class Status(Message):
             >>> msg2 = Status.from_sequence(msg1.extract())
             Traceback (most recent call last):
             ...
-            NotImplementedError: Status does not support the from_string() static method
+            NotImplementedError: Status does not support the from_bytes() static method
         """
-        raise NotImplementedError('Status does not support the from_string() static method')
+        raise NotImplementedError('Status does not support the from_bytes() static method')
 
     @staticmethod
-    def from_string(arg):
+    def from_bytes(arg):
         """Construct a Status from bytes, as read by the Ksock's 'read_data'.
 
         For instance:
@@ -2072,12 +2072,12 @@ class Status(Message):
             >>> msg1 = Message('$.Fred', '12345678')
             >>> msg1
             Message('$.Fred', data='12345678')
-            >>> msg2 = Status.from_string(msg1.to_string())
+            >>> msg2 = Status.from_bytes(msg1.to_bytes())
             >>> msg2
             Status('$.Fred', data='12345678')
         """
         message = Status.__new__(Status,'')
-        message.msg = entire_message_from_string(arg)
+        message.msg = entire_message_from_bytes(arg)
         return message
 
     def __repr__(self):
@@ -2231,7 +2231,7 @@ def split_replier_bind_event_data(data):
     Returns a tuple of the form (is_bind, binder, name)
     """
 
-    hdr = _struct_from_string(_ReplierBindEventHeader, data)
+    hdr = _struct_from_bytes(_ReplierBindEventHeader, data)
 
     offset = ctypes.sizeof(_ReplierBindEventHeader)
 

@@ -42,7 +42,7 @@ from socket import ntohl, htonl
 
 from kbus import Ksock, Message, Reply, MessageId, OrigFrom
 from kbus.messages import _MessageHeaderStruct, _ReplierBindEventHeader, \
-        message_from_parts, _struct_from_string, _struct_to_string, \
+        message_from_parts, _struct_from_bytes, _struct_to_bytes, \
         split_replier_bind_event_data, \
         calc_padded_name_len, calc_padded_data_len, calc_entire_message_len, \
         MSG_HEADER_LEN
@@ -681,7 +681,7 @@ def unserialise_message_header(data):
 
     Returns (name_len, data_len, array)
     """
-    array = _struct_from_string(_SerialisedMessageHeaderType, data)
+    array = _struct_from_bytes(_SerialisedMessageHeaderType, data)
     for ii, item in enumerate(array):
         array[ii] = ntohl(array[ii])
     return array[13], array[14], array
@@ -691,24 +691,24 @@ def convert_ReplierBindEvent_data_from_network(data, data_len):
 
     Returns a new version of the data, converted.
     """
-    hdr = _struct_from_string(_ReplierBindEventHeader, data[:data_len])
+    hdr = _struct_from_bytes(_ReplierBindEventHeader, data[:data_len])
     hdr.is_bind  = ntohl(hdr.is_bind)
     hdr.binder   = ntohl(hdr.binder)
     hdr.name_len = ntohl(hdr.name_len)
     rest = data[ctypes.sizeof(_ReplierBindEventHeader):data_len]
-    return _struct_to_string(hdr)+rest
+    return _struct_to_bytes(hdr)+rest
 
 def convert_ReplierBindEvent_data_to_network(data):
     """Given the data for a ReplierBindEvent, convert it to network order.
 
     Returns a new version of the data, converted.
     """
-    hdr = _struct_from_string(_ReplierBindEventHeader, data)
+    hdr = _struct_from_bytes(_ReplierBindEventHeader, data)
     hdr.is_bind  = htonl(hdr.is_bind)
     hdr.binder   = htonl(hdr.binder)
     hdr.name_len = htonl(hdr.name_len)
     rest = data[ctypes.sizeof(_ReplierBindEventHeader):]
-    return _struct_to_string(hdr)+rest
+    return _struct_to_bytes(hdr)+rest
 
 
 class LimpetExample(object):
@@ -906,7 +906,7 @@ class LimpetExample(object):
         # the Replier Bind Event's data
         if msg.name == '$.KBUS.ReplierBindEvent':
             data = convert_ReplierBindEvent_data_to_network(msg.data)
-            msg = Message(msg, data=data)
+            msg = Message.from_message(msg, data=data)
 
         header = serialise_message_header(msg)
         self.sock.sendall(header)
