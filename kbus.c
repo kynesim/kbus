@@ -3683,6 +3683,7 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 			msg->flags       = user_msg->flags;
 			msg->name_len    = user_msg->name_len;
 			msg->data_len    = user_msg->data_len;
+			/* Leaving msg->name|data_ref still unset */
 
 			this->user_name_ptr = user_msg->name;
 			this->user_data_ptr = user_msg->data;
@@ -3899,6 +3900,7 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 			retval = -ENOMEM;
 			goto done;
 		}
+		memset(this->msg, 0, sizeof(*(this->msg)));
 #if DEBUG_WRITE
 		kbus_report_write_msg(priv);
 #endif
