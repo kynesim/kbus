@@ -812,7 +812,7 @@ class Message(object):
         >>> Message('Fred')
         Traceback (most recent call last):
         ...
-        ValueError: Message name "Fred" not allowed: does not start "$."
+        ValueError: Message name "Fred" does not start "$."
 
     and a data "string" must be plausible - that is, long enough for the
     minimal message header:
@@ -836,7 +836,7 @@ class Message(object):
         >>> msg5
         Message('$.Fred', data='1234', to=9L, in_reply_to=MessageId(0, 3))
 
-        >>> msg5a = Message(msg1, to=9, in_reply_to=MessageId(0, 3))
+        >>> msg5a = Message.from_message(msg1, to=9, in_reply_to=MessageId(0, 3))
         >>> msg5a == msg5
         True
 
@@ -945,45 +945,16 @@ class Message(object):
     ALL_OR_WAIT         = _BIT(8)
     ALL_OR_FAIL         = _BIT(9)
 
-    def __init__(self, arg, data=None, to=None, from_=None, orig_from=None,
+    def __init__(self, name, data=None, to=None, from_=None, orig_from=None,
                  final_to=None, in_reply_to=None, flags=None, id=None):
         """Initialise a Message.
-
-        All named arguments are meant to be "unset" by default.
         """
 
-        if isinstance(arg, Message):
-            self._merge_args(arg.extract(), data, to, from_, orig_from, final_to,
-                             in_reply_to, flags, id)
-        elif isinstance(arg, tuple) or isinstance(arg, list):
-            # A tuple from .extract(), or an equivalent tuple/list
-            if len(arg) != 9:
-                raise ValueError("Tuple arg to Message() must have"
-                        " 9 values, not %d"%len(arg))
-            else:
-                self._merge_args(arg, data, to, from_, orig_from, final_to,
-                                 in_reply_to, flags, id)
-        elif isinstance(arg, str):
-            if arg.startswith('$.'):
-                # It looks like a message name
-                name = arg
-                self._from_data(name, data, to, from_, orig_from, final_to,
-                                in_reply_to, flags, id)
-            elif data is None and to is None and from_ is None and \
-                 orig_from is None and final_to is None and \
-                 in_reply_to is None and flags is None and id is None:
-                # In order to be friendly, try to diagnose a badly named
-                # message...
-                if all(x in string.printable for x in arg):
-                    raise ValueError('Message name "%s" not allowed:'
-                                     ' does not start "$."'%arg)
-                # Assume it's sensible data...
-                self.msg = entire_message_from_bytes(arg)
-            else:
-                raise ValueError('If message data is given as a string,'
-                                 ' no other arguments are allowed')
-        else:
-            raise ValueError('Argument %s does not seem to make sense'%repr(arg))
+        if not name.startswith('$.'):
+            raise ValueError('Message name "%s" does not start "$."'%name)
+
+        self._from_data(name, data, to, from_, orig_from, final_to,
+                        in_reply_to, flags, id)
 
         # Make sure the result *looks* like a message
         self._check()
@@ -1464,14 +1435,14 @@ class Message(object):
         if self.is_reply():
             # Status messages have a specific sort of name
             if self.msg.name.startswith('$.KBUS.'):
-                return Status(self)
+                return Status.from_bytes(self.to_bytes())
             else:
-                return Reply(self)
+                return Reply.from_message(self)
         elif self.is_request():
-            return Request(self)
+            return Request.from_message(self)
         else:
             # Otherwise, it's basically an Announcement (at least, that's a good bet)
-            return Announcement(self)
+            return Announcement.from_message(self)
 
 class Announcement(Message):
     """A "plain" message, needing no reply
@@ -1499,8 +1470,8 @@ class Announcement(Message):
         >>> ann2 == ann1
         True
 
-        >>> msg = Announcement(ann1)
-        >>> ann2a = Announcement(msg)
+        >>> msg = Announcement.from_message(ann1)
+        >>> ann2a = Announcement.from_message(msg)
         >>> ann2 == ann2a
         True
 
@@ -1562,25 +1533,11 @@ class Announcement(Message):
        type. There is nothing else special about it.
     """
 
-    # I would quite like to do::
-    #
-    #   def __init__(self, arg, **kwargs):
-    #
-    # and then::
-    #
-    #   super(Announcement, self).__init__(arg, **kwargs)
-    #
-    # but then I wouldn't be able to do::
-    #
-    #   r = Announcement('$.Fred', 'data')
-    #
-    # which I *can* do (and want to be able to do) with Message
-
-    def __init__(self, arg, data=None, to=None, from_=None, flags=None, id=None):
+    def __init__(self, name, data=None, to=None, from_=None, flags=None, id=None):
         """Arguments are the same as for Message itself, absent 'in_reply_to'.
         """
         # Just do what the caller asked for directly
-        super(Announcement, self).__init__(arg, data=data, to=to,
+        super(Announcement, self).__init__(name, data=data, to=to,
                                            from_=from_, flags=flags, id=id)
         # And, in case 'in_reply_to' got set by that
         self.msg.in_reply_to = MessageId(0, 0)
@@ -1735,13 +1692,13 @@ class Request(Message):
     2. A stateful request message is then a request that has its 'to' flag set.
     """
 
-    def __init__(self, arg, data=None, to=None, from_=None, final_to=None,
+    def __init__(self, name, data=None, to=None, from_=None, final_to=None,
                  flags=None, id=None):
         """Arguments are exactly the same as for Message itself.
         """
         # First, just do what the caller asked for directly
         # but with 'in_reply_to' as 0
-        super(Request, self).__init__(arg, data=data, to=to, from_=from_,
+        super(Request, self).__init__(name, data=data, to=to, from_=from_,
                                       final_to=final_to, flags=flags, id=id)
         # But then make sure that the "wants a reply" flag is set
         super(Request, self).set_want_reply(True)
@@ -1852,7 +1809,7 @@ class Reply(Message):
         >>> direct = Reply('$.Fred', to=27, in_reply_to=MessageId(0, 132))
         >>> direct
         Reply('$.Fred', to=27L, in_reply_to=MessageId(0, 132))
-        >>> reply = Reply(direct)
+        >>> reply = Reply.from_message(direct)
         >>> direct == reply
         True
 
@@ -1861,12 +1818,12 @@ class Reply(Message):
         >>> msg = Message('$.Fred', data='1234', from_=27, to=99, id=MessageId(0, 132), flags=Message.WANT_A_REPLY)
         >>> msg
         Message('$.Fred', data='1234', to=99L, from_=27L, flags=0x00000001, id=MessageId(0, 132))
-        >>> reply = Reply(msg)
+        >>> reply = Reply.from_message(msg)
         Traceback (most recent call last):
         ...
         ValueError: A Reply must specify in_reply_to
 
-        >>> reply = Reply(msg, in_reply_to=MessageId(0, 5))
+        >>> reply = Reply.from_message(msg, in_reply_to=MessageId(0, 5))
         >>> reply
         Reply('$.Fred', data='1234', to=99L, from_=27L, in_reply_to=MessageId(0, 5), flags=0x00000001, id=MessageId(0, 132))
 
@@ -1874,26 +1831,27 @@ class Reply(Message):
     with its 'orig_from' field set (this should only really be done by a Limpet
     itself, though):
 
-        >>> reply = Reply(msg, in_reply_to=MessageId(0, 5), orig_from=OrigFrom(23, 92))
+        >>> reply = Reply.from_message(msg, in_reply_to=MessageId(0, 5), orig_from=OrigFrom(23, 92))
         >>> reply
         Reply('$.Fred', data='1234', to=99L, from_=27L, orig_from=OrigFrom(23, 92), in_reply_to=MessageId(0, 5), flags=0x00000001, id=MessageId(0, 132))
 
     It's also possible to construct a Reply in most of the other ways a Message
     can be constructed. For instance:
 
-        >>> rep2 = Reply(direct.to_bytes())
+        >>> rep2 = Reply.from_bytes(direct.to_bytes())
         >>> rep2 == direct
         True
-        >>> rep4 = Reply(direct.extract())
+        >>> rep4 = Reply.from_sequence(direct.extract())
         >>> rep4 == direct
         True
     """
 
-    def __init__(self, arg, data=None, to=None, from_=None, orig_from=None, in_reply_to=None, flags=None, id=None):
+    def __init__(self, name, data=None, to=None, from_=None, orig_from=None,
+                 in_reply_to=None, flags=None, id=None):
         """Just do what the user asked, but they must give 'in_reply_to'.
         """
 
-        super(Reply, self).__init__(arg, data=data, to=to, from_=from_,
+        super(Reply, self).__init__(name, data=data, to=to, from_=from_,
                                     orig_from=orig_from,
                                     in_reply_to=in_reply_to, flags=flags,
                                     id=id)
@@ -2010,9 +1968,18 @@ class Status(Message):
         >>> msg = Message('$.KBUS.Dummy', from_=27, to=99, in_reply_to=MessageId(0, 132))
         >>> msg
         Message('$.KBUS.Dummy', to=99L, from_=27L, in_reply_to=MessageId(0, 132))
-        >>> status = Status(msg.to_bytes())
+        >>> status = Status.from_bytes(msg.to_bytes())
         >>> status
         Status('$.KBUS.Dummy', to=99L, from_=27L, in_reply_to=MessageId(0, 132))
+
+    At the moment it is not possible to construct a Status message in any other
+    way - it is assumed to be strictly for "wrapping" a message read (as bytes)
+    from KBUS. Thus:
+
+        >>> msg = Status('$.Fred')
+        Traceback (most recent call last):
+        ...
+        NotImplementedError: Use the Status.from_bytes() method to construct a Status
 
     Note that:
 
@@ -2021,17 +1988,7 @@ class Status(Message):
     """
 
     def __init__(self, original):
-        # TODO: Arguably, when the 'from_xxx' static methods become the
-        #       preferred means of doing such stuff, construction of a
-        #       Status message via its __init__ should be forbidden...
-
-        # Actually, this is slightly more forgiving than the docstring
-        # suggests, but conversely I'm not going to hold the user's hand
-        # if they do something that's not supported...
-        super(Status, self).__init__(original)
-        # And, in case 'orig_from' got set by that
-        self.msg.orig_from = OrigFrom(0,0)
-        self.msg.final_to = OrigFrom(0,0)
+        raise NotImplementedError('Use the Status.from_bytes() method to construct a Status')
 
     @staticmethod
     def from_message(msg, data=None, to=None, from_=None, orig_from=None,
