@@ -359,8 +359,8 @@ extern void kbus_unserialise_message_header(uint32_t        serial[KBUS_SERIALIS
  * * 1 if the message is not of interest and should be ignored.
  * * A negative number (``-errno``) for failure.
  */
-static int amend_reply_from_socket(kbus_limpet_context_t  *context,
-                                   kbus_message_t         *msg)
+static int amend_reply_from_other_limpet(kbus_limpet_context_t  *context,
+                                         kbus_message_t         *msg)
 {
     uint32_t     from;
 
@@ -405,9 +405,9 @@ static int amend_reply_from_socket(kbus_limpet_context_t  *context,
  *   send to KBUS).
  * * A negative number (``-errno``) for failure.
  */
-static int amend_request_from_socket(kbus_limpet_context_t   *context,
-                                     kbus_message_t          *msg,
-                                     kbus_message_t         **error)
+static int amend_request_from_other_limpet(kbus_limpet_context_t   *context,
+                                           kbus_message_t          *msg,
+                                           kbus_message_t         **error)
 {
     int         rv;
     bool        is_local;
@@ -451,11 +451,13 @@ static int amend_request_from_socket(kbus_limpet_context_t   *context,
         }
         (*error)->to = msg->from;
         (*error)->in_reply_to = msg->id;
-        printf("@@@ %u: rv = %d\n", context->network_id, rv);
-        kbus_msg_print(stdout, msg);
-        printf("\n");
-        kbus_msg_print(stdout, *error);
-        printf("\n");
+        if (context->verbosity > 1) {
+            printf("@@@ %u: rv = %d\n", context->network_id, rv);
+            kbus_msg_print(stdout, msg);
+            printf("\n");
+            kbus_msg_print(stdout, *error);
+            printf("\n");
+        }
 
         return 2;
     }
@@ -483,11 +485,13 @@ static int amend_request_from_socket(kbus_limpet_context_t   *context,
             }
             (*error)->to = msg->from;
             (*error)->in_reply_to = msg->id;
-            printf("@@@ %u: rv = %d\n", context->network_id, rv);
-            kbus_msg_print(stdout, msg);
-            printf("\n");
-            kbus_msg_print(stdout, *error);
-            printf("\n");
+            if (context->verbosity > 1) {
+                printf("@@@ %u: rv = %d\n", context->network_id, rv);
+                kbus_msg_print(stdout, msg);
+                printf("\n");
+                kbus_msg_print(stdout, *error);
+                printf("\n");
+            }
 
             return 2;
         }
@@ -878,10 +882,10 @@ extern int kbus_limpet_amend_msg_to_kbus(kbus_limpet_context_t  *context,
     }
 
     if (kbus_msg_is_reply(msg))
-        rv = amend_reply_from_socket(context, msg);
+        rv = amend_reply_from_other_limpet(context, msg);
     else if (kbus_msg_is_stateful_request(msg) &&
              kbus_msg_wants_us_to_reply(msg))
-        rv = amend_request_from_socket(context, msg, error);
+        rv = amend_request_from_other_limpet(context, msg, error);
     else
         rv = 0;
 

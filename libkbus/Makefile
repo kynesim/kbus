@@ -80,7 +80,7 @@ $(TGTDIR)/%.o: $(DEPS)
 
 $(SHARED_TARGET): $(OBJS)
 	echo Objs = $(OBJS)
-	$(LD) $(LD_SHARED_FLAGS) -soname=$(SHARED_NAME) -o $(SHARED_TARGET) $(OBJS) -lc
+	$(LD) $(LD_SHARED_FLAGS) -o $(SHARED_TARGET) $(OBJS) -lc
 
 $(STATIC_TARGET): $(STATIC_TARGET)($(OBJS))
 
