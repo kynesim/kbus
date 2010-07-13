@@ -63,7 +63,8 @@ all: dirs $(SHARED_TARGET) $(STATIC_TARGET)
 install:
 	-mkdir -p $(DESTDIR)/lib
 	-mkdir -p $(DESTDIR)/include/kbus
-	install -m 0644 kbus.h $(DESTDIR)/include/kbus/kbus.h
+	install -m 0644 kbus.h   $(DESTDIR)/include/kbus/kbus.h
+	install -m 0644 limpet.h $(DESTDIR)/include/kbus/limpet.h
 	install -m 0755 $(SHARED_TARGET) $(DESTDIR)/lib/$(SHARED_NAME)
 	install -m 0755 $(STATIC_TARGET) $(DESTDIR)/lib/$(STATIC_NAME)
 
