@@ -189,7 +189,7 @@ static int do_listen(const char *msg_name, int bus_number)
 
       kbus_msg_print(stdout, msg); fprintf(stdout,"\n");
       //kbus_msg_dump(msg, 1);
-      kbus_msg_delete(&msg);
+      kbus_msg_delete_all(&msg);
     }
 
   return 0;
@@ -261,16 +261,16 @@ static int do_reply(const char *msg_name, int bus_number)
 	{
 	  fprintf(stderr, "Failed to send reply - %s [%d] \n",
 		  strerror(errno), errno);
-          kbus_msg_delete(&msg);
-          kbus_msg_delete(&reply);
+          kbus_msg_delete_all(&msg);
+          kbus_msg_delete_all(&reply);
 	  return rv;
 	}
 
       reply->id = msg_id;
       fprintf(stdout,"Sent "); kbus_msg_print(stdout, reply); fprintf(stdout,"\n");
 
-      kbus_msg_delete(&msg);
-      kbus_msg_delete(&reply);
+      kbus_msg_delete_all(&msg);
+      kbus_msg_delete_all(&reply);
     }
 
   return 0;
@@ -431,7 +431,7 @@ static int do_send(const char *msg_name, const char *fmt,
 	      break;
 	    }
 
-	  kbus_msg_delete(&inmsg);
+	  kbus_msg_delete_all(&inmsg);
 	}
     }
 

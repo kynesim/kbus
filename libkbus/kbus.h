@@ -734,6 +734,23 @@ extern int kbus_msg_create_entire_stateful_request(kbus_message_t       **msg,
 extern void kbus_msg_delete(kbus_message_t **msg_p);
 
 /*
+ * Delete a message datastructure, and any name/data it points to.
+ *
+ * Does nothing if `msg_p` is NULL, or `*msg_p` is NULL.
+ *
+ * Frees the message datastructure. If the message is "pointy", also
+ * frees the message name and any message data.
+ *
+ * Caveat: do not pass this an "entire" message which has had its "name"
+ * and/or "data" pointers set to point "inside" itself, to the name and
+ * data at the end of the "entire" message. Really, it will end very badly
+ * (and you probably shouldn't have done that, anyway).
+ *
+ * Returns 0 for success, or a negative number (``-errno``) for failure.
+ */
+extern void kbus_msg_delete_all(kbus_message_t **msg_p);
+
+/*
  * Determine the size of a KBUS message.
  *
  * For a "pointy" message, returns the size of the message header.
