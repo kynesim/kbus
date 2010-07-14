@@ -3638,7 +3638,8 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 
 	if (this->is_finished) {
 		printk(KERN_ERR "kbus: Attempt to write data after the end guard in a"
-		       " message (%d extra byte%s)\n", *count,*count==1?"":"s");
+		       " message (%d extra byte%s) - did you forget to 'send'?\n",
+		       *count,*count==1?"":"s");
 		return -EMSGSIZE;
 	}
 
