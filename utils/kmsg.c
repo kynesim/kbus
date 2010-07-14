@@ -261,16 +261,20 @@ static int do_reply(const char *msg_name, int bus_number)
 	{
 	  fprintf(stderr, "Failed to send reply - %s [%d] \n",
 		  strerror(errno), errno);
+          // See comments further down about 'reply' and 'msg'
+          kbus_msg_delete(&reply);
           kbus_msg_delete_all(&msg);
-          kbus_msg_delete_all(&reply);
 	  return rv;
 	}
 
       reply->id = msg_id;
       fprintf(stdout,"Sent "); kbus_msg_print(stdout, reply); fprintf(stdout,"\n");
 
+      // Remember that the reply is "using" the message name from 'msg'
+      // (see the documentation for kbus_msg_create_reply_to)
+      kbus_msg_delete(&reply);
+      // And since 'msg' is an entire message, it's enough to do:
       kbus_msg_delete_all(&msg);
-      kbus_msg_delete_all(&reply);
     }
 
   return 0;
