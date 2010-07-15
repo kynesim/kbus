@@ -728,8 +728,6 @@ extern int kbus_msg_create_entire_stateful_request(kbus_message_t       **msg,
  *
  * Frees the message datastructure, but does not free any name or data that is
  * pointed to.
- *
- * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
 extern void kbus_msg_delete(kbus_message_t **msg_p);
 
@@ -745,8 +743,6 @@ extern void kbus_msg_delete(kbus_message_t **msg_p);
  * and/or "data" pointers set to point "inside" itself, to the name and
  * data at the end of the "entire" message. Really, it will end very badly
  * (and you probably shouldn't have done that, anyway).
- *
- * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
 extern void kbus_msg_delete_all(kbus_message_t **msg_p);
 
