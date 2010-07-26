@@ -51,6 +51,7 @@
 #include <linux/list.h>
 #include <linux/ctype.h>	/* for isalnum */
 #include <linux/poll.h>
+#include <linux/slab.h>		/* for kmalloc, etc. */
 #include <linux/sched.h>	/* for current->pid */
 #include <asm/uaccess.h>	/* copy_*_user() functions */
 #include <asm/page.h>		/* PAGE_SIZE */
