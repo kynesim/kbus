@@ -283,9 +283,12 @@ struct kbus_name_ptr {
 };
 
 /*
- * When the user writes a message to us, or reads a message from us, they use
- * the kbus_message_header structure. The user version of the message is either
- * "entire" or "pointy".
+ * When the user reads a message from us, they receive a kbus_entire_message
+ * structure.
+ *
+ * When the user writes a message to us, they write a "pointy" message, using
+ * the kbus_message_header structure, or an "entire" message, using the
+ * kbus_entire_message structure.
  *
  * Within the kernel, all messages are held as "pointy" messages, but instead
  * of direct pointers to the message name and data, we use reference counted
@@ -322,7 +325,7 @@ struct kbus_msg {
  * message being read).
  */
 struct kbus_read_msg {
-	struct kbus_message_header   user_hdr;  /* the header for user space */
+	struct kbus_entire_message  user_hdr;  /* the header for user space */
 
 	struct kbus_msg		 *msg;		/* the internal message */
 	char			 *parts[KBUS_NUM_PARTS];
@@ -387,7 +390,7 @@ struct kbus_read_msg {
  *   data part that we are populating.
  */
 struct kbus_write_msg {
-	struct kbus_message_header	 user_msg; /* from user space */
+	struct kbus_entire_message	 user_msg; /* from user space */
 	struct kbus_msg			*msg;	   /* our version of it */
 
 	uint32_t		 is_finished;
@@ -1184,12 +1187,12 @@ static int kbus_invalid_message_name(char *name, size_t name_len)
 {
 	if (kbus_bad_message_name(name,name_len)) {
 		printk(KERN_ERR "kbus: (send) message name '%.*s' is not allowed\n",
-		       name_len,name);
+		       (int)name_len,name);
 		return 1;
 	}
 	if (kbus_wildcarded_message_name(name, name_len)) {
 		printk(KERN_ERR "kbus: (send) sending to wildcards not allowed,"
-		       " message name '%.*s'\n", name_len,name);
+		       " message name '%.*s'\n", (int)name_len,name);
 		return 1;
 	}
 	return 0;
@@ -1245,7 +1248,8 @@ static int kbus_message_name_matches(char *name, size_t name_len, char *other)
  */
 static int kbus_check_message_written(struct kbus_write_msg *this)
 {
-	struct kbus_message_header	*user_msg = &this->user_msg;
+	struct kbus_message_header	*user_msg =
+		(struct kbus_message_header *) &this->user_msg;
 
 	if (this == NULL) {
 		printk(KERN_ERR "kbus: Tried to check NULL message\n");
@@ -3555,9 +3559,10 @@ static int kbus_write_data_parts(struct kbus_private_data	*priv,
 
 #if DEBUG_WRITE
 		printk(KERN_DEBUG "kbus: %u/%u WRITE DATA PARTS buf_pos %u, bytes_to_use %u\n",
-		       priv->dev->index,priv->id,buf_pos,bytes_to_use);
+		       (unsigned)priv->dev->index,(unsigned)priv->id,
+		       (unsigned)buf_pos,(unsigned)bytes_to_use);
 		printk(KERN_DEBUG "kbus:     local_count = %u, local_buf_pos = %u\n",
-		       local_count, local_buf_pos);
+		       (unsigned)local_count, (unsigned)local_buf_pos);
 #endif
 	while (local_count)
 	{
@@ -3580,16 +3585,18 @@ static int kbus_write_data_parts(struct kbus_private_data	*priv,
 
 #if DEBUG_WRITE
 		printk(KERN_DEBUG "kbus: LOOP part %u/%u, tgt %p, sofar %u, needed %u, to_use %u\n",
-		       ii+1, num_parts, (void *)parts[ii], sofar, needed, to_use);
+		       ii+1, num_parts, (void *)parts[ii], (unsigned)sofar,
+		       (unsigned)needed, (unsigned)to_use);
 #endif
 
 		if (copy_from_user((char *)parts[ii] + sofar,
 				   buf + buf_pos + local_buf_pos,
 				   to_use)) {
 			printk(KERN_ERR "kbus: copy from data failed"
-			       " (part %d: %d of %d to %p + %u)\n",
+			       " (part %d: %u of %u to %p + %u)\n",
 			       this->ref_data_index,
-			       to_use,local_count,(void *)parts[ii],sofar);
+			       (unsigned)to_use,(unsigned)local_count,
+			       (void *)parts[ii],(unsigned)sofar);
 			return -EFAULT;
 		}
 
@@ -3634,19 +3641,20 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 	size_t	 bytes_needed;		/* ...to fill the current part */
 	size_t	 bytes_to_use;		/* ...from the user's data */
 
-	struct kbus_message_header *user_msg = &this->user_msg;
-	struct kbus_msg		   *msg = this->msg;
+	struct kbus_msg			*msg = this->msg;
+	struct kbus_message_header	*user_msg =
+		(struct kbus_message_header *) &this->user_msg;
 
 	if (this->is_finished) {
 		printk(KERN_ERR "kbus: Attempt to write data after the end guard in a"
-		       " message (%d extra byte%s) - did you forget to 'send'?\n",
-		       *count,*count==1?"":"s");
+		       " message (%u extra byte%s) - did you forget to 'send'?\n",
+		       (unsigned)*count,*count==1?"":"s");
 		return -EMSGSIZE;
 	}
 
 #if DEBUG_WRITE
 	printk(KERN_DEBUG "kbus: %u/%u WRITE PARTS buf_pos %u, count %u\n",
-	       priv->dev->index,priv->id,*buf_pos,*count);
+	       priv->dev->index,priv->id,(unsigned)*buf_pos,(unsigned)*count);
 #endif
 
 	switch (this->which) {
@@ -3656,15 +3664,15 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 		bytes_to_use = min(bytes_needed, *count);
 #if DEBUG_WRITE
 		printk(KERN_DEBUG "kbus:      HDR bytes_needed %u, bytes_to_use %u\n",
-		       bytes_needed, bytes_to_use);
+		       (unsigned)bytes_needed, (unsigned)bytes_to_use);
 		kbus_report_write_msg(priv);
 		printk(KERN_DEBUG "kbus:      copy from user(%p + %u, %p + %u, %u)\n",
-		       user_msg,this->pos, buf,*buf_pos, bytes_to_use);
+		       user_msg,this->pos, buf, (unsigned)*buf_pos, (unsigned)bytes_to_use);
 #endif
 		if (copy_from_user((char *)user_msg + this->pos,
 				   buf + *buf_pos, bytes_to_use)) {
-			printk(KERN_ERR "kbus: copy from user failed (msg hdr: %d of %d to %p + %u)\n",
-			       bytes_to_use,*count,msg,this->pos);
+			printk(KERN_ERR "kbus: copy from user failed (msg hdr: %u of %u to %p + %u)\n",
+			       (unsigned)bytes_to_use,(unsigned)*count,msg,this->pos);
 			return -EFAULT;
 		}
 		if (bytes_needed == bytes_to_use) {
@@ -3731,13 +3739,14 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 		bytes_to_use = min(bytes_needed, *count);
 #if DEBUG_WRITE
 		printk(KERN_DEBUG "kbus:      NAME bytes_needed %u, bytes_to_use %u\n",
-		       bytes_needed, bytes_to_use);
+		       (unsigned)bytes_needed, (unsigned)bytes_to_use);
 #endif
 		if (copy_from_user(this->ref_name->name + this->pos,
 				   buf + *buf_pos, bytes_to_use)) {
 			printk(KERN_ERR "kbus: copy from user failed"
 			       " (name: %d of %d to %p + %u)\n",
-			       bytes_to_use,*count,this->ref_name->name,this->pos);
+			       (unsigned)bytes_to_use,(unsigned)*count,
+			       this->ref_name->name,this->pos);
 			return -EFAULT;
 		}
 		if (bytes_needed == bytes_to_use) {
@@ -3763,7 +3772,7 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 		bytes_to_use = min(bytes_needed, *count);
 #if DEBUG_WRITE
 		printk(KERN_DEBUG "kbus:      NPAD bytes_needed %u, bytes_to_use %u\n",
-		       bytes_needed, bytes_to_use);
+		       (unsigned)bytes_needed, (unsigned)bytes_to_use);
 #endif
 		break;
 
@@ -3773,7 +3782,7 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 			bytes_to_use = 0;
 #if DEBUG_WRITE
 			printk(KERN_DEBUG "kbus:      DATA bytes_needed %u, bytes_to_use %u\n",
-			       bytes_needed, bytes_to_use);
+			       (unsigned)bytes_needed, (unsigned)bytes_to_use);
 #endif
 			break;
 		}
@@ -3789,7 +3798,7 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 		bytes_to_use = min(bytes_needed, *count);
 #if DEBUG_WRITE
 		printk(KERN_DEBUG "kbus:      DATA bytes_needed %u, bytes_to_use %u\n",
-		       bytes_needed, bytes_to_use);
+		       (unsigned)bytes_needed, (unsigned)bytes_to_use);
 #endif
 		/* So let's add 'bytes_to_use' bytes to our message data */
 		retval = kbus_write_data_parts(priv, buf, *buf_pos,
@@ -3815,7 +3824,7 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 		bytes_to_use = min(bytes_needed, *count);
 #if DEBUG_WRITE
 		printk(KERN_DEBUG "kbus:      DPAD bytes_needed %u, bytes_to_use %u\n",
-		       bytes_needed, bytes_to_use);
+		       (unsigned)bytes_needed, (unsigned)bytes_to_use);
 #endif
 		break;
 
@@ -3825,8 +3834,9 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 		if (copy_from_user((char *)(&this->guard) + this->pos,
 				   buf + *buf_pos, bytes_to_use)) {
 			printk(KERN_ERR "kbus: copy from user failed"
-			       " (final guard: %d of %d to %p + %u)\n",
-			       bytes_to_use,*count,&this->guard,this->pos);
+			       " (final guard: %u of %u to %p + %u)\n",
+			       (unsigned)bytes_to_use,(unsigned)*count,
+			       &this->guard,this->pos);
 			return -EFAULT;
 		}
 		if (bytes_needed == bytes_to_use) {
@@ -3860,7 +3870,7 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 
 #if DEBUG_WRITE
 	printk(KERN_DEBUG "kbus:      count = %u, buf_pos = %u, which = %d, pos = %u\n",
-	       *count, *buf_pos, this->which, this->pos);
+	       (unsigned)*count, (unsigned)*buf_pos, this->which, this->pos);
 #endif
 	return 0;
 }
@@ -3880,8 +3890,8 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 	if (down_interruptible(&dev->sem))
 		return -EAGAIN;
 
-	kbus_maybe_dbg(priv->dev,"kbus: %u/%u WRITE count %d, pos %d\n",
-		       dev->index,priv->id,count,(int)*f_pos);
+	kbus_maybe_dbg(priv->dev,"kbus: %u/%u WRITE count %u, pos %d\n",
+		       dev->index,priv->id,(unsigned)count,(int)*f_pos);
 
 	/*
 	 * If we've already started to try sending a message, we don't
@@ -3919,7 +3929,7 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 
 done:
 	kbus_maybe_dbg(priv->dev,"kbus: %u/%u WRITE ends with retval %d\n",
-	       dev->index,priv->id,retval);
+	       dev->index,priv->id,(int)retval);
 
 	if (retval) {
 		kbus_empty_write_msg(priv);
@@ -3944,8 +3954,8 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 	if (down_interruptible(&dev->sem))
 		return -EAGAIN;			/* Just try again later */
 
-	kbus_maybe_dbg(priv->dev,"kbus: %u/%u READ count %d, pos %d\n",
-		       dev->index,priv->id,count,(int)*f_pos);
+	kbus_maybe_dbg(priv->dev,"kbus: %u/%u READ count %u, pos %d\n",
+		       dev->index,priv->id,(unsigned)count,(int)*f_pos);
 
 	if (this->msg == NULL) {
 		/* No message to read at the moment */
@@ -3971,13 +3981,13 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 			struct kbus_data_ptr *dp = this->msg->data_ref;
 
 			left = dp->lengths[this->ref_data_index] - this->pos;
-			len = min(left,count);
+			len = min(left,(uint32_t)count);
 #if DEBUG_READ
 			kbus_maybe_dbg(priv->dev,"kbus:   xx which %d, part %d length %u, pos %u,"
 				       " left %u, len %u, count %u\n",
 				       which, this->ref_data_index,
 				       dp->lengths[this->ref_data_index],
-				       this->pos,left, len, count);
+				       this->pos,left, len, (unsigned)count);
 #endif
 			if (len) {
 				if (copy_to_user(buf,
@@ -4005,12 +4015,12 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 			}
 		} else {
 			left = this->lengths[which] - this->pos;
-			len = min(left,count);
+			len = min(left,(uint32_t)count);
 #if DEBUG_READ
 			kbus_maybe_dbg(priv->dev,"kbus:   xx which %d, read_len[%d] %u, pos %u,"
 				       " left %u, len %u, count %u\n",
 				       which,which,this->lengths[which],this->pos,left,len,
-				       count);
+				       (unsigned)count);
 #endif
 			if (len) {
 				if (copy_to_user(buf,
@@ -4037,12 +4047,12 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 	if (which < KBUS_NUM_PARTS) {
 #if DEBUG_READ
 		kbus_maybe_dbg(priv->dev,"kbus:   Read %d bytes, now in part %d, read %d of %d\n",
-			       retval,which,this->pos,this->lengths[which]);
+			       (int)retval,which,this->pos,this->lengths[which]);
 #endif
 		this->which = which;
 	} else {
 #if DEBUG_READ
-		kbus_maybe_dbg(priv->dev,"kbus:   Read %d bytes, finished\n",retval);
+		kbus_maybe_dbg(priv->dev,"kbus:   Read %d bytes, finished\n",(int)retval);
 #endif
 		kbus_empty_read_msg(priv);
 	}
@@ -4303,7 +4313,7 @@ static int kbus_nextmsg(struct kbus_private_data	*priv,
 	kbus_maybe_dbg(priv->dev,"kbus:   xx Setting up read_hdr\n");
 #endif
 
-	user_msg = &(this->user_hdr);
+	user_msg = (struct kbus_message_header *) &this->user_hdr;
 	user_msg->start_guard = KBUS_MSG_START_GUARD;
 	user_msg->id          = msg->id;
 	user_msg->in_reply_to = msg->in_reply_to;
