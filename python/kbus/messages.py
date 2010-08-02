@@ -378,6 +378,12 @@ class _MessageHeaderStruct(ctypes.Structure):
         return _equivalent_message_struct(self, other)
 
 def _struct_to_bytes(struct):
+    """Return the internal datastructure of 'struct' as  bytes.
+
+    Note that this may be slightly longer than you expect, if the underlying
+    C datastructure has padding. Remember this padding may occur at the END
+    of a datatructure, too.
+    """
     return ctypes.string_at(ctypes.addressof(struct), ctypes.sizeof(struct))
 
 def _struct_from_bytes(struct_class, data):
@@ -466,10 +472,8 @@ def message_from_parts(id, in_reply_to, to, from_, orig_from, final_to, flags, n
                                 name_len, data_len,
                                 name_ptr, data_ptr, Message.END_GUARD)
 
-def message_from_bytes(msg_data):
+def _pointy_message_from_bytes(msg_data):
     """Return a "pointy" message structure from the given data.
-
-    'data' is a string-like object (as, for instance, returned by 'read')
     """
     h = _struct_from_bytes(_MessageHeaderStruct, msg_data)
 
@@ -650,8 +654,8 @@ def _specific_entire_message_struct(padded_name_len, padded_data_len):
         _specific_entire_message_struct_dict[key] = localEntireMessageStruct
         return localEntireMessageStruct
 
-def entire_message_from_parts(id, in_reply_to, to, from_, orig_from, final_to,
-                              flags, name, data):
+def _entire_message_from_parts(id, in_reply_to, to, from_, orig_from, final_to,
+                               flags, name, data):
     """Return a new message structure of the correct shape.
 
     - 'id' and 'in_reply_to' are None or MessageId instance or (network_id,
@@ -661,6 +665,10 @@ def entire_message_from_parts(id, in_reply_to, to, from_, orig_from, final_to,
       local_id) tuple
     - 'name' is a string
     - 'data' is a string or None
+
+    Note that the result may be slightly longer than you expect - for instance,
+    on a 64-bit machine, there will be 4 bytes of padding after the final
+    end guard.
     """
 
     if id is None:
@@ -714,16 +722,20 @@ def entire_message_from_parts(id, in_reply_to, to, from_, orig_from, final_to,
 
     return local_class(header, name, data_array, Message.END_GUARD)
 
-def entire_message_from_bytes(data):
-    """Return a message structure of a size that satisfies.
+def _entire_message_from_bytes(data):
+    """Return a message structure based on 'data'.
 
     'data' is a string-like object (as, for instance, returned by 'read')
+
+    Note that the result may be slightly longer than you expect - for instance,
+    on a 64-bit machine, there will be 4 bytes of padding after the final
+    end guard.
     """
     # We do *not* want to pass something awful to our C-structure factory!
     if len(data) < MSG_HEADER_LEN:
         raise ValueError('Cannot form entire message from string'
                          ' "%s" of length %d'%(hexdata(data),len(data)))
-    if struct.unpack('L',data[:4])[0] != Message.START_GUARD:
+    if struct.unpack('=L',data[:4])[0] != Message.START_GUARD:
         raise ValueError('Cannot form entire message from string "%s..%s"'
                          ' which does not start with message start'
                          ' guard'%(hexdata(data[:8]),hexdata(data[-8:])))
@@ -731,7 +743,7 @@ def entire_message_from_bytes(data):
     debug = False
     if debug:
         print
-        print 'entire_message_from_bytes(%d:%s)'%(len(data),hexify(data))
+        print '_entire_message_from_bytes(%d:%s)'%(len(data),hexify(data))
     ## ===================================
     h = _struct_from_bytes(_MessageHeaderStruct, data)
     ## ===================================
@@ -1021,7 +1033,7 @@ class Message(object):
             Message('$.Fred', data='12345678')
         """
         message = Message.__new__(Message,'')
-        message.msg = entire_message_from_bytes(arg)
+        message.msg = _entire_message_from_bytes(arg)
         return message
 
     def _merge_args(self, extracted, this_data, this_to, this_from_,
@@ -1225,14 +1237,16 @@ class Message(object):
         'msg' value of the Message instance.
 
         The 'to_bytes()' method returns the data for an "entire" message.
+        In certain circumstances (typically, on a 64-byte system) the actual
+        length of data returned by 'to_bytes()' may be slightly too long
+        (due to extra padding at the end).
 
-        This function calculates the length of the equivalent "entire"
-        message for this Message.
+        This method calculates the correct length of the equivalent "entire"
+        message for this Message, without any such padding. If you want to
+        write the data returned by 'to_bytes()' into a Ksock, only use the
+        number of bytes indicated by this method.
         """
-        # And we're going to do it the slow and wasteful way
-        #
-        # XXX Just calculate this, instead of copying stuff...
-        return len(self.to_bytes())
+        return calc_entire_message_len(self.msg.name_len, self.msg.data_len)
 
     def equivalent(self, other):
         """Returns true if the two messages are mostly the same.
@@ -1395,11 +1409,23 @@ class Message(object):
         In order to do this, it first coerces the mesage to an "entire"
         message (so that we don't have any dangling "pointers" to the
         name or data).
+
+        See the 'total_length()' method for how to determine the "correct"
+        length of this string.
         """
         (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data) = self.extract()
-        tmp = entire_message_from_parts(id, in_reply_to, to, from_, orig_from,
-                                        final_to, flags, name, data)
-        return _struct_to_bytes(tmp)
+        tmp = _entire_message_from_parts(id, in_reply_to, to, from_, orig_from,
+                                         final_to, flags, name, data)
+        b = _struct_to_bytes(tmp)
+        # We need to be careful about lengths.
+        # For instance, on a 64-bit machine, there will be 4 bytes of "unused"
+        # padding after the final end guard of an "entire" message, which we
+        # do not want to return. The solution is to return the correct,
+        # calculated, length. Of course, this does cost us a string copy...
+        name_len = len(name) if name else 0
+        data_len = len(data) if data else 0
+        actual_len = calc_entire_message_len(name_len, data_len)
+        return b[:actual_len]
 
     def is_reply(self):
         """A convenience method - are we a Reply?
@@ -1613,7 +1639,7 @@ class Announcement(Message):
             Announcement('$.Fred', data='12345678')
         """
         message = Announcement.__new__(Announcement,'')
-        message.msg = entire_message_from_bytes(arg)
+        message.msg = _entire_message_from_bytes(arg)
         # Just in case...
         message.msg.in_reply_to = MessageId(0, 0)
         message.msg.orig_from = OrigFrom(0,0)
@@ -1769,7 +1795,7 @@ class Request(Message):
             Request('$.Fred', data='12345678', flags=0x00000001)
         """
         message = Request.__new__(Request,'')
-        message.msg = entire_message_from_bytes(arg)
+        message.msg = _entire_message_from_bytes(arg)
         # But then make sure that the "wants a reply" flag is set
         super(Request, message).set_want_reply(True)
         return message
@@ -1932,7 +1958,7 @@ class Reply(Message):
             Message('$.Fred', data='12345678', in_reply_to=MessageId(0, 5))
         """
         message = Reply.__new__(Reply,'')
-        message.msg = entire_message_from_bytes(arg)
+        message.msg = _entire_message_from_bytes(arg)
         if message.in_reply_to is None:
             raise ValueError("A Reply must specify in_reply_to")
         return message
@@ -2034,7 +2060,7 @@ class Status(Message):
             Status('$.Fred', data='12345678')
         """
         message = Status.__new__(Status,'')
-        message.msg = entire_message_from_bytes(arg)
+        message.msg = _entire_message_from_bytes(arg)
         return message
 
     def __repr__(self):

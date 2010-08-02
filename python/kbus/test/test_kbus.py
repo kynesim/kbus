@@ -69,13 +69,24 @@ from itertools import permutations
 from kbus import Ksock, Message, MessageId, Announcement, \
                  Request, Reply, Status, reply_to, OrigFrom
 from kbus import read_bindings
-from kbus import entire_message_from_parts, entire_message_from_bytes
-from kbus import message_from_bytes
+from kbus.messages import _pointy_message_from_bytes
 from kbus.messages import _struct_to_bytes, _struct_from_bytes
-from kbus.messages import _MessageHeaderStruct
+from kbus.messages import _MessageHeaderStruct, MSG_HEADER_LEN
 from kbus.messages import split_replier_bind_event_data
 
 NUM_DEVICES = 3
+
+# This is hackery of the worst sort, but in the short term...
+POINTER_SIZE = ctypes.sizeof(ctypes.c_char_p)
+
+# It's hackery because we're assuming that C structures will necessarily
+# be padded out to the size of the pointer field...
+if POINTER_SIZE == 8:
+    IS_32_BIT = True
+elif POINTER_SIZE == 16:
+    IS_32_BIT = False
+else:
+    raise Exception('Pointer size is %d, not 32 or 64'%POINTER_SIZE)
 
 def setup_module():
     # This path assumes that we are running the tests in the ``kbus/python``
@@ -261,12 +272,20 @@ def check_IOError(expected_errno, fn, *stuff):
         apply(fn, stuff)
         # We're not expecting to get here...
         assert False, 'Applying %s%s did not fail with IOError'%(repr(fn), repr(stuff))
-    except IOError, e:
-        actual_errno = e.args[0]
-        errno_name = errno.errorcode[actual_errno]
-        expected_errno_name = errno.errorcode[expected_errno]
-        assert actual_errno == expected_errno, \
-                'expected %s, got %s'%(expected_errno_name, errno_name)
+    except IOError as e:
+        if e.errno:
+            actual_errno = e.errno
+            errno_name = errno.errorcode[actual_errno]
+            expected_errno_name = errno.errorcode[expected_errno]
+            assert actual_errno == expected_errno, \
+                    'expected %s, got %s'%(expected_errno_name, errno_name)
+        else:
+            # In Python 2.6.5 and after, if a file cannot be written to
+            # we don't get EBADF, but instead a "made up" 'File not open
+            # for writing', which doesn't have an errno...
+            if expected_errno == errno.EBADF:
+                assert str(e) == 'File not open for writing', \
+                        'expected "File not open for writing", got "%s'%str(e)
     except Exception, e:
         print e
         assert False, 'Applying %s%s failed with %s, not IOError'%(repr(fn),
@@ -332,6 +351,15 @@ class TestKernelModule:
             assert data == ''
             # - secondly, in terms of Ksock and Message
             assert f.read_msg(1) == None
+
+    #@classmethod
+    #def setup_class(arg):
+    #    """This is why device state should be set independently of Ksocks...
+    #    """
+    #    # Ensure all of our tests start similarly
+    #    with Ksock(0) as k:
+    #        k.kernel_module_verbose(False)
+    #        k.report_replier_binds(False)
 
     def test_readonly(self):
         """If we open the device readonly, we can't do much(!)
@@ -2432,26 +2460,6 @@ class TestKernelModule:
         assert empty.name_len == 0
         assert empty.data_len == 0
 
-    def test_odd_message_creation(self):
-        """Test some of the more awkward ways of making messages.
-        """
-        simple = Message('$.Jim.Bob', data='123456', to=32,
-                         in_reply_to=MessageId(0, 27))
-        #print simple
-        #print simple.msg
-
-        latest = entire_message_from_parts((0, 0),  # id
-                                           (0, 27), # in_reply_to
-                                           32,      # to
-                                           0,       # from_
-                                           (0, 0),  # orig_from
-                                           (0, 0),  # final_to
-                                           0,       # flags
-                                           '$.Jim.Bob',
-                                           '123456')
-        #print latest
-        assert latest == simple.msg
-
     def test_message_comparisons(self):
         """Tests comparing equality of two messages.
         """
@@ -2488,57 +2496,6 @@ class TestKernelModule:
         assert not (c != d)
         assert a != c
 
-    def test_message_length_name(self):
-        """Test that message size is what we expect (name).
-        """
-        basename = '$.Freddys'
-        # The first 3 incremental sizes are dummies...
-        #   name len: .  .  .  3  4  5  6  7   8   9
-        increments = (0, 0, 0, 4, 8, 8, 8, 8, 12, 12)
-
-        for length in range(3,len(basename)+1):
-            name = basename[:length]
-
-            print 'Name',name
-            m = Message(name)
-
-            # Because we constructed a "pointy" message, the message
-            # size is just the size of the header, without the name
-            assert ctypes.sizeof(m.msg) == 72
-
-            # But if we convert it to a string (which will be an
-            # "entire" message), then the length will include the
-            # message name, appropriately padded (as well as the
-            # extra end guard at the very end, of course)
-            s = m.to_bytes()
-            assert len(s) == 76 + increments[length]
-            assert len(s) == m.total_length()
-
-    def test_message_length_data(self):
-        """Test that message size is what we expect (data).
-        """
-        basedata = '123456789'
-        #   data len: 0  1  2  3  4  5  6  7   8   9
-        increments = (0, 4, 4, 4, 4, 8, 8, 8,  8, 12)
-
-        for length in range(len(basedata)+1):
-            data = basedata[:length]
-
-            print 'Data',data
-            m = Message('$.F',data=data)
-
-            # Because we constructed a "pointy" message, the message
-            # size is just the size of the header, without the name
-            assert ctypes.sizeof(m.msg) == 72
-
-            # But if we convert it to a string (which will be an "entire"
-            # message), then the length will include the message name,
-            # appropriately padded, the extra end guard at the very end,
-            # and the data itself, also padded
-            s = m.to_bytes()
-            assert len(s) == 76 + 4 + increments[length]
-            assert len(s) == m.total_length()
-
     def test_message_data_as_string(self):
         """Test that message data can be retrieved (as a string)
         """
@@ -2549,84 +2506,6 @@ class TestKernelModule:
         check_str('1234')
         check_str('12345678')
         check_str('abcdefghijklmnopqrstuvwx')
-
-
-
-    def test_new_message_implementation(self):
-        """Test 'new' (well, it was) "entire"/"pointy" Message implementation
-
-        I changed Message implementation to have "entire" and "pointy" messages.
-        The following were some tests that I used to check that this was working
-        - it seems sensible to retain them...
-        """
-        def _check_message(sender, listener, description, message):
-            sender.write_data(message)
-            sender.send()
-
-            print 'Original ',message
-
-            length = listener.next_msg()
-            data = listener.read_data(length)
-
-            entire = entire_message_from_bytes(data)
-            print 'Entire   ',entire
-            assert message.equivalent(entire)
-
-            m = message_from_bytes(data)
-            print 'm        ',m
-            assert message.equivalent(m)
-
-            return entire
-
-        with Ksock(0,'rw') as sender:
-            with Ksock(0,'rw') as listener:
-                listener.bind('$.Fred')
-
-                name = '$.Fred'
-                data = 'somedata'
-                name_ptr = ctypes.c_char_p(name)
-                DataArray = ctypes.c_uint8 * len(data)
-                data_ptr = DataArray( *[ord(x) for x in data] )
-
-                # Without data
-                pointy1 = _MessageHeaderStruct(Message.START_GUARD,
-                                               MessageId(0,0),  # id
-                                               MessageId(0,0),  # in_reply_to
-                                               0,               # to
-                                               0,               # from_
-                                               OrigFrom(0,0),   # orig_from
-                                               OrigFrom(0,0),   # final_to
-                                               0,               # extra
-                                               0,               # flags
-                                               6,               # name_len
-                                               0,               # data_len
-                                               name_ptr,
-                                               None,
-                                               Message.END_GUARD)
-
-                entire1 = _check_message(sender, listener, 'Pointy, no data', pointy1)
-
-                # With data
-                pointy2 = _MessageHeaderStruct(Message.START_GUARD,
-                                               MessageId(0,0),  # id
-                                               MessageId(0,0),  # in_reply_to
-                                               0,               # to
-                                               0,               # from
-                                               OrigFrom(0,0),   # orig_from
-                                               OrigFrom(0,0),   # final_to
-                                               0,               # extra
-                                               0,               # flags
-                                               6,               # name_len
-                                               8,               # data_len
-                                               name_ptr,
-                                               data_ptr,
-                                               Message.END_GUARD)
-
-                entire2 = _check_message(sender, listener, 'Pointy, with data', pointy2)
-
-                # The data back from the first two messages represent entire messages
-                entire3 = _check_message(sender, listener, 'Entire, no data', entire1)
-                entire4 = _check_message(sender, listener, 'Entire, with data', entire2)
 
     # =========================================================================
     # Large message (data) tests. These will take a while...
@@ -2937,15 +2816,23 @@ class TestKernelModule:
             # Just ask - default is off
             state = thing.report_replier_binds(True, True)
             assert not state
+            # This may cause us to be sent a list of bound messages
+            # - if so, ignore them
+            while thing.read_next_msg():
+                pass
             # When asking, first arg doesn't matter
             state = thing.report_replier_binds(False, True)
             assert not state
             # Change it
             state = thing.report_replier_binds(True)
             assert not state
+            while thing.read_next_msg():
+                pass
             # Just ask - now it is on
             state = thing.report_replier_binds(True, True)
             assert state
+            while thing.read_next_msg():
+                pass
             # Change it back
             state = thing.report_replier_binds(False)
             assert state
@@ -2957,6 +2844,8 @@ class TestKernelModule:
             # Ask for notification
             state = thing.report_replier_binds(True)
             assert not state
+            while thing.read_next_msg():
+                pass
 
             thing.bind('$.KBUS.ReplierBindEvent')
 
@@ -2990,6 +2879,8 @@ class TestKernelModule:
                 # Ask for notification
                 state = binder.report_replier_binds(True)
                 assert not state
+                while binder.read_next_msg():
+                    pass
 
                 listener.bind('$.KBUS.ReplierBindEvent')
 
@@ -3020,6 +2911,8 @@ class TestKernelModule:
                 # Then do the same sort of check for unbinding...
                 state = binder.report_replier_binds(True)
                 assert not state
+                while binder.read_next_msg():
+                    pass
 
                 # Unbinding as a Listener should still just work
                 binder.unbind('$.Jim')
@@ -3049,7 +2942,10 @@ class TestKernelModule:
 
                     # Ask for notification
                     state = binder.report_replier_binds(True)
+                    print state
                     assert not state
+                    while binder.read_next_msg():
+                        pass
 
                     # Both listeners care
                     listener1.bind('$.KBUS.ReplierBindEvent')
@@ -3101,6 +2997,8 @@ class TestKernelModule:
                     # Then do the same sort of check for unbinding...
                     state = binder.report_replier_binds(True)
                     assert not state
+                    while binder.read_next_msg():
+                        pass
 
                     # Unbinding as a Listener should still just work
                     binder.unbind('$.Jim')
@@ -3130,6 +3028,8 @@ class TestKernelModule:
                     # We should be able to have a reported bind again
                     # - but again, just once
                     binder.report_replier_binds(True)
+                    while binder.read_next_msg():
+                        pass
                     binder.bind('$.Wibble', True)
                     check_IOError(errno.EAGAIN, binder.bind, '$.Fred', True)
 
@@ -3203,6 +3103,8 @@ class TestKernelModule:
             # -------- Restart the messages
             state = thing.report_replier_binds(True)
             assert not state
+            while thing.read_next_msg():
+                pass
 
             # -------- Unbind as a Replier
             thing.unbind('$.Fred', True)
@@ -3250,6 +3152,8 @@ class TestKernelModule:
             first.report_replier_binds(True)
             first.set_max_messages(1)
             first.bind('$.KBUS.ReplierBindEvent')
+            while first.read_next_msg():
+                pass
 
             second_id = 0
             with Ksock(0, 'rw') as second:
@@ -3284,6 +3188,8 @@ class TestKernelModule:
             first.report_replier_binds(True)
             first.set_max_messages(1)
             first.bind('$.KBUS.ReplierBindEvent')
+            while first.read_next_msg():
+                pass
 
             with Ksock(0, 'rw') as second:
                 second_id = second.ksock_id()
@@ -3326,6 +3232,8 @@ class TestKernelModule:
         with Ksock(0, 'rw') as first:
             first.kernel_module_verbose(True)
             first.report_replier_binds(True)
+            while first.read_next_msg():
+                pass
 
             first.set_max_messages(1)
             first.bind('$.KBUS.ReplierBindEvent')
@@ -3383,6 +3291,8 @@ class TestKernelModule:
         with Ksock(0, 'rw') as first:
             first.kernel_module_verbose(True)
             first.report_replier_binds(True)
+            while first.read_next_msg():
+                pass
 
             first.set_max_messages(1)
             first.bind('$.KBUS.ReplierBindEvent')

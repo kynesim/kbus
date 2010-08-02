@@ -183,7 +183,9 @@ class Ksock(object):
         """
         # Instead of using a ctypes.Structure, we can retrieve homogenious
         # arrays of data using, well, arrays. This one is a bit minimalist.
-        id = array.array('L', [0])
+        # (Our devout hope, here and elsewhere, is that "I" means a 32-bit
+        # unsigned value on 32-bit *and* 64-bit platforms.)
+        id = array.array('I', [0])
         fcntl.ioctl(self.fd, Ksock.IOC_KSOCKID, id, True)
         return id[0]
 
@@ -192,7 +194,7 @@ class Ksock(object):
 
         Returns the length of said message, or 0 if there is no next message.
         """
-        id = array.array('L', [0])
+        id = array.array('I', [0])
         fcntl.ioctl(self.fd, Ksock.IOC_NEXTMSG, id, True)
         return id[0]
 
@@ -202,7 +204,7 @@ class Ksock(object):
         Returns 0 if there is no current message (i.e., 'next_msg()' has not
         been called), or if there are no bytes left.
         """
-        id = array.array('L', [0])
+        id = array.array('I', [0])
         fcntl.ioctl(self.fd, Ksock.IOC_LENLEFT, id, True)
         return id[0]
 
@@ -216,7 +218,7 @@ class Ksock(object):
 
         Raises IOError with errno ENOMSG if there was no message to send.
         """
-        arg = array.array('L', [0, 0])
+        arg = array.array('I', [0, 0])
         fcntl.ioctl(self.fd, Ksock.IOC_SEND, arg);
         return MessageId(arg[0], arg[1])
 
@@ -235,7 +237,7 @@ class Ksock(object):
 
         Returns 0 before any messages have been sent.
         """
-        id = array.array('L', [0, 0])
+        id = array.array('I', [0, 0])
         fcntl.ioctl(self.fd, Ksock.IOC_LASTSENT, id, True)
         return MessageId(id[0], id[1])
 
@@ -254,7 +256,7 @@ class Ksock(object):
     def max_messages(self):
         """Return the number of messages that can be queued on this Ksock.
         """
-        id = array.array('L', [0])
+        id = array.array('I', [0])
         fcntl.ioctl(self.fd, Ksock.IOC_MAXMSGS, id, True)
         return id[0]
 
@@ -270,14 +272,14 @@ class Ksock(object):
         Returns the number of messages that are allowed to be queued on this
         Ksock.
         """
-        id = array.array('L', [count])
+        id = array.array('I', [count])
         fcntl.ioctl(self.fd, Ksock.IOC_MAXMSGS, id, True)
         return id[0]
 
     def num_messages(self):
         """Return the number of messages that are queued on this Ksock.
         """
-        id = array.array('L', [0])
+        id = array.array('I', [0])
         fcntl.ioctl(self.fd, Ksock.IOC_NUMMSGS, id, True)
         return id[0]
 
@@ -288,7 +290,7 @@ class Ksock(object):
         WANT_YOU_TO_REPLY flag set, but for which we have not yet sent a
         Reply.
         """
-        id = array.array('L', [0])
+        id = array.array('I', [0])
         fcntl.ioctl(self.fd, Ksock.IOC_UNREPLIEDTO, id, True)
         return id[0]
 
@@ -323,7 +325,7 @@ class Ksock(object):
             val = 1
         else:
             val = 0
-        id = array.array('L', [val])
+        id = array.array('I', [val])
         fcntl.ioctl(self.fd, Ksock.IOC_MSGONLYONCE, id, True)
         return id[0]
 
@@ -354,7 +356,7 @@ class Ksock(object):
             val = 1
         else:
             val = 0
-        id = array.array('L', [val])
+        id = array.array('I', [val])
         fcntl.ioctl(self.fd, Ksock.IOC_VERBOSE, id, True)
         return id[0]
 
@@ -366,7 +368,7 @@ class Ksock(object):
 
         Returns the new device number (<n>).
         """
-        id = array.array('L', [0])
+        id = array.array('I', [0])
         fcntl.ioctl(self.fd, Ksock.IOC_NEWDEVICE, id, True)
         return id[0]
 
@@ -409,7 +411,7 @@ class Ksock(object):
             val = 1
         else:
             val = 0
-        id = array.array('L', [val])
+        id = array.array('I', [val])
         fcntl.ioctl(self.fd, Ksock.IOC_REPORTREPLIERBINDS, id, True)
         return id[0]
 
