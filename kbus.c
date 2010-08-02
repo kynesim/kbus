@@ -4902,6 +4902,50 @@ static int kbus_set_verbosity(struct kbus_private_data	*priv,
 	return __put_user(old_value, (uint32_t __user *)arg);
 }
 
+/* Report all existing replier bindings to the requester */
+static int kbus_report_existing_binds(struct kbus_private_data	*priv,
+				      struct kbus_dev		*dev)
+{
+	struct kbus_message_binding *ptr;
+	struct kbus_message_binding *next;
+
+	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
+		struct kbus_msg	*new_msg;
+		int retval;
+
+		kbus_maybe_dbg(priv->dev,"kbus:   %u/%u Report %c '%.*s'\n",
+			       dev->index,priv->id,
+			       (ptr->is_replier?'R':'L'),
+			       ptr->name_len,
+			       ptr->name);
+
+		if (!ptr->is_replier)
+			continue;
+
+		new_msg = kbus_new_synthetic_bind_message(ptr->bound_to, true,
+							  ptr->name_len,
+							  ptr->name);
+		if (new_msg == NULL) return -ENOMEM;
+
+		/*
+		 * It is perhaps a bit inefficient to check this per binding,
+		 * but it saves us doing two passes through the list.
+		 */
+		if (kbus_queue_is_full(priv,"limpet",false)) {
+			/* Giving up is probably the best we can do */
+			kbus_free_message(new_msg);
+			return -EBUSY;
+		}
+
+		retval = kbus_push_message(priv,new_msg,NULL,false);
+
+		kbus_free_message(new_msg);
+		if (retval)
+			return retval;
+	}
+	return 0;
+}
+
 static int kbus_set_report_binds(struct kbus_private_data	*priv,
 				 struct kbus_dev		*dev,
 				 unsigned long			 arg)
@@ -4922,6 +4966,9 @@ static int kbus_set_report_binds(struct kbus_private_data	*priv,
 		break;
 	case 1:
 		priv->dev->report_replier_binds = true;
+		/* And report the current state of bindings... */
+		retval = kbus_report_existing_binds(priv, dev);
+		if (retval) return retval;
 		break;
 	case 0xFFFFFFFF:
 		break;
