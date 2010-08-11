@@ -37,9 +37,9 @@ endif
 # Note we assume a traditional Linux style environment in our flags
 WARNING_FLAGS=-Wall -Werror
 DEBUG_FLAGS=
-LD_SHARED_FLAGS=-shared
+LD_SHARED_FLAGS+=-shared
 INCLUDE_FLAGS=-I ..
-CFLAGS=-fPIC -g
+CFLAGS+=-fPIC -g
 
 ifeq ($(O),)
 	TGTDIR=.

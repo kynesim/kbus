@@ -11,8 +11,8 @@ CC=gcc
 endif
 
 # Note we assume a traditional Linux style environment in our flags
-CFLAGS=-I..
-LDFLAGS=-L$(LIBKBUSDIR) -static
+CFLAGS+=-I..
+LDFLAGS+=-L$(LIBKBUSDIR) -static
 LIBS=-lkbus
 
 ifeq ($(O),)
