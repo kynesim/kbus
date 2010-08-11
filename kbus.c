@@ -1186,13 +1186,15 @@ static int kbus_wildcarded_message_name(char *name, size_t name_len)
 static int kbus_invalid_message_name(char *name, size_t name_len)
 {
 	if (kbus_bad_message_name(name,name_len)) {
-		printk(KERN_ERR "kbus: (send) message name '%.*s' is not allowed\n",
-		       (int)name_len,name);
+		printk(KERN_ERR "kbus: pid %u [%s]"
+		       " (send) message name '%.*s' is not allowed\n",
+		       current->pid, current->comm, (int)name_len, name);
 		return 1;
 	}
 	if (kbus_wildcarded_message_name(name, name_len)) {
-		printk(KERN_ERR "kbus: (send) sending to wildcards not allowed,"
-		       " message name '%.*s'\n", (int)name_len,name);
+		printk(KERN_ERR "kbus: pid %u [%s]"
+		       " (send) sending to wildcards not allowed, message name '%.*s'\n",
+		       current->pid, current->comm, (int)name_len, name);
 		return 1;
 	}
 	return 0;
@@ -1252,52 +1254,70 @@ static int kbus_check_message_written(struct kbus_write_msg *this)
 		(struct kbus_message_header *) &this->user_msg;
 
 	if (this == NULL) {
-		printk(KERN_ERR "kbus: Tried to check NULL message\n");
+		printk(KERN_ERR "kbus: pid %u [%s]"
+		       " Tried to check NULL message\n",
+		       current->pid, current->comm);
 		return -EINVAL;
 	}
 
 	if (user_msg->start_guard != KBUS_MSG_START_GUARD) {
-		printk(KERN_ERR "kbus: message start guard is %08x,"
-		       " not %08x\n", user_msg->start_guard, KBUS_MSG_START_GUARD);
+		printk(KERN_ERR "kbus: pid %u [%s]"
+		       " message start guard is %08x, not %08x",
+		       current->pid, current->comm,
+		       user_msg->start_guard, KBUS_MSG_START_GUARD);
 		return -EINVAL;
 	}
 	if (user_msg->end_guard != KBUS_MSG_END_GUARD) {
-		printk(KERN_ERR "kbus: message end guard is %08x,"
-		       " not %08x\n", user_msg->end_guard, KBUS_MSG_END_GUARD);
+		printk(KERN_ERR "kbus: pid %u [%s]"
+		       " message end guard is %08x, not %08x\n",
+		       current->pid, current->comm,
+		       user_msg->end_guard, KBUS_MSG_END_GUARD);
 		return -EINVAL;
 	}
 
 	if (user_msg->name_len == 0) {
-		printk(KERN_ERR "kbus: Message name length is 0\n");
+		printk(KERN_ERR "kbus: pid %u [%s]"
+		       " Message name length is 0\n",
+		       current->pid, current->comm);
 		return -EINVAL;
 	}
 	if (user_msg->name_len > KBUS_MAX_NAME_LEN) {
-		printk(KERN_ERR "kbus: Message name length is %u,"
-		       " more than %u\n", user_msg->name_len, KBUS_MAX_NAME_LEN);
+		printk(KERN_ERR "kbus: pid %u [%s]"
+		       " Message name length is %u, more than %u\n",
+		       current->pid, current->comm,
+		       user_msg->name_len, KBUS_MAX_NAME_LEN);
 		return -ENAMETOOLONG;
 	}
 
 	if (user_msg->name == NULL) {
 		if (user_msg->data != NULL) {
-			printk(KERN_ERR "kbus: Message name is inline, data is not\n");
+			printk(KERN_ERR "kbus: pid %u [%s]"
+			       " Message name is inline, data is not\n",
+			       current->pid, current->comm);
 			return -EINVAL;
 		}
 	} else {
 		if (user_msg->data == NULL && user_msg->data_len != 0) {
-			printk(KERN_ERR "kbus: Message data is inline, name is not\n");
+			printk(KERN_ERR "kbus: pid %u [%s]"
+			       " Message data is inline, name is not\n",
+			       current->pid, current->comm);
 			return -EINVAL;
 		}
 	}
 
 	if (user_msg->data_len == 0 && user_msg->data != NULL) {
-		printk(KERN_ERR "kbus: Message data length is 0, but data pointer is set\n");
+		printk(KERN_ERR "kbus: pid %u [%s]"
+		       " Message data length is 0, but data pointer is set\n",
+		       current->pid, current->comm);
 		return -EINVAL;
 	}
 
 	/* It's not legal to set both ALL_OR_WAIT and ALL_OR_FAIL */
 	if ((user_msg->flags & KBUS_BIT_ALL_OR_WAIT) &&
 	    (user_msg->flags & KBUS_BIT_ALL_OR_FAIL)) {
-		printk(KERN_ERR "kbus: Message cannot have both ALL_OR_WAIT and ALL_OR_FAIL set\n");
+		printk(KERN_ERR "kbus: pid %u [%s]"
+		       " Message cannot have both ALL_OR_WAIT and ALL_OR_FAIL set\n",
+		       current->pid, current->comm);
 		return -EINVAL;
 	}
 	return 0;
@@ -1671,8 +1691,9 @@ static void kbus_push_synthetic_message(struct kbus_dev		  *dev,
 	/* Who *was* the original message to? */
 	priv = kbus_find_open_ksock(dev,to);
 	if (!priv) {
-		printk(KERN_ERR "kbus: %u Cannot send synthetic reply to %u,"
-		       " as they are gone\n",dev->index,to);
+		printk(KERN_ERR "kbus: %u pid %u [%s] Cannot send synthetic reply to %u,"
+		       " as they are gone\n",dev->index,
+		       current->pid, current->comm, to);
 		return;
 	}
 
@@ -3646,8 +3667,10 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 		(struct kbus_message_header *) &this->user_msg;
 
 	if (this->is_finished) {
-		printk(KERN_ERR "kbus: Attempt to write data after the end guard in a"
+		printk(KERN_ERR "kbus: pid %u [%s]"
+		       " Attempt to write data after the end guard in a"
 		       " message (%u extra byte%s) - did you forget to 'send'?\n",
+		       current->pid, current->comm,
 		       (unsigned)*count,*count==1?"":"s");
 		return -EMSGSIZE;
 	}
@@ -3844,8 +3867,10 @@ static int kbus_write_parts(struct kbus_private_data	*priv,
 			printk(KERN_DEBUG "kbus:      FINAL END GUARD finished\n");
 #endif
 			if (this->guard != KBUS_MSG_END_GUARD) {
-				printk(KERN_ERR "kbus: (entire) message end guard is %08x,"
-				       " not %08x\n", this->guard, KBUS_MSG_END_GUARD);
+				printk(KERN_ERR "kbus: pid %u [%s]"
+				       " (entire) message end guard is %08x, not %08x\n",
+				       current->pid, current->comm,
+				       this->guard, KBUS_MSG_END_GUARD);
 				return -EINVAL;
 			}
 			this->is_finished = true;
@@ -4687,8 +4712,9 @@ static int kbus_send(struct kbus_private_data	*priv,
 		return -ENOMSG;
 
 	if (!priv->write.is_finished) {
-		printk(KERN_ERR "kbus: message not finished (in part %d of message)\n",
-		       priv->write.which);
+		printk(KERN_ERR "kbus: pid %u [%s]"
+		       " message not finished (in part %d of message)\n",
+		       current->pid, current->comm, priv->write.which);
 		retval = -EINVAL;	/* XXX Consider if there's better */
 		goto done;
 	}
