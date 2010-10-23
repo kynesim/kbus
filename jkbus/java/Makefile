@@ -1,7 +1,7 @@
 JAVA_HOME ?=/usr/lib/jvm/default-java/
 JAVAC=javac
 
-SRCS=Ksock.java Message.java MessageId.java KsockException.java OriginallyFrom.java
+SRCS=Ksock.java Message.java MessageId.java KsockException.java OriginallyFrom.java Reply.java Request.java
 LOCATED_SRCS=$(SRCS:%=src/%)
 CLASSES=$(SRCS:%.java=classes/%.class)
 

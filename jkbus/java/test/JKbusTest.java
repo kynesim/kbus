@@ -17,11 +17,11 @@ class JKbusTest {
         byte[] data = {1, 2, 3, 4, 5};
 
         String msg_name = "$.foo.bar.me";
-        com.kynesim.kbus.Message msg =
-            new com.kynesim.kbus.Message(msg_name, data, 
-                                         Message.FLAG_WANT_A_REPLY );
 
         /*
+        com.kynesim.kbus.Message msg =
+            new com.kynesim.kbus.Request(msg_name, data,  Message.FLAG_NONE);
+
         try {
             MessageId mid = ks.send(msg);
             System.out.printf("MessageId " + mid + "\n");
@@ -29,10 +29,9 @@ class JKbusTest {
             System.out.printf("Failed to send :-( \n");
         }
         */
-
         
         try {
-            ks.bind("$.foo.bar.me2", false);
+            ks.bind("$.foo.bar.me2", true);
         } catch (Exception e){
             System.out.printf("Failed to bind\n");       
         }
@@ -41,16 +40,21 @@ class JKbusTest {
             System.out.printf("Waiting...\n");
             ks.wait_for_message(Ksock.KBUS_SOCK_READABLE);
             Message kmsg = ks.read_next_message();
-            System.out.printf("Done...\n" + kmsg);
+
+            
+            byte[] data2 = {3, 4, 5, 6};
+            Reply rply = new Reply(kmsg, data2, Message.FLAG_NONE);
+
+            System.out.printf("Done...\n" + kmsg + "\n");
         } catch (Exception e){
             System.out.printf("Failed to wait/retrive message ...\n");
         }
 
 
         try {
-            ks.unbind("$.foo.bar.me2", false);
+            ks.unbind("$.foo.bar.me2", true);
         } catch (Exception e){
-            System.out.printf("Failed to bind\n");
+            System.out.printf("Failed to unbind\n");
         }
         
     }
