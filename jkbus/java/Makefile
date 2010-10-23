@@ -1,18 +1,21 @@
 JAVA_HOME ?=/usr/lib/jvm/default-java/
 JAVAC=javac
 
-SRCS=Ksock.java
+SRCS=Ksock.java Message.java MessageId.java KsockException.java OriginallyFrom.java
 LOCATED_SRCS=$(SRCS:%=src/%)
 CLASSES=$(SRCS:%.java=classes/%.class)
 
-all: dirs $(CLASSES) 
+TEST_LIBS_PATH=../native/lib:../../libkbus/
+
+
+all: dirs classes
 	cd classes && jar cf ../jar/Kbus.jar *
 
 jni:
-	javah -classpath classes/ -d include/ -jni com.kynesim.kbus.Ksock
+	javah -classpath classes/ -d include/ -jni com.kynesim.kbus.Ksock com.kynesim.kbus.Message
 
-classes/%.class: src/%.java
-	$(JAVAC) -d classes $^ 
+classes: $(LOCATED_SRCS)
+	$(JAVAC) -d classes $(LOCATED_SRCS)
 
 make clean:
 	rm -rf jar
@@ -29,8 +32,9 @@ docs: $(LOCATED_SRCS)
 	mkdir -p docs
 	javadoc -d docs  $(LOCATED_SRCS)
 
-test:
-#	
+jtest: test/JKbusTest.java
+	javac -cp `pwd`/jar/Kbus.jar:. test/JKbusTest.java
+
 
 runtest:
-	java -cp `pwd`/jar/Kbus.jar:.  KbusTest
+	LD_LIBRARY_PATH=$(TEST_LIBS_PATH) java -cp `pwd`/jar/Kbus.jar:./test/  JKbusTest
