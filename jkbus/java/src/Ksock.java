@@ -135,7 +135,7 @@ public class Ksock {
      *
      * @param name a string containing the name to bind to.
      *
-     * @param replier if true then we are binding as the only ksock that can 
+     * @param is_replier if true then we are binding as the only ksock that can 
      *        reply to this message name.
      */
 
