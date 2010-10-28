@@ -8,6 +8,7 @@ class JKbusTest {
 
         try {
             ks = new Ksock(0, "rw");
+            ks.close();
         } catch (KsockException e) {
             System.out.printf("Failed to open KSock" + e);
             return;

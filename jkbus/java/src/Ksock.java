@@ -73,46 +73,19 @@ public class Ksock {
      * Close the Ksock, no more opperations may be performed.
      */
     public void close() {
-
+        native_close(ksock_fd);
     }
-
-    /**
-     * Discard the message being written.
-     *
-     * Indicates that we have should throw away the message we've been 
-     * writing. Has no effect if there is no current message being written
-     * (for instance, because 'send' has already been called). be sent.
-     */
-    public void discard() {
-
-    }
-
-    /**
-     * Return the integer file descriptor from our internal fd.
-     * 
-     * This allows a Ksock instance to be used in a call of select.select()
-     * - so, for instance, on should be able to do:
-     * (r, w, x) = select.select([ksock1, ksock2, ksock3], None, None)
-     * instead of the (less friendly, but also valid):
-     * (r, w, x) = select.select([ksock1.fd, ksock2.fd, ksock3.fd], None, None)
-     */
-    public void fileno() {
-
-    }
-
 
     /**
      * Return the internal ‘Ksock id’ for this file descriptor.
      */
-    public int ksock_fd() {
-        
+    public int ksock_fd() {        
         return ksock_fd;
     }
 
 
-
     /**
-     * Constructor.
+     * Send a message.
      *
      * @param message the message to send.
      *
@@ -157,6 +130,14 @@ public class Ksock {
     }
 
 
+    /**
+     *  Bind the given name to the ksock.
+     *
+     * @param name a string containing the name to bind to.
+     *
+     * @param replier if true then we are binding as the only ksock that can 
+     *        reply to this message name.
+     */
 
     public void bind(String name, boolean is_replier) throws KsockException {
         
@@ -169,6 +150,12 @@ public class Ksock {
         return;
     }
 
+    /**
+     * Unbind the given name from the file descriptor.
+     *
+     * The arguments need to match the binding that we want to unbind.
+     *
+     */
     public void unbind(String name, boolean is_replier) throws KsockException {
         
         int rv = native_unbind(ksock_fd, name, (is_replier)? 1: 0);
@@ -179,6 +166,12 @@ public class Ksock {
 
         return;
     }
+
+    /**
+     * Read the next Message.
+     *
+     * Throws an excaption if no message is present to be read. 
+     */
 
     public com.kynesim.kbus.Message read_next_message() throws KsockException {
         Message m = native_read_next_message(ksock_fd);
