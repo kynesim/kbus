@@ -229,7 +229,6 @@ JNIEXPORT jobject JNICALL Java_com_kynesim_kbus_Ksock_native_1send_1msg
     message_name = (*env)->GetObjectField(env, message, msg_name_fid);   
     flags        = (*env)->GetLongField(env, message, msg_flags_fid);   
 
-    printf("SENDING WITH FLAGS: flags %llx\n", flags);
     
     if (data_array == NULL) {
         /* java outofmemeory exception already thrown. return control 
