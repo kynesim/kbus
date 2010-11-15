@@ -52,7 +52,8 @@
 #include <iostream>
 #include <sstream>
 
-#include <limits.h>
+#include <limits.h>     // for the Errors
+#include <errno.h>      // ditto
 
 namespace cppkbus
 {

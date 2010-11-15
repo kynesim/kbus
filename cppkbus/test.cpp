@@ -403,6 +403,8 @@ int testKsock()
 
     rv = listener.Unbind("$.Question", true);
     assert(rv<0);
+    assert(rv == -EINVAL);
+    assert(rv == Error::MessageEINVAL);
     std::cout << Error::ToString(rv) << std::endl;
     rv = listener.Unbind("$.Question");
     assert(rv==0);

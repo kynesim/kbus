@@ -40,6 +40,10 @@ LD_SHARED_FLAGS+=-shared
 INCLUDE_FLAGS=-I .. -I ../kbus
 CXXFLAGS+=-fPIC -g $(WARNING_FLAGS) $(INCLUDE_FLAGS)
 
+ifdef NO_RTTI
+CXXFLAGS+=-fno-exceptions -fno-rtti
+endif
+
 ifeq ($(O),)
 	TGTDIR=.
 else
@@ -48,7 +52,7 @@ endif
 
 SRCS=cppkbus.cpp
 OBJS=$(SRCS:%.cpp=$(TGTDIR)/%.o)
-DEPS=cppkbus.h kbus_defns.h
+DEPS=cppkbus.h
 
 SHARED_NAME=libcppkbus.so
 STATIC_NAME=libcppkbus.a
@@ -66,7 +70,7 @@ install:
 	install -m 0755 $(SHARED_TARGET) $(DESTDIR)/lib/$(SHARED_NAME)
 	install -m 0755 $(STATIC_TARGET) $(DESTDIR)/lib/$(STATIC_NAME)
 
-test:	test.cpp $(STATIC_TARGET)
+$(TGTDIR)/test:	test.cpp $(STATIC_TARGET) $(DEPS)
 	$(CXX)  $(CXXFLAGS) -o $@ $^
 
 .PHONY: dirs
@@ -74,10 +78,9 @@ dirs:
 	-mkdir -p $(TGTDIR)
 
 $(TGTDIR)/%.o: %.cpp $(DEPS)
-	$(CXX)  $(CXXFLAGS) -o $@ -c $^
+	$(CXX)  $(CXXFLAGS) -o $@ -c $<
 
-$(SHARED_TARGET): $(OBJS)
-	echo Objs = $(OBJS)
+$(SHARED_TARGET): $(OBJS) $(DEPS)
 	$(LD) $(LD_SHARED_FLAGS) -o $(SHARED_TARGET) $(OBJS) -lc
 
 $(STATIC_TARGET): $(STATIC_TARGET)($(OBJS))
@@ -85,4 +88,4 @@ $(STATIC_TARGET): $(STATIC_TARGET)($(OBJS))
 .PHONY: clean
 clean:
 	rm -f $(TGTDIR)/*.o $(SHARED_TARGET) $(STATIC_TARGET)
-	rm -f test
+	rm -f $(TGTDIR)/test
