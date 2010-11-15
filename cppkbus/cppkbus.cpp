@@ -230,26 +230,6 @@ namespace cppkbus
         }
     }
 
-    const std::string OpenFlags::ToString(const unsigned int inEnum)
-    {
-        std::ostringstream os;
-        if (inEnum & OpenFlags::Read)
-        {
-            os << "Read";
-        }
-        if (inEnum & OpenFlags::Write) 
-        {
-            if (os.tellp()) os << "|";
-            os << "Write";
-        }
-        if (inEnum & OpenFlags::OpenNow)
-        {
-            if (os.tellp()) os << "|";
-            os << "OpenNow";
-        }
-        return os.str();
-    }
-
     const std::string MessageFlags::ToString(const unsigned int inEnum)
     {
         std::ostringstream os;
@@ -282,22 +262,6 @@ namespace cppkbus
         {
             if (os.tellp()) os << "|";
             os << "aFL";
-        }
-        return os.str();
-    }
-
-    const std::string BindFlags::ToString(const unsigned int inEnum)
-    {
-        std::ostringstream os;
-
-        if (inEnum & BindFlags::Listener)
-        {
-            os << "LISTENER";
-        }
-        if (inEnum & BindFlags::Replier)
-        {
-            if (os.tellp()) os << "|";
-            os << "REPLIER ";
         }
         return os.str();
     }
