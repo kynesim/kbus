@@ -32,13 +32,19 @@
 
 /** A C++ interface to KBUS.
  *
- *  Note that exceptions and RTTI are not used here: people may be compiling with
- *  -fno-exceptions -fno-rtti in an attempt to optimise their code.
+ * This is an exceptionless API.
  *
+ * Exceptions and RTTI are not used in this library, as we know that we have
+ * potential users who need to be able to compile with::
+ *
+ *     -fno-exceptions -fno-rtti
+ *
+ * in an attempt to optimise their code (and particularly to keep code size down).
  */
 
 // NB: It is intended that end-users should be able to use this file without
-// needing to include the KBUS module 'C' header file.
+// needing to include the KBUS module 'C' header file. Thus all kbus_defns.h
+// reliances are in cppkbus.cpp.
 
 #include <stdint.h>
 #include <string>
@@ -46,9 +52,22 @@
 #include <iostream>
 #include <sstream>
 
+#include <limits.h>
+
 namespace cppkbus
 {
-    /** Some useful constants (taken from kbus_defns.h) */
+    /**
+     * Some useful constants (taken from kbus_defns.h)
+     *
+     * Use as, for instance::
+     *
+     *      static Constants c = Constants::Get();
+     *      std::string name;
+     *      int rv = msg.GetName(name);
+     *      if (rv < 0) ...
+     *      if (name == c.kMessageNameReplierBindEvent) ...
+     *
+     */
 
     class Constants
     {
@@ -79,9 +98,6 @@ namespace cppkbus
             //! Couldn't send a request.
             const std::string kMessageNameErrorSending;
 
-            //! Replier Bind Event
-            const std::string kMessageNameReplierBindEvent;
-
             /* Synthetic Announcements with no data  */
 
             /**
@@ -91,39 +107,64 @@ namespace cppkbus
              */
             const std::string kMessageNameUnbindEventsLost;
 
+            //! Replier Bind Event
+            const std::string kMessageNameReplierBindEvent;
+
             /** Retrieve the constants structure */
             static const Constants& Get();
     };
 
 
-    /** Some errors */
+    /*
+     * Some errors. KBUS itself uses errno,h values (sometimes hijacked rather
+     * from their original meaning). We need some extra error codes for our own
+     * purposes.
+     *
+     * In order to try to avoid clashing with (the errno values we care about),
+     * we shall start our own values at the top of 'int' space...
+     */
     namespace Error
     {
         typedef enum
         {
-            MessageIsEmpty = -999,
+            MessageIsEmpty = -(INT_MAX - 1),
 
-            MessageIsNotEmpty = -998,
+            MessageIsNotEmpty = -(INT_MAX - 2),
 
-            MessageHasNoId = -997,
+            MessageHasNoId = -(INT_MAX - 3),
 
             //! Attempt to open a device with an empty name.
-            DeviceHasNoName = -996,
+            DeviceHasNoName = -(INT_MAX - 4),
 
             // Device mode does not contain ios::in or ios::out flags
-            DeviceModeUnset = -995,
+            DeviceModeUnset = -(INT_MAX - 5),
 
             //! Invalid arguments
-            InvalidArguments = -994,
+            InvalidArguments = -(INT_MAX - 6),
 
             //! Attempt to send an uninitialised message.
-            MessageNotInitialized = -993,
+            MessageNotInitialized = -(INT_MAX - 7),
             MessageNotInitialised = MessageNotInitialized,
 
-            OSError = -992,     // deprecated
-
+            MessageEADDRINUSE = -EADDRINUSE,
+            MessageEADDRNOTAVAIL = -EADDRNOTAVAIL,
+            MessageEALREADY = -EALREADY,
+            MessageEBADMSG = -EBADMSG,
+            MessageEBUSY = -EBUSY,
+            MessageECONNREFUSED = -ECONNREFUSED,
+            MessageEINVAL = -EINVAL,
+            MessageEMSGSIZE = -EMSGSIZE,
+            MessageENAMETOOLONG = -ENAMETOOLONG,
+            MessageENOENT = -ENOENT,
+            MessageENOLCK = -ENOLCK,
+            MessageENOMSG = -ENOMSG,
+            MessageEPIPE = -EPIPE,
+            MessageEFAULT = -EFAULT,
+            MessageENOMEM = -ENOMEM,
+            MessageEAGAIN = -EAGAIN,
         } Enum;
 
+        const std::string ToString(const unsigned err);
         const std::string ToString(const Enum inEnum);
     };
 

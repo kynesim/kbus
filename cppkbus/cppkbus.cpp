@@ -153,8 +153,8 @@ namespace cppkbus
         kMessageNameReplierUnbound(KBUS_MSG_NAME_REPLIER_UNBOUND),
         kMessageNameReplierDisappeared(KBUS_MSG_NAME_REPLIER_DISAPPEARED),
         kMessageNameErrorSending(KBUS_MSG_NAME_ERROR_SENDING),
-        kMessageNameReplierBindEvent(KBUS_MSG_NAME_REPLIER_BIND_EVENT),
-        kMessageNameUnbindEventsLost(KBUS_MSG_NAME_UNBIND_EVENTS_LOST)
+        kMessageNameUnbindEventsLost(KBUS_MSG_NAME_UNBIND_EVENTS_LOST),
+        kMessageNameReplierBindEvent(KBUS_MSG_NAME_REPLIER_BIND_EVENT)
     { };
 
     const Constants& Constants::Get()
@@ -162,6 +162,11 @@ namespace cppkbus
         static Constants aC;
 
         return aC;
+    }
+
+    const std::string Error::ToString(const unsigned err)
+    {
+        return Error::ToString((const Enum) err);
     }
 
     const std::string Error::ToString(const Enum inEnum)
@@ -176,10 +181,48 @@ namespace cppkbus
                 return "Message has no id";
             case Error::DeviceHasNoName:
                 return "Device has no name";
+            case Error::DeviceModeUnset:
+                return "Device mode (read/write) is not set";
             case Error::InvalidArguments:
                 return "Invalid arguments";
             case Error::MessageNotInitialised:
                 return "Message not initialised";
+
+                // Then make some attempt to help with errno.h values
+                // as used by KBUS
+
+            case Error::MessageEADDRINUSE:
+                return "EADDRINUSE: There is already a replier bound to this name";
+            case Error::MessageEADDRNOTAVAIL:
+                return "EADDRNOTAVAIL: No replier bound for this Request's name, or sender of Request has gone away";
+            case Error::MessageEALREADY:
+                return "EALREADY: Writing to Ksock, previous send has returned EALREADY";
+            case Error::MessageEBADMSG:
+                return "EBADMSG: The message name is not valid";
+            case Error::MessageEBUSY:
+                return "EBUSY: Replier's queue is full, or ALL_OR_FAIL and a recipient queue is full";
+            case Error::MessageECONNREFUSED:
+                return "ECONNREFUSED: Attempt to reply to wrong message or wrong Ksock";
+            case Error::MessageEINVAL:
+                return "EINVAL: Invalid argument";
+            case Error::MessageEMSGSIZE:
+                return "EMSGSIZE: Data was written after the final message end guard";
+            case Error::MessageENAMETOOLONG:
+                return "ENAMETOOLONG: The message name is too long";
+            case Error::MessageENOENT:
+                return "ENOENT: There is no such KBUS device";
+            case Error::MessageENOLCK:
+                return "ENOLCK: Cannor send request, sender has no room for a reply";
+            case Error::MessageENOMSG:
+                return "ENOMSG: Cannot send until a message has been written";
+            case Error::MessageEPIPE:
+                return "EPIPE: Cannot send to specific replier, they have unbound/gone away";
+            case Error::MessageEFAULT:
+                return "EFAULT: Internal KBUS error";
+            case Error::MessageENOMEM:
+                return "ENOMEM: Internal KBUS error, run out of memory";
+            case Error::MessageEAGAIN:
+                return "EAGAIN: Send with ALL_OR_WAIT and full target queue, or unbind and ReplierBindEvent cannot be sent";
             default:
                 std::ostringstream os;
                 os << "Unknown error " << (int)inEnum;
@@ -1297,7 +1340,7 @@ namespace cppkbus
 // OPERATORS ==============================================================
 
 std::ostream& operator<<(std::ostream& stream, const cppkbus::Error::Enum inEnum) {
-    stream << "thingy...";
+    stream << cppkbus::Error::ToString(inEnum);
     return stream;
 }
 
