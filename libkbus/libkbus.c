@@ -287,6 +287,12 @@ extern int kbus_ksock_find_replier(kbus_ksock_t   ksock,
 /*
  * Determine the number of (unread) messages that can be queued for this Ksock.
  *
+ * If 'max_messages' is greater than 0, then KBUS will be asked to adjust the
+ * read queue for this Ksock to length 'max_messages'.
+ *
+ * If 'max_messages' is 0, then it will be set to the current length of the
+ * queue.
+ *
  * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
 extern int kbus_ksock_max_messages(kbus_ksock_t   ksock,
@@ -300,16 +306,11 @@ extern int kbus_ksock_max_messages(kbus_ksock_t   ksock,
 }
 
 /*
- * Set the maximum number of (unread) messages that can be queued for this Ksock.
+ * Find out how many (unread) messages are in the read queue for this Ksock.
  *
- * If `num_messages` is greater than 0, then the maximum number of (unread)
- * messages that can be queued for this Ksock will be set.
+ * 'num_messages' will be set to the number of messages in the read queue.
  *
- * If 'num_messages' is 0, then the maximum is not changed - this may thus be
- * used to query the current maximum number of messages.
- *
- * Returns a positive number indicating the current (possibly just changed)
- * maximum number of messages, or a negative number (``-errno``) for failure.
+ * Returns 0 for success, or a negative number (``-errno``) for failure.
  */
 extern int kbus_ksock_num_messages(kbus_ksock_t   ksock,
                                    uint32_t      *num_messages)
@@ -1253,7 +1254,7 @@ extern int kbus_msg_split_bind_event(const kbus_message_t  *msg,
 }
 
 /*
- * Print our a representation of a message.
+ * Print out a representation of a message.
  *
  * `stream` is the output stream to print to -- typically stdout.
  *
