@@ -17,11 +17,11 @@ class JKbusTest {
 
         byte[] data = {1, 2, 3, 4, 5};
 
-        String msg_name = "$.foo.bar.me";
-
         /*
+        String msgName = "$.foo.bar.me";
+
         com.kynesim.kbus.Message msg =
-            new com.kynesim.kbus.Request(msg_name, data,  Message.FLAG_NONE);
+            new com.kynesim.kbus.Request(msgName, data,  Message.FLAG_NONE);
 
         try {
             MessageId mid = ks.send(msg);
@@ -39,8 +39,8 @@ class JKbusTest {
 
         try {
             System.out.printf("Waiting...\n");
-            ks.wait_for_message(Ksock.KBUS_SOCK_READABLE);
-            Message kmsg = ks.read_next_message();
+            ks.waitForMessage(Ksock.KBUS_SOCK_READABLE);
+            Message kmsg = ks.readNextMessage();
 
             
             byte[] data2 = {3, 4, 5, 6};

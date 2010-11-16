@@ -1,12 +1,12 @@
 package com.kynesim.kbus;
 
 public class OriginallyFrom {
-    public long network_id;
-    public long local_id;
+    public long networkId;
+    public long localId;
 
     public OriginallyFrom(long nid, long lid) {
-        network_id = nid;
-        local_id   = lid;
+        networkId = nid;
+        localId   = lid;
 
     }
 }

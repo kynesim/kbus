@@ -9,7 +9,7 @@ OBJS=$(SRCS:%.c=obj/%.o)
 
 SO_FLAGS=-shared -Wl,-soname,$(LIB_NAME) 
 
-CFLAGS=-I$(JAVA_HOME)/include -I../java/include -I../../libkbus/ -I../../ -Wall -Werror 
+CFLAGS=-I$(JAVA_HOME)/include -I../java/include -I../../libkbus/ -I../../ -Wall -Werror -fPIC
 
 .PHONY: all
 all: dirs $(OBJS) lib/$(LIB_NAME)

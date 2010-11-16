@@ -3,7 +3,7 @@ package com.kynesim.kbus;
 import java.util.*;
 
 public class Ksock {
-    private int ksock_fd;
+    private int ksockFd;
 
     /* ---- NATIVE ---- */
 
@@ -20,8 +20,8 @@ public class Ksock {
                                                                com.kynesim.kbus.Message  msg) throws KsockException;
 
     
-    private native int native_bind(int ksock,  String name, long is_replier);
-    private native int native_unbind(int ksock,  String name, long is_replier);
+    private native int native_bind(int ksock,  String name, long isReplier);
+    private native int native_unbind(int ksock,  String name, long isReplier);
     private native com.kynesim.kbus.Message native_read_next_message(int ksock);
 
     /* ---- CONSTANTS ---- */
@@ -58,11 +58,11 @@ public class Ksock {
 
         }
         
-        ksock_fd = native_open(which, flags);
+        ksockFd = native_open(which, flags);
         
-        System.out.printf("foo %d\n", ksock_fd);
+        System.out.printf("foo %d\n", ksockFd);
 
-        if (ksock_fd < 0) {
+        if (ksockFd < 0) {
             throw  new KsockException();
         }                
     }
@@ -73,14 +73,14 @@ public class Ksock {
      * Close the Ksock, no more opperations may be performed.
      */
     public void close() {
-        native_close(ksock_fd);
+        native_close(ksockFd);
     }
 
     /**
      * Return the internal ‘Ksock id’ for this file descriptor.
      */
-    public int ksock_fd() {        
-        return ksock_fd;
+    public int getKsockFd() {        
+        return ksockFd;
     }
 
 
@@ -95,7 +95,7 @@ public class Ksock {
         MessageId mid = null;
         
         try {
-            mid = native_send_msg(ksock_fd, message);
+            mid = native_send_msg(ksockFd, message);
         } catch (KsockException e) {
             System.out.printf("Failed While Sending: Exception " + e + "\n");
             throw e;
@@ -111,7 +111,7 @@ public class Ksock {
      * Returns when there is data to be read from the Ksock, or the Ksock
      * may be written to.
      *
-     * @param wait_for indicates what to wait for. It should be set to
+     * @param waitFor indicates what to wait for. It should be set to
      * ``KBUS_SOCK_READABLE``, ``KBUS_SOCK_WRITABLE``, or the two "or"ed together,
      * as appropriate.
      *
@@ -119,8 +119,8 @@ public class Ksock {
      * together to indicate which operation is ready, or a negative number
      * (``-errno``) for failure.
      */
-    public int wait_for_message(int wait_for) throws KsockException{
-        int rv = native_wait_for_message(ksock_fd, wait_for);
+    public int waitForMessage(int waitFor) throws KsockException{
+        int rv = native_wait_for_message(ksockFd, waitFor);
 
         if (rv < 0) {
             throw new KsockException("Waiting failed. (retval: " + rv + ")");
@@ -139,9 +139,9 @@ public class Ksock {
      *        reply to this message name.
      */
 
-    public void bind(String name, boolean is_replier) throws KsockException {
+    public void bind(String name, boolean isReplier) throws KsockException {
         
-        int rv = native_bind(ksock_fd, name, (is_replier)? 1: 0);
+        int rv = native_bind(ksockFd, name, (isReplier)? 1: 0);
 
         if (rv < 0) {
             throw new KsockException("Failed to bind (retval: " + rv + ")");
@@ -156,9 +156,9 @@ public class Ksock {
      * The arguments need to match the binding that we want to unbind.
      *
      */
-    public void unbind(String name, boolean is_replier) throws KsockException {
+    public void unbind(String name, boolean isReplier) throws KsockException {
         
-        int rv = native_unbind(ksock_fd, name, (is_replier)? 1: 0);
+        int rv = native_unbind(ksockFd, name, (isReplier)? 1: 0);
 
         if (rv < 0) {
             throw new KsockException("Failed to bind (retval: " + rv + ")");
@@ -173,8 +173,8 @@ public class Ksock {
      * Throws an excaption if no message is present to be read. 
      */
 
-    public com.kynesim.kbus.Message read_next_message() throws KsockException {
-        Message m = native_read_next_message(ksock_fd);
+    public com.kynesim.kbus.Message readNextMessage() throws KsockException {
+        Message m = native_read_next_message(ksockFd);
 
         if (m == null) {
             throw new KsockException("No message recived.");

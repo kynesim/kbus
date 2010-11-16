@@ -2,25 +2,25 @@ package com.kynesim.kbus;
 
 public class MessageId {
     /* Curse the lack of unsigned int */
-    private long network_id;
-	private long serial_num;
+    private long networkId;
+    private long serialNum;
 
-    public MessageId(long network_id, long serial_num) {
-        System.out.printf("in constructor %d %d \n", network_id, serial_num);
-        this.network_id = network_id;
-        this.serial_num = serial_num;
+    public MessageId(long networkId, long serialNum) {
+        System.out.printf("in constructor %d %d \n", networkId, serialNum);
+        this.networkId = networkId;
+        this.serialNum = serialNum;
     }
 
     public long getNetworkId() {
-        return network_id;
+        return networkId;
     }
 
 
     public long getSerialNum() {
-        return serial_num;
+        return serialNum;
     }
 
     public String toString() {
-        return "MessageId(network_id: " + network_id + ", serial_num: " + serial_num + ")";
+        return "MessageId(network_id: " + networkId + ", serial_num: " + serialNum + ")";
     }
 }

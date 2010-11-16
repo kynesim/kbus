@@ -8,11 +8,11 @@ public class Message {
     protected long flags;
 
     protected MessageId id;
-    protected MessageId in_reply_to;
+    protected MessageId inReplyTo;
     protected long to;
     protected long from;
-    protected OriginallyFrom orig_from;
-    protected OriginallyFrom final_to;
+    protected OriginallyFrom origFrom;
+    protected OriginallyFrom finalTo;
     
 
     
@@ -36,18 +36,18 @@ public class Message {
     
 
     public Message(String name, byte []data, long flags, MessageId id, 
-                   MessageId in_reply_to, long to, long from, 
-                   OriginallyFrom orig_from, OriginallyFrom final_to)
+                   MessageId inReplyTo, long to, long from, 
+                   OriginallyFrom origFrom, OriginallyFrom finalTo)
     {
-        this.name        = name;
-        this.data        = data;
-        this.flags       = flags;
-        this.id          = id;
-        this.in_reply_to = in_reply_to;
-        this.to          = to;
-        this.from        = from; 
-        this.orig_from   = orig_from;
-        this.final_to    = final_to;
+        this.name      = name;
+        this.data      = data;
+        this.flags     = flags;
+        this.id        = id;
+        this.inReplyTo = inReplyTo;
+        this.to        = to;
+        this.from      = from;
+        this.origFrom  = origFrom;
+        this.finalTo   = finalTo;
     }
 
     public boolean wantsUsToReply() {
@@ -60,8 +60,8 @@ public class Message {
     }
 
     public boolean isReply() {
-        return ((in_reply_to.getNetworkId()) != 0) ||
-            ((in_reply_to.getSerialNum()) != 0);
+        return ((inReplyTo.getNetworkId()) != 0) ||
+            ((inReplyTo.getSerialNum()) != 0);
     }
 
 

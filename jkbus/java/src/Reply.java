@@ -11,8 +11,8 @@ public class Reply extends com.kynesim.kbus.Message {
             throw new KsockException("This Message doesn't want a reply.");
         }
 
-        this.to          = msg.from;
-        this.in_reply_to = msg.id;
+        this.to        = msg.from;
+        this.inReplyTo = msg.id;
 
     }
 
