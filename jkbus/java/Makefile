@@ -8,7 +8,7 @@ CLASSES=$(SRCS:%.java=classes/%.class)
 TEST_LIBS_PATH=../native/lib:../../libkbus/
 
 .PHONY: all
-all: dirs classes
+all: dirs classes jni
 	cd classes && jar cf ../jar/Kbus.jar *
 
 .PHONY: jni
