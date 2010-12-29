@@ -1399,7 +1399,7 @@ extern void kbus_msg_dump(const kbus_message_t *msg,
   int data_limit = (msg->data_len);
   for (i = 0; i < data_limit; i ++) {
     if (i != 0 && !(i % 16)) {
-      printf("\n  ");
+      printf("\n                  ");
     }
     printf("%02x ",data_ptr[i]);
   }

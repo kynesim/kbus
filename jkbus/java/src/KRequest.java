@@ -1,9 +1,9 @@
 package com.kynesim.kbus;
 
 
-public class Request extends com.kynesim.kbus.Message {
+public class KRequest extends com.kynesim.kbus.KMessage {
 
-    public Request(String name, byte []data, long flags) {
+    public KRequest(String name, byte []data, long flags) {
         
         super(name, data, flags);
 

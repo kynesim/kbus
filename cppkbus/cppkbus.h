@@ -945,6 +945,8 @@ namespace cppkbus
             /** Send a reply to an earlier message.
              *
              * Marks the ioMessage as a reply (to inReplyTo) before it sends it.
+             *
+             * @return 0 on success, < 0 on error.
              */
             int SendReply(Message& ioMessage, const Message& inReplyTo, MessageId *msgId=NULL);
 
@@ -973,7 +975,7 @@ namespace cppkbus
              * @param[in] inPollFlags     Which poll flags to query.
              * @param[in] timeout         Timeout in ms. 0 -> just poll, < 0 -> infinite.
              *
-             * @return 0 on success, -errno on failure.
+             * @return 1 if we got something, 0 if we didn't, -errno on failure.
              */
             int WaitForMessage(unsigned &outPollFlags, const unsigned inPollFlags,
                     const int timeout);

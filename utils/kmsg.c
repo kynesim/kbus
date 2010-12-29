@@ -51,8 +51,8 @@ static int create_kbus_message(kbus_message_t **out_hdr,
 			       const char *msg_name, const char *fmt,
 			       const char *data, int expect_reply);
 
-static int do_reply(const char *msg_name, int bus_number);
-static int do_listen(const char *msg_name, int bus_number);
+static int do_reply(const char *msg_name, int bus_number, int do_dump);
+static int do_listen(const char *msg_name, int bus_number, int do_dump);
 static int do_send(const char *msg_name, const char *fmt,
 		   const char *data, int expect_reply, int bus_number);
 
@@ -62,6 +62,7 @@ int main(int argn, char *args[])
 {
   int bus_number = 0;
   int verbose = 0;
+  int do_dump = 0;
 
   if (argn < 2)
     {
@@ -73,13 +74,24 @@ int main(int argn, char *args[])
     {
       if (argn < 3)
 	{
-	  fprintf(stderr, "kmsg -bus must have an argument.\r\n");
+	  fprintf(stderr, "kmsg --bus must have an argument.\r\n");
 	  usage();
 	}
       bus_number = atoi(args[2]);
       args += 2; argn -= 2;
-
     }
+  if (!strcmp(args[1], "-v") || !strcmp(args[1], "--verbose"))
+  {
+      ++verbose;
+      args += 1; argn -=1;
+  }
+  if (!strcmp(args[1], "--dump"))
+  {
+      ++do_dump;
+      args += 1; argn -= 1;
+  }
+  
+
 
   const char *cmd= args[1];
 
@@ -92,7 +104,8 @@ int main(int argn, char *args[])
 	  usage();
 	  return 2;
 	}
-      return do_listen(args[2], bus_number);
+      return do_listen(args[2], bus_number, 
+                       do_dump);
     }
   else if (!strcmp(cmd, "reply"))
     {
@@ -102,16 +115,17 @@ int main(int argn, char *args[])
 	  usage();
 	  return 2;
 	}
-      return do_reply(args[2], bus_number);
+      return do_reply(args[2], bus_number, do_dump);
     }
   else if (!strcmp(cmd, "send") || !strcmp(cmd, "call"))
     {
-      if (argn != 5)
+        if (argn != 5 && argn != 4)
 	{
 	  fprintf(stderr, " Wrong number of arguments for send/call.\n");
 	  usage();
 	  return 3;
 	}
+
       // We're expecting a reply iff the command is not 'send'
       return do_send(args[2], args[3], args[4],
 		     strcmp(cmd, "send"), bus_number);
@@ -126,7 +140,7 @@ int main(int argn, char *args[])
 
 static void usage(void)
 {
-  fprintf(stderr, "Syntax: kmsg [-bus <NN>] [-v] listen|reply|send|call <name> [<fmt> <data>]\n"
+  fprintf(stderr, "Syntax: kmsg [--bus <NN>] [-v] [--dump] listen|reply|send|call <name> [<fmt> <data>]\n"
 	  "\n"
 	  "    kmsg listen <name>  - Bind as Listener for <name>, print every message you receive.\n"
 	  "    kmsg reply  <name>  - Bind as Replier  for <name>, print every message you receive,\n"
@@ -135,13 +149,14 @@ static void usage(void)
 	  "    kmsg send   <name> <fmt> <data> - Send the given message.\n"
 	  "    kmsg call   <name> <fmt> <data> - Send the given message, wait for a reply.\n"
 	  "\n"
-	  "<fmt> can be 's'tring or 'h'ex.\n"
+	  "<fmt> can be 's'tring , 'h'ex, or '-'. If '-' is specified, we take our message data from stdin.\n"
           "\n"
-          "-bus <NN> may be used to choose the KBUS device. The default is 0.\n"
+          "--bus <NN> may be used to choose the KBUS device. The default is 0.\n"
+          "--dump     may be used to tell us to dump messages rather than printing a summary.\n"
 	  "\n");
 }
 
-static int do_listen(const char *msg_name, int bus_number)
+static int do_listen(const char *msg_name, int bus_number, int do_dump)
 {
   kbus_ksock_t the_socket;
   int rv;
@@ -187,15 +202,22 @@ static int do_listen(const char *msg_name, int bus_number)
 	  return 2;
 	}
 
-      kbus_msg_print(stdout, msg); fprintf(stdout,"\n");
-      //kbus_msg_dump(msg, 1);
+      if (do_dump)
+      {
+          kbus_msg_dump(msg, 1);
+      }
+      else
+      {
+          kbus_msg_print(stdout, msg); fprintf(stdout,"\n");
+      }
+
       kbus_msg_delete_all(&msg);
     }
 
   return 0;
 }
 
-static int do_reply(const char *msg_name, int bus_number)
+static int do_reply(const char *msg_name, int bus_number, int do_dump)
 {
   kbus_ksock_t the_socket;
   int rv;
@@ -244,7 +266,14 @@ static int do_reply(const char *msg_name, int bus_number)
 	  return 2;
 	}
 
-      kbus_msg_print(stdout, msg); fprintf(stdout,"\n");
+      if (do_dump)
+      {
+          kbus_msg_dump(msg, 1);
+      }
+      else
+      {
+          kbus_msg_print(stdout, msg); fprintf(stdout,"\n");
+      }
       //kbus_msg_dump(msg, 1);
 
       rv = kbus_msg_create_reply_to(&reply, msg, NULL, 0, 0);
@@ -307,7 +336,58 @@ static int create_kbus_message(kbus_message_t **out_hdr,
   uint8_t *msg_data = NULL;
   uint32_t data_len = 0;
 
-  if (fmt[0] == 's')
+  if (fmt[0] == '-')
+  {
+      if (data != NULL)
+      {
+          fprintf(stderr, " '-' specified as data format, but data also supplied?! \n");
+          return 21;
+      }
+      // Otherwise .. 
+      char *data = (char *)malloc(4096);
+      int len = 0, bytes = 4096;
+      
+      while (1)
+      {
+          int rv;
+         if (!data)
+          {
+              fprintf(stderr, "Out of memory after %d bytes.\n", bytes);
+              return 22;
+          }
+
+          rv = read(0, &data[len], bytes - len);
+          if (rv < 0)
+          {
+              if (errno == EINTR || errno == EAGAIN)
+              {
+                  continue;
+              }
+              else
+              {
+                  fprintf(stderr, "Error reading from stdin: %s [%d] \n",
+                          strerror(errno), errno);
+              }
+          }
+          else if (rv == 0)
+          {
+              // EOF
+              break;
+          }
+          else 
+          {
+              len += rv;
+              if ((bytes - len) < 1024)
+              {
+                  bytes += 32768;
+                  data = (char *)realloc(data, bytes);
+              }
+          }
+      }
+      msg_data = data;
+      data_len = len + 1;
+  }
+  else if (fmt[0] == 's')
     {
       data_len = strlen(data);
       msg_data = (uint8_t *)malloc(strlen(data));

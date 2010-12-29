@@ -1,9 +1,9 @@
 package com.kynesim.kbus;
 
 
-public class Reply extends com.kynesim.kbus.Message {
+public class KReply extends com.kynesim.kbus.KMessage {
 
-    public Reply(Message msg, byte []data, long flags) throws KsockException {
+    public KReply(KMessage msg, byte []data, long flags) throws KsockException {
         
         super(msg.name, data, flags);
 

@@ -182,6 +182,13 @@ These mechanisms will also work when there are intermediate bowls:
 
 Python and C implementations
 ----------------------------
+
+.. note:: This section is out-of-date, as the example socket-based Limpet
+   implementations are no longer in the C library or the Python module.
+   This section will be updated later on...
+
+   (note to self: remember the Python kbus.limpet.LimpetExample class)
+
 Limpets were originally developed in Python. ::
 
     >>> from kbus import run_a_limpet

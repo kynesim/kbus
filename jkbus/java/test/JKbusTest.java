@@ -40,11 +40,11 @@ class JKbusTest {
         try {
             System.out.printf("Waiting...\n");
             ks.waitForMessage(Ksock.KBUS_SOCK_READABLE);
-            Message kmsg = ks.readNextMessage();
+            KMessage kmsg = ks.readNextMessage();
 
             
             byte[] data2 = {3, 4, 5, 6};
-            Reply rply = new Reply(kmsg, data2, Message.FLAG_NONE);
+            KReply rply = new KReply(kmsg, data2, Message.FLAG_NONE);
 
             System.out.printf("Done...\n" + kmsg + "\n");
         } catch (Exception e){

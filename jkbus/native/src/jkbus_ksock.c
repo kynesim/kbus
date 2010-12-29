@@ -3,13 +3,14 @@
 #include <stdio.h>
 
 #include "kbus.h"
+#include <sys/poll.h>
 
 #include "com_kynesim_kbus_Ksock.h"
 
 jobject new_orig_from(JNIEnv *env, struct kbus_orig_from *from) {
     jobject jfrom;
 
-    jclass OrigFrom = (*env)->FindClass(env, "com/kynesim/kbus/OriginallyFrom");
+    jclass OrigFrom = (*env)->FindClass(env, "com/kynesim/kbus/KOriginallyFrom");
     jmethodID of_c_mid = (*env)->GetMethodID(env, OrigFrom, "<init>", 
                                              "(JJ)V");
 
@@ -27,7 +28,7 @@ jobject new_orig_from(JNIEnv *env, struct kbus_orig_from *from) {
 jobject new_message_id(JNIEnv *env, struct kbus_msg_id *id) {
     jobject jid;
 
-    jclass MessageId = (*env)->FindClass(env, "com/kynesim/kbus/MessageId");
+    jclass MessageId = (*env)->FindClass(env, "com/kynesim/kbus/KMessageId");
     jmethodID mid_c_mid = (*env)->GetMethodID(env, MessageId, "<init>", 
                                              "(JJ)V");
     if (MessageId == NULL || mid_c_mid == NULL){
@@ -42,7 +43,7 @@ jobject new_message_id(JNIEnv *env, struct kbus_msg_id *id) {
     
 }
 
-#define MESSAGE_CONSTRUCTOR_SIGNATURE "(Ljava/lang/String;[BJLcom/kynesim/kbus/MessageId;Lcom/kynesim/kbus/MessageId;JJLcom/kynesim/kbus/OriginallyFrom;Lcom/kynesim/kbus/OriginallyFrom;)V"
+#define MESSAGE_CONSTRUCTOR_SIGNATURE "(Ljava/lang/String;[BJLcom/kynesim/kbus/KMessageId;Lcom/kynesim/kbus/KMessageId;JJLcom/kynesim/kbus/KOriginallyFrom;Lcom/kynesim/kbus/KOriginallyFrom;)V"
 jobject msg_to_jmsg(JNIEnv *env, kbus_message_t *msg) {
     jobject jmsg;
     jobject orig_from;
@@ -50,7 +51,7 @@ jobject msg_to_jmsg(JNIEnv *env, kbus_message_t *msg) {
     jobject id;
     jobject in_reply_to;
 
-    jclass Message = (*env)->FindClass(env, "com/kynesim/kbus/Message");
+    jclass Message = (*env)->FindClass(env, "com/kynesim/kbus/KMessage");
     jmethodID msg_c_mid   = (*env)->GetMethodID(env, Message, "<init>", 
                                                 MESSAGE_CONSTRUCTOR_SIGNATURE);
     jstring name;
@@ -229,7 +230,6 @@ JNIEXPORT jobject JNICALL Java_com_kynesim_kbus_Ksock_native_1send_1msg
     message_name = (*env)->GetObjectField(env, message, msg_name_fid);   
     flags        = (*env)->GetLongField(env, message, msg_flags_fid);   
 
-    
     if (data_array == NULL) {
         /* java outofmemeory exception already thrown. return control 
          * to java 
@@ -277,7 +277,7 @@ JNIEXPORT jobject JNICALL Java_com_kynesim_kbus_Ksock_native_1send_1msg
         
         /* Alright! Now construct a MessageId object for java. */ 
         {
-            jclass MessageId = (*env)->FindClass(env, "com/kynesim/kbus/MessageId");
+            jclass MessageId = (*env)->FindClass(env, "com/kynesim/kbus/KMessageId");
             
             if (MessageId == NULL) {
                 goto fail_and_release2;
@@ -309,12 +309,26 @@ JNIEXPORT jobject JNICALL Java_com_kynesim_kbus_Ksock_native_1send_1msg
 
 
 JNIEXPORT jint JNICALL Java_com_kynesim_kbus_Ksock_native_1wait_1for_1message
-(JNIEnv *env, jobject obj, jint ksock, jint wait_for) {
-    int rv = kbus_wait_for_message(ksock, wait_for);
-    
-    return rv;
-}
+(JNIEnv *env, jobject obj, jint ksock, jint wait_for, jint ms) {
+    struct pollfd fds[1];
+    int rv;
 
+    fds[0].fd = (int)ksock;
+    fds[0].events = ((wait_for & KBUS_KSOCK_READABLE) ? POLLIN : 0) |
+        ((wait_for & KBUS_KSOCK_WRITABLE) ? POLLOUT : 0);
+    fds[0].revents = 0;
+    rv = poll(fds, 1, ms);
+    if (rv < 0)
+    {
+        return -errno;
+    }
+    else
+    {
+        return ((fds[0].revents & POLLIN) ? KBUS_KSOCK_READABLE : 0) | 
+            ((fds[0].revents & POLLOUT) ? KBUS_KSOCK_WRITABLE : 0);
+    }
+}
+        
 
 JNIEXPORT jint JNICALL Java_com_kynesim_kbus_Ksock_native_1bind
 (JNIEnv *env, jobject obj, jint ksock, jstring name, jlong is_replier) {

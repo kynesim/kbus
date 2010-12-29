@@ -14,15 +14,15 @@ public class Ksock {
     private native int native_open(int device_number, int flags);
     private native int native_close(int ksock);
 
-    private native int native_wait_for_message(int ksock, int waitfor);
+    private native int native_wait_for_message(int ksock, int waitfor, int ms);
  
-    private native  com.kynesim.kbus.MessageId native_send_msg(int     ksock,
-                                                               com.kynesim.kbus.Message  msg) throws KsockException;
+    private native  com.kynesim.kbus.KMessageId native_send_msg(int     ksock,
+                                                                com.kynesim.kbus.KMessage  msg) throws KsockException;
 
     
     private native int native_bind(int ksock,  String name, long isReplier);
     private native int native_unbind(int ksock,  String name, long isReplier);
-    private native com.kynesim.kbus.Message native_read_next_message(int ksock);
+    private native com.kynesim.kbus.KMessage native_read_next_message(int ksock);
 
     /* ---- CONSTANTS ---- */
 
@@ -47,7 +47,7 @@ public class Ksock {
 
         if (mode != "r" && mode != "rw") {
             /* FIXME: Throw correct exception*/
-            throw new KsockException();
+            throw new KsockException("Mode was not 'r' or 'rw', but '" + mode + "'");
         }
 
         /* quick and dirty, 0 for read 1 for read/write. */
@@ -60,10 +60,8 @@ public class Ksock {
         
         ksockFd = native_open(which, flags);
         
-        System.out.printf("foo %d\n", ksockFd);
-
         if (ksockFd < 0) {
-            throw  new KsockException();
+            throw  new KsockException("Cannot open ksock error: " + ksockFd);
         }                
     }
 
@@ -91,13 +89,13 @@ public class Ksock {
      *
      * @return message id of the message just sent.
      */
-    public MessageId send(Message message) throws KsockException {
-        MessageId mid = null;
+    public KMessageId send(KMessage message) throws KsockException {
+        KMessageId mid = null;
         
         try {
             mid = native_send_msg(ksockFd, message);
         } catch (KsockException e) {
-            System.out.printf("Failed While Sending: Exception " + e + "\n");
+            // System.out.printf("Failed While Sending: Exception " + e + "\n");
             throw e;
         }
 
@@ -119,8 +117,8 @@ public class Ksock {
      * together to indicate which operation is ready, or a negative number
      * (``-errno``) for failure.
      */
-    public int waitForMessage(int waitFor) throws KsockException{
-        int rv = native_wait_for_message(ksockFd, waitFor);
+    public int waitForMessage(int waitFor, int ms) throws KsockException{
+        int rv = native_wait_for_message(ksockFd, waitFor, ms);
 
         if (rv < 0) {
             throw new KsockException("Waiting failed. (retval: " + rv + ")");
@@ -170,11 +168,11 @@ public class Ksock {
     /**
      * Read the next Message.
      *
-     * Throws an excaption if no message is present to be read. 
+     * Throws an exception if no message is present to be read. 
      */
 
-    public com.kynesim.kbus.Message readNextMessage() throws KsockException {
-        Message m = native_read_next_message(ksockFd);
+    public com.kynesim.kbus.KMessage readNextMessage() throws KsockException {
+        KMessage m = native_read_next_message(ksockFd);
 
         if (m == null) {
             throw new KsockException("No message recived.");
@@ -186,3 +184,5 @@ public class Ksock {
 
 
 }
+
+/* End File */

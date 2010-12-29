@@ -1,0 +1,64 @@
+# Muddle makefile for kbus.
+
+
+O=$(MUDDLE_OBJ_OBJ)
+export O
+
+DESTDIR=$(MUDDLE_INSTALL)
+export DESTDIR
+
+all:
+	$(MAKE) -C $(MUDDLE_OBJ_OBJ)/kbus
+	$(MAKE) -C $(MUDDLE_SRC)/libkbus
+	$(MAKE) -C $(MUDDLE_SRC)/cppkbus
+	$(MAKE) -C $(MUDDLE_SRC)/utils
+	$(MAKE) -C $(MUDDLE_SRC)/jkbus
+
+install:
+	-mkdir -p $(MUDDLE_OBJ_INCLUDE)/kbus
+	-mkdir -p $(MUDDLE_OBJ_LIB)
+	-mkdir -p $(MUDDLE_OBJ)/classes
+	-mkdir -p $(MUDDLE_INSTALL)/lib
+	-mkdir -p $(MUDDLE_INSTALL)/classes
+	-mkdir -p $(MUDDLE_INSTALL)/lib/jvm
+	-mkdir -p $(MUDDLE_INSTALL)/lib/modules/kbus
+	-mkdir -p $(MUDDLE_INSTALL)/bin
+
+	-mkdir -p $(MUDDLE_INSTALL)/etc/rc.d
+	install -m 0755 $(MUDDLE_SRC)/init.d/kbus $(MUDDLE_INSTALL)/etc/rc.d/S05kbus
+
+	install -m 0755 $(MUDDLE_OBJ_OBJ)/utils/kmsg $(MUDDLE_INSTALL)/bin/kmsg
+	install -m 0755 $(MUDDLE_OBJ_OBJ)/utils/runlimpet $(MUDDLE_INSTALL)/bin/runlimpet
+
+	install -m 0755 $(MUDDLE_OBJ_OBJ)/kbus/kbus.ko $(MUDDLE_INSTALL)/lib/modules/kbus/kbus.ko
+	install -m 0755 $(MUDDLE_OBJ_OBJ)/lib/libjkbus.so $(MUDDLE_INSTALL)/lib/jvm/libjkbus.so
+	install -m 0755 $(MUDDLE_OBJ_OBJ)/libkbus/libkbus.so $(MUDDLE_INSTALL)/lib/libkbus.so
+	install -m 0755 $(MUDDLE_OBJ_OBJ)/cppkbus/libcppkbus.so $(MUDDLE_INSTALL)/lib/libcppkbus.so
+	install -m 0755 $(MUDDLE_OBJ_OBJ)/Kbus-0.1.jar $(MUDDLE_INSTALL)/classes/kbus-0.1.jar
+	install -m 0755 $(MUDDLE_OBJ_OBJ)/Kbus-0.1.jar $(MUDDLE_OBJ)/classes/kbus-0.1.jar
+
+	install -m 0755 $(MUDDLE_OBJ_OBJ)/libkbus/libkbus.so $(MUDDLE_OBJ_LIB)/libkbus.so
+	install -m 0755 $(MUDDLE_OBJ_OBJ)/libkbus/libkbus.a $(MUDDLE_OBJ_LIB)/libkbus.a
+
+	install -m 0755 $(MUDDLE_OBJ_OBJ)/cppkbus/libcppkbus.so $(MUDDLE_OBJ_LIB)/libcppkbus.so
+	install -m 0755 $(MUDDLE_OBJ_OBJ)/cppkbus/libcppkbus.a $(MUDDLE_OBJ_LIB)/libcppkbus.a
+
+	install -m 0755 $(MUDDLE_SRC)//kbus/kbus_defns.h $(MUDDLE_OBJ_INCLUDE)/kbus/kbus_defns.h
+	install -m 0755 $(MUDDLE_SRC)/libkbus/kbus.h $(MUDDLE_OBJ_INCLUDE)/kbus/kbus.h
+	install -m 0755 $(MUDDLE_SRC)/cppkbus/cppkbus.h $(MUDDLE_OBJ_INCLUDE)/kbus/cppkbus.h
+	install -m 0755 $(MUDDLE_SRC)/libkbus/limpet.h $(MUDDLE_OBJ_INCLUDE)/kbus/limpet.h
+
+
+config:
+	-mkdir -p $(MUDDLE_OBJ_OBJ)
+	-mkdir -p $(MUDDLE_OBJ_OBJ)/module
+	$(MUDDLE) copywithout $(MUDDLE_SRC)/kbus $(MUDDLE_OBJ_OBJ)/kbus
+
+clean:
+	$(MAKE) -C $(MUDDLE_SRC) clean
+
+distclean:
+	rm -rf $(MUDDLE_OBJ)
+
+
+# End file.

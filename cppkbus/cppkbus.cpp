@@ -93,6 +93,11 @@ namespace cppkbus
                 if (errno != EINTR && errno != EAGAIN)
                     return -errno;      // not much else we can do
             }
+            else if (rv == 0)
+            {
+                // EOF! What on earth does this mean to KBus?
+                return -EBADF;
+            }
             else
                 countRead += rv;
 
@@ -1234,13 +1239,25 @@ namespace cppkbus
 
     int Ksock::Receive(Message& ioMessage)
     {
-        uint32_t msgLen;
+        /* valgrind believes that msgLen is uninitialised if Receive() returns 0;
+         * this is, as far as I can tell, untrue, but I've added a spurious 
+         * initialisation here to stop the complaints so I can concentrate on
+         * more serious issues - rrw 2010-12-09
+         */
+        uint32_t msgLen(0);
 
         if (!ioMessage.IsEmpty())
             return Error::MessageIsNotEmpty;
 
         int rv = ioctl(mDevice.mFd, KBUS_IOC_NEXTMSG, &msgLen);
         if (rv < 0) return -errno;
+        
+        if (!msgLen)
+        {
+            // There was no next message.
+            return 0;
+        }
+
 
         ioMessage.mData.resize(msgLen);
         rv = SafeRead(mDevice.mFd, (uint8_t *)(&ioMessage.mData[0]), msgLen);
@@ -1253,7 +1270,7 @@ namespace cppkbus
         ioMessage.mIsEmpty = false;
         ioMessage.mPointyData = NULL;
         ioMessage.mPointyLen = 0;
-        return 0;
+        return 1;
     }
 
     int Ksock::WaitForMessage(unsigned int &outPollFlags,
