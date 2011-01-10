@@ -1,0 +1,8 @@
+*.cmd
+*.ko
+*.o
+*.rules
+kbus.mod.c
+modules.order
+Module.symvers
+.tmp_versions
