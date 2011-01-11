@@ -599,7 +599,7 @@ struct kbus_dev
 
 	/*
 	 * The Big Lock
-	 * For the moment, try having a single semaphore for all purposes
+	 * For the moment, try having a single mutex for all purposes
 	 * - we can do more specific locking later on if it proves useful.
 	 *
 	 * For the moment, all locking is done at the "top level", i.e.,
@@ -609,7 +609,7 @@ struct kbus_dev
 	 *
 	 * On the other hand, we are not intending to provide a *fast* system.
 	 */
-	struct semaphore	sem;
+	struct mutex        mux;
 
 	/* Who has bound to receive which messages in what manner */
 	struct list_head	bound_message_list;
@@ -3153,7 +3153,7 @@ static int kbus_open(struct inode *inode, struct file *filp)
 	 */
 	dev = container_of(inode->i_cdev, struct kbus_dev, cdev);
 
-	if (down_interruptible(&dev->sem)) {
+	if (mutex_lock_interruptible(&dev->mux)) {
 		kfree(priv);
 		return -ERESTARTSYS;
 	}
@@ -3198,7 +3198,7 @@ static int kbus_open(struct inode *inode, struct file *filp)
 
 	filp->private_data = priv;
 
-	up(&dev->sem);
+	mutex_unlock(&dev->mux);
 
 	kbus_maybe_dbg(dev,"kbus: %u/%u OPEN\n",dev->index,priv->id);
 
@@ -3211,7 +3211,7 @@ static int kbus_release(struct inode *inode, struct file *filp)
 	struct kbus_private_data *priv = filp->private_data;
 	struct kbus_dev *dev = priv->dev;
 
-	if (down_interruptible(&dev->sem))
+	if (mutex_lock_interruptible(&dev->mux))
 		return -ERESTARTSYS;
 
 	kbus_maybe_dbg(dev,"kbus: %u/%u RELEASE\n",dev->index,priv->id);
@@ -3229,7 +3229,7 @@ static int kbus_release(struct inode *inode, struct file *filp)
 	retval2 = kbus_forget_open_ksock(dev,priv->id);
 	kfree(priv);
 
-	up(&dev->sem);
+	mutex_unlock(&dev->mux);
 
 	return retval2;
 }
@@ -3912,7 +3912,7 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 	struct kbus_write_msg		*this = &priv->write;
 
 
-	if (down_interruptible(&dev->sem))
+	if (mutex_lock_interruptible(&dev->mux))
 		return -EAGAIN;
 
 	kbus_maybe_dbg(priv->dev,"kbus: %u/%u WRITE count %u, pos %d\n",
@@ -3959,7 +3959,7 @@ done:
 	if (retval) {
 		kbus_empty_write_msg(priv);
 	}
-	up(&dev->sem);
+	mutex_unlock(&dev->mux);
 	if (retval)
 		return retval;
 	else
@@ -3976,7 +3976,7 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 	uint32_t			 len, left;
 	uint32_t			 which = this->which;
 
-	if (down_interruptible(&dev->sem))
+	if (mutex_lock_interruptible(&dev->mux))
 		return -EAGAIN;			/* Just try again later */
 
 	kbus_maybe_dbg(priv->dev,"kbus: %u/%u READ count %u, pos %d\n",
@@ -4083,7 +4083,7 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 	}
 
 done:
-	up(&dev->sem);
+	mutex_unlock(&dev->mux);
 	return retval;
 }
 
@@ -5038,7 +5038,7 @@ static long kbus_ioctl(struct file *filp,
 		err =  !access_ok(VERIFY_READ, (void __user *)arg, _IOC_SIZE(cmd));
 	if (err) return -EFAULT;
 
-	if (down_interruptible(&dev->sem))
+	if (mutex_lock_interruptible(&dev->mux))
 		return -ERESTARTSYS;
 
 	switch (cmd) {
@@ -5221,7 +5221,7 @@ static long kbus_ioctl(struct file *filp,
 		break;
 	}
 
-	up(&dev->sem);
+	mutex_unlock(&dev->mux);
 	return retval;
 }
 
@@ -5288,7 +5288,7 @@ static unsigned int kbus_poll(struct file *filp, poll_table *wait)
 	struct kbus_dev			*dev = priv->dev;
 	unsigned mask = 0;
 
-	down(&dev->sem);
+	mutex_lock(&dev->mux);
 
 	kbus_maybe_dbg(priv->dev,"kbus: %u/%u POLL\n",dev->index,priv->id);
 
@@ -5323,7 +5323,7 @@ static unsigned int kbus_poll(struct file *filp, poll_table *wait)
 	if (priv->sending)
 		poll_wait(filp, &dev->write_wait, wait);
 
-	up(&dev->sem);
+	mutex_unlock(&dev->mux);
 	return mask;
 }
 
@@ -5346,7 +5346,7 @@ static void kbus_setup_cdev(struct kbus_dev *dev, int devno)
 	 * Remember to initialise the mutex *before* making the device
 	 * available!
 	 */
-	init_MUTEX(&dev->sem);
+	mutex_init(&dev->mux);
 
 	/*
 	 * This seems like a sensible place to setup other device specific
@@ -5402,7 +5402,7 @@ static int kbus_binding_seq_show(struct seq_file *s, void *v)
 		struct kbus_message_binding *ptr;
 		struct kbus_message_binding *next;
 
-		if (down_interruptible(&dev->sem))
+		if (mutex_lock_interruptible(&dev->mux))
 			return -ERESTARTSYS;
 
 		seq_printf(s,
@@ -5420,7 +5420,7 @@ static int kbus_binding_seq_show(struct seq_file *s, void *v)
 				   ptr->name);
 		}
 
-		up(&dev->sem);
+		mutex_unlock(&dev->mux);
 	}
 	return 0;
 }
@@ -5464,7 +5464,7 @@ static int kbus_stats_seq_show(struct seq_file *s, void *v)
 		struct kbus_private_data *ptr;
 		struct kbus_private_data *next;
 
-		if (down_interruptible(&dev->sem))
+		if (mutex_lock_interruptible(&dev->mux))
 			return -ERESTARTSYS;
 
 		seq_printf(s, "dev %2u: next ksock %u next msg %u unsent unbindings %u%s\n",
@@ -5508,7 +5508,7 @@ static int kbus_stats_seq_show(struct seq_file *s, void *v)
 				   ptr->num_replies_unsent,
 				   ptr->max_replies_unsent);
 		}
-		up(&dev->sem);
+		mutex_unlock(&dev->mux);
 	}
 
 	return 0;
