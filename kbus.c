@@ -5015,7 +5015,7 @@ static int kbus_set_report_binds(struct kbus_private_data	*priv,
 	return __put_user(old_value, (uint32_t __user *)arg);
 }
 
-static int kbus_ioctl(struct inode *inode, struct file *filp,
+static long kbus_ioctl(struct file *filp,
 		      unsigned int cmd, unsigned long arg)
 {
 	int err = 0;
@@ -5332,7 +5332,7 @@ struct file_operations kbus_fops = {
 	.owner   = THIS_MODULE,
 	.read    = kbus_read,
 	.write   = kbus_write,
-	.ioctl   = kbus_ioctl,
+	.unlocked_ioctl   = kbus_ioctl,
 	.poll    = kbus_poll,
 	.open    = kbus_open,
 	.release = kbus_release,
