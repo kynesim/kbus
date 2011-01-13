@@ -84,10 +84,25 @@
  * so we'll go with that.
  */
 #define MIN_NUM_DEVICES		  1
+
+#ifdef CONFIG_KBUS_MAX_NUM_DEVICES
+#define MAX_NUM_DEVICES		CONFIG_KBUS_MAX_NUM_DEVICES
+#else
 #define MAX_NUM_DEVICES		256
-#define DEF_NUM_DEVICES		  1
+#endif
+
+#ifndef CONFIG_KBUS_DEF_NUM_DEVICES
+#define CONFIG_KBUS_DEF_NUM_DEVICES	1
+#endif
 
 /* Debugging setup */
+
+#ifndef CONFIG_KBUS
+	/* ... then we're not running in the kernel,
+	 * so none of our CONFIG_* are set.
+	 * Default sensibly. */
+#define CONFIG_KBUS_DEBUG 1
+#endif
 
 #ifdef CONFIG_KBUS_DEBUG
 #define kbus_maybe_dbg(dev, format, args...) do { \
@@ -101,14 +116,40 @@
 /* Extra debug options. These are unlikely to be of use to non-kbus-hackers
  * so are not exposed as config. */
 
+#define conditional_dbg(cond, dev, format, args...) do { \
+	if (cond) \
+		kbus_maybe_dbg(dev, format, ##args); \
+} while(0)
+
+#ifndef DEBUG_READ
 #define DEBUG_READ 0
+#endif
+
+#define kbus_maybe_dbg_read(dev, format, args...) \
+	conditional_dbg(DEBUG_READ, dev, format, ##args)
+
+#ifndef DEBUG_REFCOUNT
 #define DEBUG_REFCOUNT 0
+#endif
+
+/* can't quite reuse the same macro for refcount as it's called
+ * in functions which don't have a dev */
+#define kbus_maybe_dbg_refcount(format, args...) do { \
+	(void) printk(KERN_DEBUG format, ## args); \
+} while(0)
+
 /*
  * And even more debug for the rewrite of kbus_write() to support
  * "entire" messages of any length. I suspect that this can go away
  * when we've got more examples of the code working in real use.
  */
+#ifndef DEBUG_WRITE
 #define DEBUG_WRITE 0
+#endif
+
+#define kbus_maybe_dbg_write(dev, format, args...) \
+	conditional_dbg(DEBUG_WRITE, dev, format, ##args)
+
 
 /* Should we default to verbose? */
 #ifdef CONFIG_KBUS_DEBUG_DEFAULT_VERBOSE
@@ -117,7 +158,7 @@
 #define DEBUG_DEFAULT_SETTING false
 #endif
 
-static int kbus_num_devices = DEF_NUM_DEVICES;
+static int kbus_num_devices = CONFIG_KBUS_DEF_NUM_DEVICES;
 
 /* Who we are -- devices */
 static int kbus_major = 0;	/* We'll go for dynamic allocation */
@@ -745,10 +786,8 @@ static struct kbus_data_ptr *kbus_wrap_data_in_ref(int as_pages,
 
 	kref_init(&new->refcount);
 
-#if DEBUG_REFCOUNT
-	printk(KERN_DEBUG "kbus:   <00 ref %p now %d>\n",
+	kbus_maybe_dbg_refcount("kbus:   <00 ref %p now %d>\n",
 	       new->parts, atomic_read(&new->refcount.refcount));
-#endif
 	return new;
 }
 
@@ -761,11 +800,9 @@ static struct kbus_data_ptr *kbus_raise_data_ref(struct kbus_data_ptr *refdata)
 {
 	if (refdata != NULL) {
 		kref_get(&refdata->refcount);
-#if DEBUG_REFCOUNT
-		printk(KERN_DEBUG "kbus:   <UP ref %p now %d>\n",
+		kbus_maybe_dbg_refcount("kbus:   <UP ref %p now %d>\n",
 		       refdata->parts,
 		       atomic_read(&refdata->refcount.refcount));
-#endif
 	}
 	return refdata;
 }
@@ -779,9 +816,7 @@ static void kbus_release_data_ref(struct kref *ref)
 	struct kbus_data_ptr *refdata = container_of(ref,
 						     struct kbus_data_ptr,
 						     refcount);
-#if DEBUG_REFCOUNT
-	printk(KERN_DEBUG "kbus: RELEASE DATA\n");
-#endif
+	kbus_maybe_dbg_refcount("kbus: RELEASE DATA\n");
 	if (refdata->parts == NULL) {
 		/* XXX Do we think this can happen? */
 		printk(KERN_ERR "kbus: Removing data reference,"
@@ -813,10 +848,8 @@ static void kbus_lower_data_ref(struct kbus_data_ptr *refdata)
 
 	kref_put(&refdata->refcount, kbus_release_data_ref);
 
-#if DEBUG_REFCOUNT
-	printk(KERN_DEBUG "kbus:  <DN ref %p now %d>\n",
+	kbus_maybe_dbg_refcount("kbus:  <DN ref %p now %d>\n",
 	       refdata->parts, atomic_read(&refdata->refcount.refcount));
-#endif
 }
 
 /*
@@ -835,10 +868,8 @@ static struct kbus_name_ptr *kbus_wrap_name_in_ref(char *str)
 	new->name = str;
 	kref_init(&new->refcount);
 
-#if DEBUG_REFCOUNT
-	printk(KERN_DEBUG "kbus:   <00 ref '%s' now %d>\n",
+	kbus_maybe_dbg_refcount("kbus:   <00 ref '%s' now %d>\n",
 	       new->name, atomic_read(&new->refcount.refcount));
-#endif
 	return new;
 }
 
@@ -851,10 +882,8 @@ static struct kbus_name_ptr *kbus_raise_name_ref(struct kbus_name_ptr *refname)
 {
 	if (refname != NULL) {
 		kref_get(&refname->refcount);
-#if DEBUG_REFCOUNT
-		printk(KERN_DEBUG "kbus:   <UP ref '%s' now %d>\n",
+		kbus_maybe_dbg_refcount("kbus:   <UP ref '%s' now %d>\n",
 		       refname->name, atomic_read(&refname->refcount.refcount));
-#endif
 	}
 	return refname;
 }
@@ -868,11 +897,10 @@ static void kbus_release_name_ref(struct kref *ref)
 	struct kbus_name_ptr *refname = container_of(ref,
 						     struct kbus_name_ptr,
 						     refcount);
-#if DEBUG_REFCOUNT
-	printk(KERN_DEBUG "kbus: RELEASE NAME\n");
-	printk(KERN_DEBUG "kbus:    refname is %p\n", refname);
-	printk(KERN_DEBUG "kbus:    refname->name is %p\n", refname->name);
-#endif
+	kbus_maybe_dbg_refcount("kbus: RELEASE NAME\n");
+	kbus_maybe_dbg_refcount("kbus:    refname is %p\n", refname);
+	kbus_maybe_dbg_refcount("kbus:    refname->name is %p\n",
+				refname->name);
 	if (refname->name == NULL) {
 		/* XXX Do we think this can happen? */
 		printk(KERN_ERR "kbus: Removing name reference,"
@@ -894,10 +922,8 @@ static void kbus_lower_name_ref(struct kbus_name_ptr *refname)
 	if (refname == NULL)
 		return;
 
-#if DEBUG_REFCOUNT
-	printk(KERN_DEBUG "kbus:   <DN ref '%s' now %d>\n",
+	kbus_maybe_dbg_refcount("kbus:   <DN ref '%s' now %d>\n",
 	       refname->name, atomic_read(&refname->refcount.refcount) - 1);
-#endif
 
 	kref_put(&refname->refcount, kbus_release_name_ref);
 }
@@ -1389,23 +1415,22 @@ static inline void kbus_report_message(char *kern_prefix, struct kbus_msg *msg)
 }
 #endif
 
-#if DEBUG_WRITE
 static void kbus_report_write_msg(struct kbus_private_data *priv)
 {
-	kbus_maybe_dbg(priv->dev,
-		       "kbus: %u/%u  WRITE MSG finished %u local %u msg %p "
+	kbus_maybe_dbg_write(priv->dev,
+			"kbus: %u/%u  WRITE MSG finished %u local %u msg %p "
 		       "which %d pos %u ref %p part %u\n",
 		       priv->dev->index, priv->id, priv->write.is_finished,
 		       priv->write.pointers_are_local, priv->write.msg,
 		       priv->write.which, priv->write.pos, priv->write.ref_data,
 		       priv->write.ref_data_index);
 	if (priv->write.msg) {
-		kbus_maybe_dbg(priv->dev, "kbus:      msg name %p data %p\n",
+		kbus_maybe_dbg_write(priv->dev,
+				"kbus:      msg name %p data %p\n",
 			       priv->write.msg->name_ref,
 			       priv->write.msg->data_ref);
 	}
 }
-#endif
 
 /*
  * Copy a message, doing whatever is deemed necessary.
@@ -1469,13 +1494,11 @@ static void kbus_empty_read_msg(struct kbus_private_data *priv)
 	struct kbus_read_msg *this = &(priv->read);
 	int ii;
 
-#if DEBUG_WRITE
-	kbus_maybe_dbg(priv->dev,
-		       "kbus: %u/%u kbus_empty_read_msg ------------\n",
-		       priv->dev->index, priv->id);
+	kbus_maybe_dbg_write(priv->dev,
+			     "kbus: %u/%u kbus_empty_read_msg ------------\n",
+			     priv->dev->index, priv->id);
 	if (this->msg == NULL)
-		kbus_maybe_dbg(priv->dev, "kbus:      (<msg> is NULL)\n");
-#endif
+		kbus_maybe_dbg_write(priv->dev, "kbus:      (<msg> is NULL)\n");
 
 	if (this->msg) {
 		kbus_free_message(this->msg);
@@ -1495,12 +1518,10 @@ static void kbus_empty_read_msg(struct kbus_private_data *priv)
 static void kbus_empty_write_msg(struct kbus_private_data *priv)
 {
 	struct kbus_write_msg *this = &priv->write;
-#if DEBUG_WRITE
-	kbus_maybe_dbg(priv->dev,
-		       "kbus: %u/%u kbus_empty_write_msg ------------\n",
-		       priv->dev->index, priv->id);
+	kbus_maybe_dbg_write(priv->dev,
+			     "kbus: %u/%u kbus_empty_write_msg ------------\n",
+			     priv->dev->index, priv->id);
 	kbus_report_write_msg(priv);
-#endif
 	if (this->msg) {
 		kbus_free_message(this->msg);
 		this->msg = NULL;
@@ -1519,12 +1540,10 @@ static void kbus_empty_write_msg(struct kbus_private_data *priv)
 	this->is_finished = false;
 	this->pos = 0;
 	this->which = 0;
-#if DEBUG_WRITE
 	kbus_report_write_msg(priv);
-	kbus_maybe_dbg(priv->dev,
-		       "kbus: %u/%u ------------ kbus_empty_write_msg\n",
-		       priv->dev->index, priv->id);
-#endif
+	kbus_maybe_dbg_write(priv->dev,
+			     "kbus: %u/%u ------------ kbus_empty_write_msg\n",
+			     priv->dev->index, priv->id);
 
 	return;
 }
@@ -3668,14 +3687,15 @@ static int kbus_write_data_parts(struct kbus_private_data *priv,
 	size_t local_count = bytes_to_use;
 	size_t local_buf_pos = 0;
 
-#if DEBUG_WRITE
-	printk(KERN_DEBUG
-	       "kbus: %u/%u WRITE DATA PARTS buf_pos %u, bytes_to_use %u\n",
-	       (unsigned)priv->dev->index, (unsigned)priv->id,
-	       (unsigned)buf_pos, (unsigned)bytes_to_use);
-	printk(KERN_DEBUG "kbus:     local_count = %u, local_buf_pos = %u\n",
-	       (unsigned)local_count, (unsigned)local_buf_pos);
-#endif
+	kbus_maybe_dbg_write(priv->dev,
+			"kbus: %u/%u WRITE DATA PARTS buf_pos %u, "
+			"bytes_to_use %u\n",
+			(unsigned)priv->dev->index, (unsigned)priv->id,
+			(unsigned)buf_pos, (unsigned)bytes_to_use);
+	kbus_maybe_dbg_write(priv->dev,
+			"kbus:     local_count = %u, local_buf_pos = %u\n",
+			(unsigned)local_count, (unsigned)local_buf_pos);
+
 	while (local_count) {
 		unsigned ii = this->ref_data_index;
 		unsigned this_part_len;
@@ -3694,13 +3714,11 @@ static int kbus_write_data_parts(struct kbus_private_data *priv,
 		needed = this_part_len - sofar;
 		to_use = min(needed, local_count);
 
-#if DEBUG_WRITE
-		printk(KERN_DEBUG
+		kbus_maybe_dbg_write(priv->dev,
 		       "kbus: LOOP part %u/%u, tgt %p, sofar %u, needed %u,"
 		       " to_use %u\n",
 		       ii + 1, num_parts, (void *)parts[ii], (unsigned)sofar,
 		       (unsigned)needed, (unsigned)to_use);
-#endif
 
 		if (copy_from_user((char *)parts[ii] + sofar,
 				   buf + buf_pos + local_buf_pos, to_use)) {
@@ -3719,15 +3737,13 @@ static int kbus_write_data_parts(struct kbus_private_data *priv,
 		if (lengths[ii] == this_part_len) {
 			/* This part is full */
 			this->ref_data_index++;
-#if DEBUG_WRITE
-			printk(KERN_DEBUG "kbus:      this part is full\n");
-#endif
+			kbus_maybe_dbg_write(priv->dev,
+					"kbus:      this part is full\n");
 		}
 	}
-#if DEBUG_WRITE
-	printk(KERN_DEBUG "kbus: %u/%u WRITE DATA PARTS is DONE\n",
-	       priv->dev->index, priv->id);
-#endif
+	kbus_maybe_dbg_write(priv->dev,
+			"kbus: %u/%u WRITE DATA PARTS is DONE\n",
+			priv->dev->index, priv->id);
 	return 0;
 }
 
@@ -3765,27 +3781,26 @@ static int kbus_write_parts(struct kbus_private_data *priv,
 		       (unsigned)*count, *count == 1 ? "" : "s");
 		return -EMSGSIZE;
 	}
-#if DEBUG_WRITE
-	printk(KERN_DEBUG "kbus: %u/%u WRITE PARTS buf_pos %u, count %u\n",
+	kbus_maybe_dbg_write(priv->dev,
+		"kbus: %u/%u WRITE PARTS buf_pos %u, count %u\n",
 	       priv->dev->index, priv->id, (unsigned)*buf_pos,
 	       (unsigned)*count);
-#endif
 
 	switch (this->which) {
 
 	case KBUS_PART_HDR:
 		bytes_needed = sizeof(*user_msg) - this->pos;
 		bytes_to_use = min(bytes_needed, *count);
-#if DEBUG_WRITE
-		printk(KERN_DEBUG
+
+		kbus_maybe_dbg_write(priv->dev,
 		       "kbus:      HDR bytes_needed %u, bytes_to_use %u\n",
 		       (unsigned)bytes_needed, (unsigned)bytes_to_use);
 		kbus_report_write_msg(priv);
-		printk(KERN_DEBUG
+		kbus_maybe_dbg_write(priv->dev,
 		       "kbus:      copy from user(%p + %u, %p + %u, %u)\n",
 		       user_msg, this->pos, buf, (unsigned)*buf_pos,
 		       (unsigned)bytes_to_use);
-#endif
+
 		if (copy_from_user((char *)user_msg + this->pos,
 				   buf + *buf_pos, bytes_to_use)) {
 			printk(KERN_ERR
@@ -3830,11 +3845,10 @@ static int kbus_write_parts(struct kbus_private_data *priv,
 			} else {
 				this->pointers_are_local = true;
 			}
-#if DEBUG_WRITE
-			printk(KERN_DEBUG "kbus:      HDR finished (%s, %s)\n",
-			       this->is_finished ? "finished" : "not finished",
-			       this->pointers_are_local ? "local" : "nonlocal");
-#endif
+			kbus_maybe_dbg_write(priv->dev,
+				"kbus:      HDR finished (%s, %s)\n",
+				this->is_finished ? "finished" : "not finished",
+				this->pointers_are_local ? "local" :"nonlocal");
 		}
 		break;
 
@@ -3858,11 +3872,11 @@ static int kbus_write_parts(struct kbus_private_data *priv,
 		}
 		bytes_needed = msg->name_len - this->pos;
 		bytes_to_use = min(bytes_needed, *count);
-#if DEBUG_WRITE
-		printk(KERN_DEBUG
+
+		kbus_maybe_dbg_write(priv->dev,
 		       "kbus:      NAME bytes_needed %u, bytes_to_use %u\n",
 		       (unsigned)bytes_needed, (unsigned)bytes_to_use);
-#endif
+
 		if (copy_from_user(this->ref_name->name + this->pos,
 				   buf + *buf_pos, bytes_to_use)) {
 			printk(KERN_ERR "kbus: copy from user failed"
@@ -3872,9 +3886,8 @@ static int kbus_write_parts(struct kbus_private_data *priv,
 			return -EFAULT;
 		}
 		if (bytes_needed == bytes_to_use) {
-#if DEBUG_WRITE
-			printk(KERN_DEBUG "kbus:      NAME finished\n");
-#endif
+			kbus_maybe_dbg_write(priv->dev,
+					"kbus:      NAME finished\n");
 			/*
 			 * We can check the name now it is in kernel space - we
 			 * want to do this before we sort out the data, since
@@ -3893,23 +3906,19 @@ static int kbus_write_parts(struct kbus_private_data *priv,
 		bytes_needed = KBUS_PADDED_NAME_LEN(msg->name_len) -
 		    msg->name_len - this->pos;
 		bytes_to_use = min(bytes_needed, *count);
-#if DEBUG_WRITE
-		printk(KERN_DEBUG
+		kbus_maybe_dbg_write(priv->dev,
 		       "kbus:      NPAD bytes_needed %u, bytes_to_use %u\n",
 		       (unsigned)bytes_needed, (unsigned)bytes_to_use);
-#endif
 		break;
 
 	case KBUS_PART_DATA:
 		if (msg->data_len == 0) {
 			bytes_needed = 0;
 			bytes_to_use = 0;
-#if DEBUG_WRITE
-			printk(KERN_DEBUG
+			kbus_maybe_dbg_write(priv->dev,
 			       "kbus:      DATA bytes_needed %u, "
 			       "bytes_to_use %u\n",
 			       (unsigned)bytes_needed, (unsigned)bytes_to_use);
-#endif
 			break;
 		}
 		if (this->ref_data == NULL) {
@@ -3922,11 +3931,9 @@ static int kbus_write_parts(struct kbus_private_data *priv,
 		/* Overall, how far are we through the message's data? */
 		bytes_needed = msg->data_len - this->pos;
 		bytes_to_use = min(bytes_needed, *count);
-#if DEBUG_WRITE
-		printk(KERN_DEBUG
+		kbus_maybe_dbg_write(priv->dev,
 		       "kbus:      DATA bytes_needed %u, bytes_to_use %u\n",
 		       (unsigned)bytes_needed, (unsigned)bytes_to_use);
-#endif
 		/* So let's add 'bytes_to_use' bytes to our message data */
 		retval = kbus_write_data_parts(priv, buf, *buf_pos,
 					       bytes_to_use);
@@ -3936,9 +3943,8 @@ static int kbus_write_parts(struct kbus_private_data *priv,
 			return retval;
 		}
 		if (bytes_needed == bytes_to_use) {
-#if DEBUG_WRITE
-			printk(KERN_DEBUG "kbus:      DATA finished\n");
-#endif
+			kbus_maybe_dbg_write(priv->dev,
+					"kbus:      DATA finished\n");
 			/* Hooray - we've finished our data */
 			this->msg->data_ref = this->ref_data;
 			this->ref_data = NULL;
@@ -3949,11 +3955,9 @@ static int kbus_write_parts(struct kbus_private_data *priv,
 		bytes_needed = KBUS_PADDED_DATA_LEN(msg->data_len) -
 		    msg->data_len - this->pos;
 		bytes_to_use = min(bytes_needed, *count);
-#if DEBUG_WRITE
-		printk(KERN_DEBUG
+		kbus_maybe_dbg_write(priv->dev,
 		       "kbus:      DPAD bytes_needed %u, bytes_to_use %u\n",
 		       (unsigned)bytes_needed, (unsigned)bytes_to_use);
-#endif
 		break;
 
 	case KBUS_PART_FINAL_GUARD:
@@ -3968,10 +3972,8 @@ static int kbus_write_parts(struct kbus_private_data *priv,
 			return -EFAULT;
 		}
 		if (bytes_needed == bytes_to_use) {
-#if DEBUG_WRITE
-			printk(KERN_DEBUG
-			       "kbus:      FINAL END GUARD finished\n");
-#endif
+		kbus_maybe_dbg_write(priv->dev,
+				"kbus:      FINAL END GUARD finished\n");
 			if (this->guard != KBUS_MSG_END_GUARD) {
 				printk(KERN_ERR "kbus: pid %u [%s]"
 				       " (entire) message end guard is "
@@ -3999,11 +4001,9 @@ static int kbus_write_parts(struct kbus_private_data *priv,
 	} else
 		this->pos += bytes_to_use;
 
-#if DEBUG_WRITE
-	printk(KERN_DEBUG
+	kbus_maybe_dbg_write(priv->dev,
 	       "kbus:      count = %u, buf_pos = %u, which = %d, pos = %u\n",
 	       (unsigned)*count, (unsigned)*buf_pos, this->which, this->pos);
-#endif
 	return 0;
 }
 
@@ -4044,9 +4044,7 @@ static ssize_t kbus_write(struct file *filp, const char __user * buf,
 			goto done;
 		}
 		memset(this->msg, 0, sizeof(*(this->msg)));
-#if DEBUG_WRITE
 		kbus_report_write_msg(priv);
-#endif
 	}
 
 	while (bytes_left) {
@@ -4055,9 +4053,7 @@ static ssize_t kbus_write(struct file *filp, const char __user * buf,
 			goto done;
 	}
 
-#if DEBUG_WRITE
 	kbus_report_write_msg(priv);
-#endif
 
 done:
 	kbus_maybe_dbg(priv->dev, "kbus: %u/%u WRITE ends with retval %d\n",
@@ -4115,16 +4111,14 @@ static ssize_t kbus_read(struct file *filp, char __user * buf, size_t count,
 
 			left = dp->lengths[this->ref_data_index] - this->pos;
 			len = min(left, (uint32_t) count);
-#if DEBUG_READ
-			kbus_maybe_dbg(priv->dev,
-				       "kbus:   xx which %d, part %d "
-				       "length %u, pos %u, left %u, len %u, "
-				       "count %u\n",
-				       which,
-				       this->ref_data_index,
-				       dp->lengths[this->ref_data_index],
-				       this->pos, left, len, (unsigned)count);
-#endif
+			kbus_maybe_dbg_read(priv->dev,
+					    "kbus:   xx which %d, part %d "
+					    "length %u, pos %u, left %u, "
+					    "len %u, count %u\n",
+					    which, this->ref_data_index,
+					    dp->lengths[this->ref_data_index],
+					    this->pos, left, len,
+					    (unsigned)count);
 			if (len) {
 				if (copy_to_user(buf,
 						 (void *)dp->parts[this->
@@ -4154,14 +4148,12 @@ static ssize_t kbus_read(struct file *filp, char __user * buf, size_t count,
 		} else {
 			left = this->lengths[which] - this->pos;
 			len = min(left, (uint32_t) count);
-#if DEBUG_READ
-			kbus_maybe_dbg(priv->dev,
+			kbus_maybe_dbg_read(priv->dev,
 				       "kbus:   xx which %d, read_len[%d] %u,"
 				       " pos %u, left %u, len %u, count %u\n",
 				       which,
 				       which, this->lengths[which], this->pos,
 				       left, len, (unsigned)count);
-#endif
 			if (len) {
 				if (copy_to_user(buf,
 						 this->parts[which] + this->pos,
@@ -4187,19 +4179,16 @@ static ssize_t kbus_read(struct file *filp, char __user * buf, size_t count,
 	}
 
 	if (which < KBUS_NUM_PARTS) {
-#if DEBUG_READ
-		kbus_maybe_dbg(priv->dev,
-			       "kbus:   Read %d bytes, now in part %d, "
-			       "read %d of %d\n",
-			       (int)retval, which, this->pos,
-			       this->lengths[which]);
-#endif
+		kbus_maybe_dbg_read(priv->dev,
+				    "kbus:   Read %d bytes, now in part %d, "
+				    "read %d of %d\n",
+				    (int)retval, which, this->pos,
+				    this->lengths[which]);
 		this->which = which;
 	} else {
-#if DEBUG_READ
-		kbus_maybe_dbg(priv->dev, "kbus:   Read %d bytes, finished\n",
-			       (int)retval);
-#endif
+		kbus_maybe_dbg_read(priv->dev,
+				    "kbus:   Read %d bytes, finished\n",
+				    (int)retval);
 		kbus_empty_read_msg(priv);
 	}
 
@@ -4452,9 +4441,7 @@ static int kbus_nextmsg(struct kbus_private_data *priv,
 		 */
 		return __put_user(0, (uint32_t __user *) arg);
 	}
-#if DEBUG_READ
-	kbus_maybe_dbg(priv->dev, "kbus:   xx Setting up read_hdr\n");
-#endif
+	kbus_maybe_dbg_read(priv->dev, "kbus:   xx Setting up read_hdr\n");
 
 	user_msg = (struct kbus_message_header *)&this->user_hdr;
 	user_msg->start_guard = KBUS_MSG_START_GUARD;
@@ -4503,8 +4490,7 @@ static int kbus_nextmsg(struct kbus_private_data *priv,
 	this->pos = 0;
 	this->ref_data_index = 0;
 
-#if DEBUG_READ
-	if (priv->dev->verbose) {
+	if (DEBUG_READ && priv->dev->verbose) {
 		int ii;
 		printk(KERN_DEBUG
 		       "kbus:   @@ Next message, %d parts, lengths\n",
@@ -4523,7 +4509,6 @@ static int kbus_nextmsg(struct kbus_private_data *priv,
 		printk(KERN_DEBUG "kbus          user_hdr @ %p\n",
 		       &(this->user_hdr));
 	}
-#endif
 
 	/*
 	 * If the message is a request (to us), then this is the approriate
