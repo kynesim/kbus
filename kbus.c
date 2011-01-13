@@ -89,6 +89,13 @@
 
 /* Debugging setup */
 
+#ifndef CONFIG_KBUS
+	/* ... then we're not running in the kernel,
+	 * so none of our CONFIG_* are set.
+	 * Default sensibly. */
+#define CONFIG_KBUS_DEBUG 1
+#endif
+
 #ifdef CONFIG_KBUS_DEBUG
 #define kbus_maybe_dbg(dev, format, args...) do { \
 	if (dev->verbose) \
