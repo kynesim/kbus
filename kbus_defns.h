@@ -70,8 +70,8 @@ extern "C" {
  * The message id {0,0} is special and reserved (for use by KBUS).
  */
 struct kbus_msg_id {
-	uint32_t		network_id;
-	uint32_t		serial_num;
+	uint32_t network_id;
+	uint32_t serial_num;
 };
 
 /*
@@ -102,22 +102,22 @@ struct kbus_msg_id {
  * touch this field, it just transmits it.
  */
 struct kbus_orig_from {
-	uint32_t		network_id;
-	uint32_t		local_id;
+	uint32_t network_id;
+	uint32_t local_id;
 };
 
 /* When the user asks to bind a message name to an interface, they use: */
 struct kbus_bind_request {
-	uint32_t	 is_replier;	/* are we a replier? */
-	uint32_t	 name_len;
-	char		*name;
+	uint32_t is_replier;	/* are we a replier? */
+	uint32_t name_len;
+	char *name;
 };
 
 /* When the user requests the id of the replier to a message, they use: */
 struct kbus_bind_query {
-	uint32_t	 return_id;
-	uint32_t	 name_len;
-	char		*name;
+	uint32_t return_id;
+	uint32_t name_len;
+	char *name;
 };
 
 /* When the user writes/reads a message, they use: */
@@ -234,20 +234,20 @@ struct kbus_message_header {
 	 *   See the note for 'name' above.
 	 *
 	 */
-	uint32_t		 start_guard;
-	struct kbus_msg_id	 id;	      /* Unique to this message */
-	struct kbus_msg_id	 in_reply_to; /* Which message this is a reply to */
-	uint32_t		 to;	      /* 0 (empty) or a replier id */
-	uint32_t		 from;	      /* 0 (KBUS) or the sender's id */
-	struct kbus_orig_from	 orig_from;   /* Cross-network linkage */
-	struct kbus_orig_from	 final_to;    /* Cross-network linkage */
-	uint32_t		 extra;       /* ignored field - future proofing */
-	uint32_t		 flags;	      /* Message type/flags */
-	uint32_t		 name_len;    /* Message name's length, in bytes */
-	uint32_t		 data_len;    /* Message length, also in bytes */
-	char			*name;
-	void			*data;
-	uint32_t		 end_guard;
+	uint32_t start_guard;
+	struct kbus_msg_id id;	/* Unique to this message */
+	struct kbus_msg_id in_reply_to;	/* Which message this is a reply to */
+	uint32_t to;		/* 0 (empty) or a replier id */
+	uint32_t from;		/* 0 (KBUS) or the sender's id */
+	struct kbus_orig_from orig_from;	/* Cross-network linkage */
+	struct kbus_orig_from final_to;	/* Cross-network linkage */
+	uint32_t extra;		/* ignored field - future proofing */
+	uint32_t flags;		/* Message type/flags */
+	uint32_t name_len;	/* Message name's length, in bytes */
+	uint32_t data_len;	/* Message length, also in bytes */
+	char *name;
+	void *data;
+	uint32_t end_guard;
 };
 
 #define KBUS_MSG_START_GUARD	0x7375624B
@@ -265,8 +265,8 @@ struct kbus_message_header {
  * (another) end_guard.
  */
 struct kbus_entire_message {
-	struct	kbus_message_header	header;
-	uint32_t			rest[];
+	struct kbus_message_header header;
+	uint32_t rest[];
 };
 
 /*
@@ -310,7 +310,8 @@ struct kbus_entire_message {
  * Given the message name length (in bytes) and the message data length (also
  * in bytes), the index of the entire message end guard is thus:
  */
-#define KBUS_ENTIRE_MSG_END_GUARD_INDEX(name_len,data_len)  ((name_len+1+3)/4 + (data_len+3)/4)
+#define KBUS_ENTIRE_MSG_END_GUARD_INDEX(name_len,data_len)  \
+    ((name_len+1+3)/4 + (data_len+3)/4)
 
 /*
  * Find a pointer to the message's name.
@@ -318,14 +319,15 @@ struct kbus_entire_message {
  * It's either the given name pointer, or just after the header (if the pointer
  * is NULL)
  */
-static inline char *kbus_msg_name_ptr(const struct kbus_message_header  *hdr)
+static inline char *kbus_msg_name_ptr(const struct kbus_message_header
+				      *hdr)
 {
 	if (hdr->name) {
 		return hdr->name;
 	} else {
-		struct kbus_entire_message	*entire;
+		struct kbus_entire_message *entire;
 		entire = (struct kbus_entire_message *)hdr;
-		return (char *) &entire->rest[0];
+		return (char *)&entire->rest[0];
 	}
 }
 
@@ -335,29 +337,32 @@ static inline char *kbus_msg_name_ptr(const struct kbus_message_header  *hdr)
  * It's either the given data pointer, or just after the name (if the pointer
  * is NULL)
  */
-static inline void *kbus_msg_data_ptr(const struct kbus_message_header  *hdr)
+static inline void *kbus_msg_data_ptr(const struct kbus_message_header
+				      *hdr)
 {
 	if (hdr->data) {
 		return hdr->data;
 	} else {
-		struct kbus_entire_message	*entire;
-		uint32_t			 data_idx;
+		struct kbus_entire_message *entire;
+		uint32_t data_idx;
 
 		entire = (struct kbus_entire_message *)hdr;
 		data_idx = KBUS_ENTIRE_MSG_DATA_INDEX(hdr->name_len);
-		return (void *) &entire->rest[data_idx];
+		return (void *)&entire->rest[data_idx];
 	}
 }
 
 /*
  * Find a pointer to the message's (second/final) end guard.
  */
-static inline uint32_t *kbus_msg_end_ptr(struct kbus_entire_message  *entire)
+static inline uint32_t *kbus_msg_end_ptr(struct kbus_entire_message
+					 *entire)
 {
-	uint32_t	end_guard_idx;
-	end_guard_idx = KBUS_ENTIRE_MSG_END_GUARD_INDEX(entire->header.name_len,
-							entire->header.data_len);
-	return (uint32_t *) &entire->rest[end_guard_idx];
+	uint32_t end_guard_idx;
+	end_guard_idx =
+	    KBUS_ENTIRE_MSG_END_GUARD_INDEX(entire->header.name_len,
+					    entire->header.data_len);
+	return (uint32_t *) & entire->rest[end_guard_idx];
 }
 
 /*
@@ -445,10 +450,10 @@ static inline uint32_t *kbus_msg_end_ptr(struct kbus_entire_message  *entire)
  * of the datastructure.
  */
 struct kbus_replier_bind_event_data {
-	uint32_t			is_bind;    /* 1=bind, 0=unbind */
-	uint32_t			binder;     /* Ksock id of binder */
-	uint32_t			name_len;   /* Length of name */
-	uint32_t			rest[];     /* Message name */
+	uint32_t is_bind;	/* 1=bind, 0=unbind */
+	uint32_t binder;	/* Ksock id of binder */
+	uint32_t name_len;	/* Length of name */
+	uint32_t rest[];	/* Message name */
 };
 
 #if ! __KERNEL__
@@ -512,7 +517,6 @@ struct kbus_replier_bind_event_data {
  * request such notification.
  */
 #define KBUS_MSG_NAME_REPLIER_BIND_EVENT	"$.KBUS.ReplierBindEvent"
-
 
 #define KBUS_IOC_MAGIC	'k'	/* 0x6b - which seems fair enough for now */
 /*
@@ -647,7 +651,8 @@ struct kbus_replier_bind_event_data {
 #define KBUS_IOC_NEWDEVICE _IOR( KBUS_IOC_MAGIC, 16, char *)
 
 /*
- * REPORTREPLIERBINDS - request synthetic messages announcing Replier bind/unbind events.
+ * REPORTREPLIERBINDS - request synthetic messages announcing Replier
+ * bind/unbind events.
  *
  * If this flag is set, then when someone binds or unbinds to a message name as
  * a Replier, KBUS will send out a synthetic Announcement of this fact.
@@ -668,11 +673,3 @@ struct kbus_replier_bind_event_data {
 #endif
 
 #endif // _kbus_defns
-
-// Kernel style layout -- note that including this text contravenes the Linux
-// coding style, and is thus a Bad Thing. Expect these lines to be removed if
-// this ever gets added to the kernel distribution.
-// Local Variables:
-// c-set-style: "linux"
-// End:
-// vim: set tabstop=8 shiftwidth=8 noexpandtab:
