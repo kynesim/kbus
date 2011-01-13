@@ -56,7 +56,7 @@ all: kbus.ko $(RULES_NAME)
 
 # We use 'O= ' deliberately, because kernel make, which creates the .ko
 # does not like to build object files in non-source directories.
-kbus.ko :
+kbus.ko : kbus.c kbus_defns.h
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= modules
 	
 # The mechanism is a bit hacky (!) - first we make sure we've got a local
