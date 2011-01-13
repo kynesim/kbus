@@ -84,8 +84,16 @@
  * so we'll go with that.
  */
 #define MIN_NUM_DEVICES		  1
+
+#ifdef CONFIG_KBUS_MAX_NUM_DEVICES
+#define MAX_NUM_DEVICES		CONFIG_KBUS_MAX_NUM_DEVICES
+#else
 #define MAX_NUM_DEVICES		256
-#define DEF_NUM_DEVICES		  1
+#endif
+
+#ifndef CONFIG_KBUS_DEF_NUM_DEVICES
+#define CONFIG_KBUS_DEF_NUM_DEVICES	1
+#endif
 
 /* Debugging setup */
 
@@ -144,7 +152,7 @@
 #define DEBUG_DEFAULT_SETTING false
 #endif
 
-static int kbus_num_devices = DEF_NUM_DEVICES;
+static int kbus_num_devices = CONFIG_KBUS_DEF_NUM_DEVICES;
 
 /* Who we are -- devices */
 static int kbus_major = 0;	/* We'll go for dynamic allocation */
