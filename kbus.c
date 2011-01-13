@@ -119,6 +119,13 @@
 	conditional_dbg(DEBUG_READ, dev, format, ##args)
 
 #define DEBUG_REFCOUNT 0
+
+/* can't quite reuse the same macro for refcount as it's called
+ * in functions which don't have a dev */
+#define kbus_maybe_dbg_refcount(format, args...) do { \
+	(void) printk(KERN_DEBUG format, ## args); \
+} while(0)
+
 /*
  * And even more debug for the rewrite of kbus_write() to support
  * "entire" messages of any length. I suspect that this can go away
@@ -765,10 +772,8 @@ static struct kbus_data_ptr *kbus_wrap_data_in_ref(int as_pages,
 
 	kref_init(&new->refcount);
 
-#if DEBUG_REFCOUNT
-	printk(KERN_DEBUG "kbus:   <00 ref %p now %d>\n",
+	kbus_maybe_dbg_refcount("kbus:   <00 ref %p now %d>\n",
 	       new->parts, atomic_read(&new->refcount.refcount));
-#endif
 	return new;
 }
 
@@ -781,11 +786,9 @@ static struct kbus_data_ptr *kbus_raise_data_ref(struct kbus_data_ptr *refdata)
 {
 	if (refdata != NULL) {
 		kref_get(&refdata->refcount);
-#if DEBUG_REFCOUNT
-		printk(KERN_DEBUG "kbus:   <UP ref %p now %d>\n",
+		kbus_maybe_dbg_refcount("kbus:   <UP ref %p now %d>\n",
 		       refdata->parts,
 		       atomic_read(&refdata->refcount.refcount));
-#endif
 	}
 	return refdata;
 }
@@ -799,9 +802,7 @@ static void kbus_release_data_ref(struct kref *ref)
 	struct kbus_data_ptr *refdata = container_of(ref,
 						     struct kbus_data_ptr,
 						     refcount);
-#if DEBUG_REFCOUNT
-	printk(KERN_DEBUG "kbus: RELEASE DATA\n");
-#endif
+	kbus_maybe_dbg_refcount("kbus: RELEASE DATA\n");
 	if (refdata->parts == NULL) {
 		/* XXX Do we think this can happen? */
 		printk(KERN_ERR "kbus: Removing data reference,"
@@ -833,10 +834,8 @@ static void kbus_lower_data_ref(struct kbus_data_ptr *refdata)
 
 	kref_put(&refdata->refcount, kbus_release_data_ref);
 
-#if DEBUG_REFCOUNT
-	printk(KERN_DEBUG "kbus:  <DN ref %p now %d>\n",
+	kbus_maybe_dbg_refcount("kbus:  <DN ref %p now %d>\n",
 	       refdata->parts, atomic_read(&refdata->refcount.refcount));
-#endif
 }
 
 /*
@@ -855,10 +854,8 @@ static struct kbus_name_ptr *kbus_wrap_name_in_ref(char *str)
 	new->name = str;
 	kref_init(&new->refcount);
 
-#if DEBUG_REFCOUNT
-	printk(KERN_DEBUG "kbus:   <00 ref '%s' now %d>\n",
+	kbus_maybe_dbg_refcount("kbus:   <00 ref '%s' now %d>\n",
 	       new->name, atomic_read(&new->refcount.refcount));
-#endif
 	return new;
 }
 
@@ -871,10 +868,8 @@ static struct kbus_name_ptr *kbus_raise_name_ref(struct kbus_name_ptr *refname)
 {
 	if (refname != NULL) {
 		kref_get(&refname->refcount);
-#if DEBUG_REFCOUNT
-		printk(KERN_DEBUG "kbus:   <UP ref '%s' now %d>\n",
+		kbus_maybe_dbg_refcount("kbus:   <UP ref '%s' now %d>\n",
 		       refname->name, atomic_read(&refname->refcount.refcount));
-#endif
 	}
 	return refname;
 }
@@ -888,11 +883,10 @@ static void kbus_release_name_ref(struct kref *ref)
 	struct kbus_name_ptr *refname = container_of(ref,
 						     struct kbus_name_ptr,
 						     refcount);
-#if DEBUG_REFCOUNT
-	printk(KERN_DEBUG "kbus: RELEASE NAME\n");
-	printk(KERN_DEBUG "kbus:    refname is %p\n", refname);
-	printk(KERN_DEBUG "kbus:    refname->name is %p\n", refname->name);
-#endif
+	kbus_maybe_dbg_refcount("kbus: RELEASE NAME\n");
+	kbus_maybe_dbg_refcount("kbus:    refname is %p\n", refname);
+	kbus_maybe_dbg_refcount("kbus:    refname->name is %p\n",
+				refname->name);
 	if (refname->name == NULL) {
 		/* XXX Do we think this can happen? */
 		printk(KERN_ERR "kbus: Removing name reference,"
@@ -914,10 +908,8 @@ static void kbus_lower_name_ref(struct kbus_name_ptr *refname)
 	if (refname == NULL)
 		return;
 
-#if DEBUG_REFCOUNT
-	printk(KERN_DEBUG "kbus:   <DN ref '%s' now %d>\n",
+	kbus_maybe_dbg_refcount("kbus:   <DN ref '%s' now %d>\n",
 	       refname->name, atomic_read(&refname->refcount.refcount) - 1);
-#endif
 
 	kref_put(&refname->refcount, kbus_release_name_ref);
 }
