@@ -109,6 +109,12 @@
  * so are not exposed as config. */
 
 #define DEBUG_READ 0
+
+#define kbus_maybe_dbg_read(dev, format, args...) do { \
+	if (DEBUG_READ) \
+		kbus_maybe_dbg(dev,format,##args); \
+} while(0)
+
 #define DEBUG_REFCOUNT 0
 /*
  * And even more debug for the rewrite of kbus_write() to support
@@ -4122,16 +4128,14 @@ static ssize_t kbus_read(struct file *filp, char __user * buf, size_t count,
 
 			left = dp->lengths[this->ref_data_index] - this->pos;
 			len = min(left, (uint32_t) count);
-#if DEBUG_READ
-			kbus_maybe_dbg(priv->dev,
-				       "kbus:   xx which %d, part %d "
-				       "length %u, pos %u, left %u, len %u, "
-				       "count %u\n",
-				       which,
-				       this->ref_data_index,
-				       dp->lengths[this->ref_data_index],
-				       this->pos, left, len, (unsigned)count);
-#endif
+			kbus_maybe_dbg_read(priv->dev,
+					    "kbus:   xx which %d, part %d "
+					    "length %u, pos %u, left %u, "
+					    "len %u, count %u\n",
+					    which, this->ref_data_index,
+					    dp->lengths[this->ref_data_index],
+					    this->pos, left, len,
+					    (unsigned)count);
 			if (len) {
 				if (copy_to_user(buf,
 						 (void *)dp->parts[this->
@@ -4161,14 +4165,12 @@ static ssize_t kbus_read(struct file *filp, char __user * buf, size_t count,
 		} else {
 			left = this->lengths[which] - this->pos;
 			len = min(left, (uint32_t) count);
-#if DEBUG_READ
-			kbus_maybe_dbg(priv->dev,
+			kbus_maybe_dbg_read(priv->dev,
 				       "kbus:   xx which %d, read_len[%d] %u,"
 				       " pos %u, left %u, len %u, count %u\n",
 				       which,
 				       which, this->lengths[which], this->pos,
 				       left, len, (unsigned)count);
-#endif
 			if (len) {
 				if (copy_to_user(buf,
 						 this->parts[which] + this->pos,
@@ -4194,19 +4196,16 @@ static ssize_t kbus_read(struct file *filp, char __user * buf, size_t count,
 	}
 
 	if (which < KBUS_NUM_PARTS) {
-#if DEBUG_READ
-		kbus_maybe_dbg(priv->dev,
-			       "kbus:   Read %d bytes, now in part %d, "
-			       "read %d of %d\n",
-			       (int)retval, which, this->pos,
-			       this->lengths[which]);
-#endif
+		kbus_maybe_dbg_read(priv->dev,
+				    "kbus:   Read %d bytes, now in part %d, "
+				    "read %d of %d\n",
+				    (int)retval, which, this->pos,
+				    this->lengths[which]);
 		this->which = which;
 	} else {
-#if DEBUG_READ
-		kbus_maybe_dbg(priv->dev, "kbus:   Read %d bytes, finished\n",
-			       (int)retval);
-#endif
+		kbus_maybe_dbg_read(priv->dev,
+				    "kbus:   Read %d bytes, finished\n",
+				    (int)retval);
 		kbus_empty_read_msg(priv);
 	}
 
@@ -4459,9 +4458,7 @@ static int kbus_nextmsg(struct kbus_private_data *priv,
 		 */
 		return __put_user(0, (uint32_t __user *) arg);
 	}
-#if DEBUG_READ
-	kbus_maybe_dbg(priv->dev, "kbus:   xx Setting up read_hdr\n");
-#endif
+	kbus_maybe_dbg_read(priv->dev, "kbus:   xx Setting up read_hdr\n");
 
 	user_msg = (struct kbus_message_header *)&this->user_hdr;
 	user_msg->start_guard = KBUS_MSG_START_GUARD;
@@ -4510,8 +4507,7 @@ static int kbus_nextmsg(struct kbus_private_data *priv,
 	this->pos = 0;
 	this->ref_data_index = 0;
 
-#if DEBUG_READ
-	if (priv->dev->verbose) {
+	if (DEBUG_READ && priv->dev->verbose) {
 		int ii;
 		printk(KERN_DEBUG
 		       "kbus:   @@ Next message, %d parts, lengths\n",
@@ -4530,7 +4526,6 @@ static int kbus_nextmsg(struct kbus_private_data *priv,
 		printk(KERN_DEBUG "kbus          user_hdr @ %p\n",
 		       &(this->user_hdr));
 	}
-#endif
 
 	/*
 	 * If the message is a request (to us), then this is the approriate
