@@ -310,7 +310,8 @@ struct kbus_entire_message {
  * Given the message name length (in bytes) and the message data length (also
  * in bytes), the index of the entire message end guard is thus:
  */
-#define KBUS_ENTIRE_MSG_END_GUARD_INDEX(name_len,data_len)  ((name_len+1+3)/4 + (data_len+3)/4)
+#define KBUS_ENTIRE_MSG_END_GUARD_INDEX(name_len,data_len)  \
+    ((name_len+1+3)/4 + (data_len+3)/4)
 
 /*
  * Find a pointer to the message's name.
@@ -650,7 +651,8 @@ struct kbus_replier_bind_event_data {
 #define KBUS_IOC_NEWDEVICE _IOR( KBUS_IOC_MAGIC, 16, char *)
 
 /*
- * REPORTREPLIERBINDS - request synthetic messages announcing Replier bind/unbind events.
+ * REPORTREPLIERBINDS - request synthetic messages announcing Replier
+ * bind/unbind events.
  *
  * If this flag is set, then when someone binds or unbinds to a message name as
  * a Replier, KBUS will send out a synthetic Announcement of this fact.
@@ -671,11 +673,3 @@ struct kbus_replier_bind_event_data {
 #endif
 
 #endif // _kbus_defns
-
-// Kernel style layout -- note that including this text contravenes the Linux
-// coding style, and is thus a Bad Thing. Expect these lines to be removed if
-// this ever gets added to the kernel distribution.
-// Local Variables:
-// c-set-style: "linux"
-// End:
-// vim: set tabstop=8 shiftwidth=8 noexpandtab:
