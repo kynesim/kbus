@@ -87,13 +87,22 @@
 #define MAX_NUM_DEVICES		256
 #define DEF_NUM_DEVICES		  1
 
-/* By default, enable verbose debug to be selected */
-#define DEBUG 1
-/* But we don't normally want the extra debug for kbus_read */
-#define DEBUG_READ 0
-/* Or for reference counting */
-#define DEBUG_REFCOUNT 0
+/* Debugging setup */
 
+#ifdef CONFIG_KBUS_DEBUG
+#define kbus_maybe_dbg(dev, format, args...) do { \
+	if (dev->verbose) \
+		(void) printk(KERN_DEBUG format, ## args); \
+} while (0)
+#else
+#define kbus_maybe_dbg(dev, format, args...) /* no-op */
+#endif
+
+/* Extra debug options. These are unlikely to be of use to non-kbus-hackers
+ * so are not exposed as config. */
+
+#define DEBUG_READ 0
+#define DEBUG_REFCOUNT 0
 /*
  * And even more debug for the rewrite of kbus_write() to support
  * "entire" messages of any length. I suspect that this can go away
@@ -102,18 +111,10 @@
 #define DEBUG_WRITE 0
 
 /* Should we default to verbose? */
-#define DEBUG_ASSUME_VERBOSE	0
-
-#if DEBUG
-#define kbus_maybe_dbg(dev, format, args...) do { \
-	if (dev->verbose) \
-		(void) printk(KERN_DEBUG format, ## args); \
-} while (0)
+#ifdef CONFIG_KBUS_DEBUG_DEFAULT_VERBOSE
+#define DEBUG_DEFAULT_SETTING true
 #else
-#define kbus_maybe_dbg(dev, format, args...) do { \
-	if (dev->verbose && 0) \
-		(void) printk(KERN_DEBUG format, ## args); \
-} while (0)
+#define DEBUG_DEFAULT_SETTING false
 #endif
 
 static int kbus_num_devices = DEF_NUM_DEVICES;
@@ -1343,11 +1344,7 @@ static int kbus_check_message_written(struct kbus_write_msg *this)
 	return 0;
 }
 
-/* This function only defined if DEBUG is set, to avoid
- * 'function defined but not used' warnings from gcc.
- */
-#if DEBUG
-
+#ifdef CONFIG_KBUS_DEBUG
 /*
  * Output a description of an in-kernel message
  */
@@ -1385,6 +1382,10 @@ static void kbus_report_message(char *kern_prefix, struct kbus_msg *msg)
 		       (msg->flags & 0xFFFF0000) >> 4,
 		       (msg->flags & 0x0000FFFF));
 	}
+}
+#else
+static inline void kbus_report_message(char *kern_prefix, struct kbus_msg *msg)
+{
 }
 #endif
 
@@ -1613,10 +1614,8 @@ static int kbus_push_message(struct kbus_private_data *priv,
 		kbus_free_message(new_msg);
 		return -ENOMEM;
 	}
-#if DEBUG
 	if (priv->dev->verbose)
 		kbus_report_message(KERN_DEBUG, new_msg);
-#endif
 
 	if (for_replier && (KBUS_BIT_WANT_A_REPLY & msg->flags)) {
 		/*
@@ -1927,14 +1926,12 @@ static int kbus_push_synthetic_bind_message(struct kbus_private_data *priv,
 	if (new_msg == NULL)
 		return -ENOMEM;
 
-#if DEBUG
 	if (priv->dev->verbose) {
 		kbus_report_message(KERN_DEBUG, new_msg);
 		kbus_maybe_dbg(priv->dev,
 			       "kbus: Writing synthetic message to "
 			       "recipients\n");
 	}
-#endif
 
 	retval = kbus_write_to_recipients(priv, priv->dev, new_msg);
 	/*
@@ -1988,7 +1985,6 @@ static struct kbus_msg *kbus_pop_message(struct kbus_private_data *priv)
 	if (priv->message_count == (priv->max_messages - 1))
 		wake_up_interruptible(&priv->dev->write_wait);
 
-#if DEBUG
 	if (priv->dev->verbose) {
 		kbus_report_message(KERN_DEBUG, msg);
 
@@ -1997,7 +1993,6 @@ static struct kbus_msg *kbus_pop_message(struct kbus_private_data *priv)
 			       priv->dev->index, priv->id, priv->message_count,
 			       priv->message_count == 1 ? "" : "s");
 	}
-#endif
 
 	return msg;
 }
@@ -2019,10 +2014,8 @@ static void kbus_empty_message_queue(struct kbus_private_data *priv)
 		struct kbus_msg *msg = ptr->msg;
 		int is_OUR_request = (KBUS_BIT_WANT_YOU_TO_REPLY & msg->flags);
 
-#if DEBUG
 		if (priv->dev->verbose)
 			kbus_report_message(KERN_DEBUG, msg);
-#endif
 
 		/*
 		 * If it wanted a reply (from us). let the sender know it's
@@ -2328,19 +2321,16 @@ static int kbus_find_listeners(struct kbus_dev *dev,
 				if (*replier == NULL ||
 				    new_replier_type > replier_type) {
 
-#if DEBUG
 					if (*replier)
 						kbus_maybe_dbg(dev,
 							       "kbus:      ..going with replier %u (%s)\n",
 							       ptr->bound_to_id,
 							       REPLIER_TYPE
 							       (new_replier_type));
-#endif
 
 					*replier = ptr;
 					replier_type = new_replier_type;
 				} else {
-#if DEBUG
 					if (*replier)
 						kbus_maybe_dbg(dev,
 							       "kbus:      ..keeping replier %u (%s)\n",
@@ -2348,7 +2338,6 @@ static int kbus_find_listeners(struct kbus_dev *dev,
 							       bound_to_id,
 							       REPLIER_TYPE
 							       (replier_type));
-#endif
 				}
 			} else {
 				/* It is a listener */
@@ -2512,13 +2501,11 @@ static void kbus_forget_matching_messages(struct kbus_private_data *priv,
 		if (ptr->binding != binding)
 			continue;
 
-#if DEBUG
 		if (priv->dev->verbose) {
 			kbus_maybe_dbg(priv->dev,
 				       "kbus:   Deleting message from queue\n");
 			kbus_report_message(KERN_DEBUG, msg);
 		}
-#endif
 
 		/*
 		 * If it wanted a reply (from us). let the sender know it's
@@ -2527,14 +2514,12 @@ static void kbus_forget_matching_messages(struct kbus_private_data *priv,
 		 */
 		if (is_OUR_request && msg->to != priv->id) {
 
-#if DEBUG
 			if (priv->dev->verbose) {
 				kbus_maybe_dbg(priv->dev,
 					       "kbus:   >>> is_OUR_request,"
 					       " sending fake reply\n");
 				kbus_report_message(KERN_DEBUG, msg);
 			}
-#endif
 			kbus_push_synthetic_message(priv->dev, priv->id,
 						    msg->from, msg->id,
 						    KBUS_MSG_NAME_REPLIER_UNBOUND);
@@ -2917,11 +2902,8 @@ static int kbus_maybe_move_unsent_unbind_msg(struct kbus_private_data *priv)
 				 list) {
 		if (ptr->send_to_id == priv->id) {
 			int retval;
-#if DEBUG
-			if (dev->verbose) {
+			if (dev->verbose)
 				kbus_report_message(KERN_DEBUG, ptr->msg);
-			}
-#endif
 			/*
 			 * Move the message into our normal message queue.
 			 *
@@ -3064,15 +3046,12 @@ static void kbus_forget_unsent_unbind_msgs(struct kbus_dev *dev)
 	list_for_each_entry_safe(ptr, next, &dev->unsent_unbind_msg_list,
 			list) {
 
-#if DEBUG
 		if (dev->verbose &&
 		    !kbus_message_name_matches(ptr->msg->name_ref->name,
 					       ptr->msg->name_len,
 					       KBUS_MSG_NAME_REPLIER_BIND_EVENT))
-		{
 			kbus_report_message(KERN_DEBUG, ptr->msg);
-		}
-#endif
+
 		/* Remove it from the list */
 		list_del(&ptr->list);
 		/* And forget all about it... */
@@ -5072,7 +5051,7 @@ static int kbus_set_verbosity(struct kbus_private_data *priv,
 	if (retval)
 		return retval;
 
-#if DEBUG
+#ifdef CONFIG_KBUS_DEBUG
 	/*
 	 * If we're *leaving* verbose mode, we would say so (!),
 	 * and we should arguably announce when we enter it as well...
@@ -5756,9 +5735,7 @@ static int kbus_setup_new_device(int which)
 	kbus_setup_cdev(new, this_devno);
 	new->index = which;
 
-#if DEBUG_ASSUME_VERBOSE
-	new->verbose = true;
-#endif
+	new->verbose = DEBUG_DEFAULT_SETTING;
 
 	/* ================================================================= */
 	/* +++ NB: before kernel 2.6.13, the functions we use were
