@@ -121,12 +121,16 @@
 		kbus_maybe_dbg(dev, format, ##args); \
 } while(0)
 
+#ifndef DEBUG_READ
 #define DEBUG_READ 0
+#endif
 
 #define kbus_maybe_dbg_read(dev, format, args...) \
 	conditional_dbg(DEBUG_READ, dev, format, ##args)
 
+#ifndef DEBUG_REFCOUNT
 #define DEBUG_REFCOUNT 0
+#endif
 
 /* can't quite reuse the same macro for refcount as it's called
  * in functions which don't have a dev */
@@ -139,7 +143,9 @@
  * "entire" messages of any length. I suspect that this can go away
  * when we've got more examples of the code working in real use.
  */
+#ifndef DEBUG_WRITE
 #define DEBUG_WRITE 0
+#endif
 
 #define kbus_maybe_dbg_write(dev, format, args...) \
 	conditional_dbg(DEBUG_WRITE, dev, format, ##args)
