@@ -2555,14 +2555,12 @@ static int kbus_forget_binding(struct kbus_dev *dev,
 {
 	struct kbus_message_binding *binding;
 
-	uint32_t bound_to_id = priv->id;
-
 	binding = kbus_find_binding(dev, priv, replier, name_len, name);
 	if (binding == NULL) {
 		kbus_maybe_dbg(priv->dev,
 			       "kbus:   %u/%u Could not find/unbind "
 			       "%u %c '%.*s'\n",
-			       dev->index, priv->id, bound_to_id,
+			       dev->index, priv->id, priv->id,
 			       (replier ? 'R' : 'L'), name_len, name);
 		return -EINVAL;
 	}
