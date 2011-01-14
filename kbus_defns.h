@@ -45,7 +45,7 @@
 #ifndef _kbus_defns
 #define _kbus_defns
 
-#if ! __KERNEL__ && defined(__cplusplus)
+#if !__KERNEL__ && defined(__cplusplus)
 extern "C" {
 #endif
 
@@ -295,7 +295,7 @@ struct kbus_entire_message {
  * Remember that "sizeof" doesn't count the 'rest' field in our message
  * structure.
  */
-#define KBUS_ENTIRE_MSG_LEN(name_len,data_len)    \
+#define KBUS_ENTIRE_MSG_LEN(name_len, data_len)    \
 	(sizeof(struct kbus_entire_message) + \
 	 KBUS_PADDED_NAME_LEN(name_len) + \
 	 KBUS_PADDED_DATA_LEN(data_len) + 4)
@@ -310,8 +310,8 @@ struct kbus_entire_message {
  * Given the message name length (in bytes) and the message data length (also
  * in bytes), the index of the entire message end guard is thus:
  */
-#define KBUS_ENTIRE_MSG_END_GUARD_INDEX(name_len,data_len)  \
-    ((name_len+1+3)/4 + (data_len+3)/4)
+#define KBUS_ENTIRE_MSG_END_GUARD_INDEX(name_len, data_len)  \
+	((name_len+1+3)/4 + (data_len+3)/4)
 
 /*
  * Find a pointer to the message's name.
@@ -362,7 +362,7 @@ static inline uint32_t *kbus_msg_end_ptr(struct kbus_entire_message
 	end_guard_idx =
 	    KBUS_ENTIRE_MSG_END_GUARD_INDEX(entire->header.name_len,
 					    entire->header.data_len);
-	return (uint32_t *) & entire->rest[end_guard_idx];
+	return (uint32_t *) &entire->rest[end_guard_idx];
 }
 
 /*
@@ -456,7 +456,7 @@ struct kbus_replier_bind_event_data {
 	uint32_t rest[];	/* Message name */
 };
 
-#if ! __KERNEL__
+#if !__KERNEL__
 #define BIT(num)                 (((unsigned)1) << (num))
 #endif
 
@@ -522,19 +522,19 @@ struct kbus_replier_bind_event_data {
 /*
  * RESET: reserved for future use
  */
-#define KBUS_IOC_RESET	  _IO(  KBUS_IOC_MAGIC,  1)
+#define KBUS_IOC_RESET	    _IO(KBUS_IOC_MAGIC,  1)
 /*
  * BIND - bind a Ksock to a message name
  * arg: struct kbus_bind_request, indicating what to bind to
  * retval: 0 for success, negative for failure
  */
-#define KBUS_IOC_BIND	  _IOW( KBUS_IOC_MAGIC,  2, char *)
+#define KBUS_IOC_BIND	   _IOW(KBUS_IOC_MAGIC,  2, char *)
 /*
  * UNBIND - unbind a Ksock from a message id
  * arg: struct kbus_bind_request, indicating what to unbind from
  * retval: 0 for success, negative for failure
  */
-#define KBUS_IOC_UNBIND	  _IOW( KBUS_IOC_MAGIC,  3, char *)
+#define KBUS_IOC_UNBIND	   _IOW(KBUS_IOC_MAGIC,  3, char *)
 /*
  * KSOCKID - determine a Ksock's Ksock id
  *
@@ -544,7 +544,7 @@ struct kbus_replier_bind_event_data {
  * arg (out): uint32_t, indicating this Ksock's local_id
  * retval: 0 for success, negative for failure
  */
-#define KBUS_IOC_KSOCKID  _IOR( KBUS_IOC_MAGIC,  4, char *)
+#define KBUS_IOC_KSOCKID   _IOR(KBUS_IOC_MAGIC,  4, char *)
 /*
  * REPLIER - determine the Ksock id of the replier for a message name
  * arg: struct kbus_bind_query
@@ -562,32 +562,32 @@ struct kbus_replier_bind_event_data {
  *            next message
  * retval: 0 for success, negative for failure
  */
-#define KBUS_IOC_NEXTMSG  _IOR( KBUS_IOC_MAGIC,  6, char *)
+#define KBUS_IOC_NEXTMSG   _IOR(KBUS_IOC_MAGIC,  6, char *)
 /*
  * LENLEFT - determine how many bytes are left to read of the current message
  * arg (out): uint32_t, number of bytes left, 0 if there is no current read
  *            message
  * retval: 1 if there was a message, 0 if there wasn't, negative for failure
  */
-#define KBUS_IOC_LENLEFT  _IOR( KBUS_IOC_MAGIC,  7, char *)
+#define KBUS_IOC_LENLEFT   _IOR(KBUS_IOC_MAGIC,  7, char *)
 /*
  * SEND - send the current message
  * arg (out): struct kbus_msg_id, the message id of the sent message
  * retval: 0 for success, negative for failure
  */
-#define KBUS_IOC_SEND	  _IOR( KBUS_IOC_MAGIC,  8, char *)
+#define KBUS_IOC_SEND	   _IOR(KBUS_IOC_MAGIC,  8, char *)
 /*
  * DISCARD - discard the message currently being written (if any)
  * arg: none
  * retval: 0 for success, negative for failure
  */
-#define KBUS_IOC_DISCARD  _IO(  KBUS_IOC_MAGIC,  9)
+#define KBUS_IOC_DISCARD    _IO(KBUS_IOC_MAGIC,  9)
 /*
  * LASTSENT - determine the message id of the last message SENT
  * arg (out): struct kbus_msg_id, {0,0} if there was no last message
  * retval: 0 for success, negative for failure
  */
-#define KBUS_IOC_LASTSENT _IOR( KBUS_IOC_MAGIC, 10, char *)
+#define KBUS_IOC_LASTSENT  _IOR(KBUS_IOC_MAGIC, 10, char *)
 /*
  * MAXMSGS - set the maximum number of messages on a Ksock read queue
  * arg (in): uint32_t, the requested length of the read queue, or 0 to just
@@ -602,14 +602,14 @@ struct kbus_replier_bind_event_data {
  * arg (out): uint32_t, the number of messages in the read queue.
  * retval: 0 for success, negative for failure
  */
-#define KBUS_IOC_NUMMSGS  _IOR( KBUS_IOC_MAGIC, 12, char *)
+#define KBUS_IOC_NUMMSGS   _IOR(KBUS_IOC_MAGIC, 12, char *)
 /*
  * UNREPLIEDTO - determine the number of requests (marked "WANT_YOU_TO_REPLY")
  * which we still need to reply to.
  * arg(out): uint32_t, said number
  * retval: 0 for success, negative for failure
  */
-#define KBUS_IOC_UNREPLIEDTO  _IOR( KBUS_IOC_MAGIC, 13, char *)
+#define KBUS_IOC_UNREPLIEDTO _IOR(KBUS_IOC_MAGIC, 13, char *)
 /*
  * MSGONLYONCE - should we receive a message only once?
  *
@@ -624,7 +624,7 @@ struct kbus_replier_bind_event_data {
  * retval: 0 for success, negative for failure (-EINVAL if arg in was not one
  * of the specified values)
  */
-#define KBUS_IOC_MSGONLYONCE  _IOWR( KBUS_IOC_MAGIC, 14, char *)
+#define KBUS_IOC_MSGONLYONCE  _IOWR(KBUS_IOC_MAGIC, 14, char *)
 /*
  * VERBOSE - should KBUS output verbose "printk" messages (for this device)?
  *
@@ -638,7 +638,7 @@ struct kbus_replier_bind_event_data {
  * retval: 0 for success, negative for failure (-EINVAL if arg in was not one
  * of the specified values)
  */
-#define KBUS_IOC_VERBOSE  _IOWR( KBUS_IOC_MAGIC, 15, char *)
+#define KBUS_IOC_VERBOSE  _IOWR(KBUS_IOC_MAGIC, 15, char *)
 
 /*
  * NEWDEVICE - request another KBUS device (/dev/kbus<n>).
@@ -648,7 +648,7 @@ struct kbus_replier_bind_event_data {
  * arg(out): uint32_t, the new device number (<n>)
  * retval: 0 for success, negative for failure
  */
-#define KBUS_IOC_NEWDEVICE _IOR( KBUS_IOC_MAGIC, 16, char *)
+#define KBUS_IOC_NEWDEVICE _IOR(KBUS_IOC_MAGIC, 16, char *)
 
 /*
  * REPORTREPLIERBINDS - request synthetic messages announcing Replier
@@ -663,13 +663,13 @@ struct kbus_replier_bind_event_data {
  * retval: 0 for success, negative for failure (-EINVAL if arg in was not one
  * of the specified values)
  */
-#define KBUS_IOC_REPORTREPLIERBINDS  _IOWR( KBUS_IOC_MAGIC, 17, char *)
+#define KBUS_IOC_REPORTREPLIERBINDS  _IOWR(KBUS_IOC_MAGIC, 17, char *)
 
 /* XXX If adding another IOCTL, remember to increment the next number! XXX */
 #define KBUS_IOC_MAXNR	17
 
-#if ! __KERNEL__ && defined(__cplusplus)
+#if !__KERNEL__ && defined(__cplusplus)
 }
 #endif
 
-#endif // _kbus_defns
+#endif /* _kbus_defns */
