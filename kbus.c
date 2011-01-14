@@ -2049,8 +2049,8 @@ static void kbus_empty_message_queue(struct kbus_private_data *priv)
 		 */
 		if (is_OUR_request && msg->to != priv->id) {
 			kbus_push_synthetic_message(priv->dev, priv->id,
-						    msg->from, msg->id,
-						    KBUS_MSG_NAME_REPLIER_GONEAWAY);
+					    msg->from, msg->id,
+					    KBUS_MSG_NAME_REPLIER_GONEAWAY);
 		}
 
 		/* Remove it from the list */
@@ -2348,21 +2348,22 @@ static int kbus_find_listeners(struct kbus_dev *dev,
 
 					if (*replier)
 						kbus_maybe_dbg(dev,
-							       "kbus:      ..going with replier %u (%s)\n",
-							       ptr->bound_to_id,
-							       REPLIER_TYPE
-							       (new_replier_type));
+						       "kbus:      ..going "
+						       "with replier %u (%s)\n",
+						       ptr->bound_to_id,
+						       REPLIER_TYPE
+						       (new_replier_type));
 
 					*replier = ptr;
 					replier_type = new_replier_type;
 				} else {
 					if (*replier)
 						kbus_maybe_dbg(dev,
-							       "kbus:      ..keeping replier %u (%s)\n",
-							       (*replier)->
-							       bound_to_id,
-							       REPLIER_TYPE
-							       (replier_type));
+						       "kbus:      ..keeping "
+						       "replier %u (%s)\n",
+						       (*replier)->bound_to_id,
+						       REPLIER_TYPE
+						       (replier_type));
 				}
 			} else {
 				/* It is a listener */
@@ -2371,8 +2372,9 @@ static int kbus_find_listeners(struct kbus_dev *dev,
 					    kbus_next_size(array_size);
 
 					kbus_maybe_dbg(dev,
-						       "kbus:      XXX listener array size %d -> %d\n",
-						       array_size, new_size);
+					       "kbus:      XXX listener "
+					       "array size %d -> %d\n",
+					       array_size, new_size);
 
 					array_size = new_size;
 					*listeners = krealloc(*listeners,
@@ -2546,8 +2548,8 @@ static void kbus_forget_matching_messages(struct kbus_private_data *priv,
 				kbus_report_message(KERN_DEBUG, msg);
 			}
 			kbus_push_synthetic_message(priv->dev, priv->id,
-						    msg->from, msg->id,
-						    KBUS_MSG_NAME_REPLIER_UNBOUND);
+					    msg->from, msg->id,
+					    KBUS_MSG_NAME_REPLIER_UNBOUND);
 		}
 
 		/* Remove it from the list */
@@ -2832,16 +2834,11 @@ static void kbus_safe_report_unbinding(struct kbus_private_data *priv,
 			 * stacked...
 			 */
 			if (kbus_listener_already_got_tragic_msg(priv->dev,
-								 listeners[ii]->
-								 bound_to))
+						 listeners[ii]->bound_to))
 				continue;
 			retval = kbus_remember_unsent_unbind_event(priv->dev,
-								   listeners
-								   [ii]->
-								   bound_to,
-								   msg,
-								   listeners
-								   [ii]);
+					   listeners[ii]->bound_to,
+					   msg, listeners[ii]);
 			/* And remember that we've got something on the
 			 * set-aside list */
 			listeners[ii]->bound_to->maybe_got_unsent_unbind_msgs =
@@ -3069,10 +3066,10 @@ static void kbus_forget_unsent_unbind_msgs(struct kbus_dev *dev)
 	list_for_each_entry_safe(ptr, next, &dev->unsent_unbind_msg_list,
 			list) {
 
-		if (dev->verbose &&
-		    !kbus_message_name_matches(ptr->msg->name_ref->name,
-					       ptr->msg->name_len,
-					       KBUS_MSG_NAME_REPLIER_BIND_EVENT))
+		if (dev->verbose && !kbus_message_name_matches(
+					    ptr->msg->name_ref->name,
+					    ptr->msg->name_len,
+					    KBUS_MSG_NAME_REPLIER_BIND_EVENT))
 			kbus_report_message(KERN_DEBUG, ptr->msg);
 
 		/* Remove it from the list */
@@ -4127,9 +4124,10 @@ static ssize_t kbus_read(struct file *filp, char __user * buf, size_t count,
 					    (unsigned)count);
 			if (len) {
 				if (copy_to_user(buf,
-						 (void *)dp->parts[this->
-								   ref_data_index]
-						 + this->pos, len)) {
+						 (void *)
+						 dp->parts[this->ref_data_index]
+							 + this->pos,
+						 len)) {
 					printk(KERN_ERR
 					       "kbus: error reading from "
 					       "dev %u/%u\n",
@@ -5412,8 +5410,8 @@ static int kbus_poll_try_send_again(struct kbus_private_data *priv,
 		 */
 		if (msg->flags & KBUS_BIT_WANT_A_REPLY) {
 			kbus_push_synthetic_message(dev, 0,
-						    msg->from, msg->id,
-						    KBUS_MSG_NAME_ERROR_SENDING);
+					    msg->from, msg->id,
+					    KBUS_MSG_NAME_ERROR_SENDING);
 		}
 		retval = 0;
 		break;
