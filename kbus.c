@@ -150,6 +150,12 @@
 #define kbus_maybe_dbg_write(dev, format, args...) \
 	conditional_dbg(DEBUG_WRITE, dev, format, ##args)
 
+/* Add a distinguisher to make the dmesg output easier to visually scan?
+ * This should not be enabled by default. */
+#ifndef DEBUG_PRINTK_DISTINGUISHER
+#define DEBUG_PRINTK_DISTINGUISHER 0
+#endif
+
 
 /* Should we default to verbose? */
 #ifdef CONFIG_KBUS_DEBUG_DEFAULT_VERBOSE
@@ -5744,9 +5750,11 @@ static int __init kbus_init(void)
 
 	printk(KERN_NOTICE "Initialising kbus module (%d device%s)\n",
 	       kbus_num_devices, kbus_num_devices == 1 ? "" : "s");
-	printk(KERN_NOTICE "========================\n");	/* XXX Naughty me */
-	/* XXX The above underlining is to allow me to see transitions in */
-	/* XXX the dmesg output (obviously) */
+#if DEBUG_PRINTK_DISTINGUISHER
+	printk(KERN_NOTICE "========================\n");
+	/* This allows hackers to see rmmod/insmod transitions.
+	 * Not to be enabled by default! */
+#endif
 
 	if (kbus_num_devices < MIN_NUM_DEVICES ||
 	    kbus_num_devices > MAX_NUM_DEVICES) {
