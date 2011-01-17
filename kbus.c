@@ -4333,8 +4333,15 @@ static int kbus_unbind(struct kbus_private_data *priv,
 	    priv->maybe_got_unsent_unbind_msgs) {
 		int rv = kbus_maybe_move_unsent_unbind_msg(priv);
 		/* If this fails, we're probably stumped */
-		if (rv)		/* XXX what to do? XXX */
-			;
+		if (rv)	{
+			/* But what to do? XXX
+			 * Don't set retval to rv, that squashes the
+			 * main result. This is really a cleaning-up
+			 * sort of error. */
+			printk(KERN_ERR
+			       "kbus: Failed to move unsent messages on "
+			       "unbind (error %d)\n", -rv);
+		}
 	}
 
 done:
