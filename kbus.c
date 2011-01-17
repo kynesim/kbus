@@ -3307,6 +3307,7 @@ static int kbus_release(struct inode *inode, struct file *filp)
 	struct kbus_private_data *priv = filp->private_data;
 	struct kbus_dev *dev = priv->dev;
 
+	(void)inode;
 	if (mutex_lock_interruptible(&dev->mux))
 		return -ERESTARTSYS;
 
@@ -4408,7 +4409,7 @@ done:
  * if there's an error.
  */
 static int kbus_nextmsg(struct kbus_private_data *priv,
-			struct kbus_dev *dev, unsigned long arg)
+			unsigned long arg)
 {
 	int retval = 0;
 	struct kbus_msg *msg;
@@ -4945,7 +4946,7 @@ done:
 }
 
 static int kbus_maxmsgs(struct kbus_private_data *priv,
-			struct kbus_dev *dev, unsigned long arg)
+			unsigned long arg)
 {
 	int retval = 0;
 	uint32_t requested_max;
@@ -4983,7 +4984,7 @@ static int kbus_nummsgs(struct kbus_private_data *priv,
 }
 
 static int kbus_onlyonce(struct kbus_private_data *priv,
-			 struct kbus_dev *dev, unsigned long arg)
+			 unsigned long arg)
 {
 	int retval = 0;
 	uint32_t only_once;
@@ -5013,7 +5014,7 @@ static int kbus_onlyonce(struct kbus_private_data *priv,
 }
 
 static int kbus_set_verbosity(struct kbus_private_data *priv,
-			      struct kbus_dev *dev, unsigned long arg)
+			      unsigned long arg)
 {
 	int retval = 0;
 	uint32_t verbose;
@@ -5215,7 +5216,7 @@ static long kbus_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		 * retval:  0 if no next message, 1 if there is a next message,
 		 *          negative value if there's an error.
 		 */
-		retval = kbus_nextmsg(priv, dev, arg);
+		retval = kbus_nextmsg(priv, arg);
 		break;
 
 	case KBUS_IOC_LENLEFT:
@@ -5271,7 +5272,7 @@ static long kbus_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		 * arg out: maximum number allowed
 		 * return: 0 means OK, otherwise not OK
 		 */
-		retval = kbus_maxmsgs(priv, dev, arg);
+		retval = kbus_maxmsgs(priv, arg);
 		break;
 
 	case KBUS_IOC_NUMMSGS:
@@ -5300,7 +5301,7 @@ static long kbus_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		 * arg out: the previous value, before we were called
 		 * return: 0 means OK, otherwise not OK
 		 */
-		retval = kbus_onlyonce(priv, dev, arg);
+		retval = kbus_onlyonce(priv, arg);
 		break;
 
 	case KBUS_IOC_VERBOSE:
@@ -5311,7 +5312,7 @@ static long kbus_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		 * arg out: the previous value, before we were called
 		 * return: 0 means OK, otherwise not OK
 		 */
-		retval = kbus_set_verbosity(priv, dev, arg);
+		retval = kbus_set_verbosity(priv, arg);
 		break;
 
 	case KBUS_IOC_NEWDEVICE:
@@ -5522,6 +5523,7 @@ static struct proc_dir_entry *kbus_proc_file_stats;
 static int kbus_binding_seq_show(struct seq_file *s, void *v)
 {
 	int ii;
+	(void) v; /* unused; passed in as NULL */
 
 	/* We report on all of the KBUS devices */
 	for (ii = 0; ii < kbus_num_devices; ii++) {
@@ -5553,6 +5555,7 @@ static int kbus_binding_seq_show(struct seq_file *s, void *v)
 
 static int kbus_proc_bindings_open(struct inode *inode, struct file *file)
 {
+	(void) inode;
 	return single_open(file, kbus_binding_seq_show, NULL);
 }
 
@@ -5582,6 +5585,7 @@ static struct proc_dir_entry
 static int kbus_stats_seq_show(struct seq_file *s, void *v)
 {
 	int ii;
+	(void) v; /* unused; passed in as NULL */
 
 	/* We report on all of the KBUS devices */
 	for (ii = 0; ii < kbus_num_devices; ii++) {
@@ -5655,6 +5659,7 @@ static int kbus_stats_seq_show(struct seq_file *s, void *v)
 
 static int kbus_proc_stats_open(struct inode *inode, struct file *file)
 {
+	(void) inode;
 	return single_open(file, kbus_stats_seq_show, NULL);
 }
 
