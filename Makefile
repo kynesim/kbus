@@ -54,10 +54,16 @@ endif
 
 all: kbus.ko $(RULES_NAME)
 
+ifndef VERBOSE
+VERBOSE=1
+endif
+
 # We use 'O= ' deliberately, because kernel make, which creates the .ko
 # does not like to build object files in non-source directories.
 kbus.ko : kbus.c kbus_defns.h
-	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= modules
+	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= V=$(VERBOSE) \
+		EXTRA_CFLAGS="$(EXTRA_CFLAGS)" \
+		modules
 	
 # The mechanism is a bit hacky (!) - first we make sure we've got a local
 # copy of the file we want, then we copy it into place
