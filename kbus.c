@@ -1445,8 +1445,7 @@ static void kbus_report_write_msg(struct kbus_private_data *priv)
  * data. The message must be a 'pointy' message with reference counted
  * name and data.
  */
-static struct kbus_msg *kbus_copy_message(struct kbus_private_data *priv,
-					  struct kbus_msg *old_msg)
+static struct kbus_msg *kbus_copy_message(struct kbus_msg *old_msg)
 {
 	struct kbus_msg *new_msg;
 
@@ -1630,7 +1629,7 @@ static int kbus_push_message(struct kbus_private_data *priv,
 		}
 	}
 
-	new_msg = kbus_copy_message(priv, msg);
+	new_msg = kbus_copy_message(msg);
 	if (!new_msg)
 		return -EFAULT;
 
@@ -2672,7 +2671,7 @@ static int kbus_remember_unsent_unbind_event(struct kbus_dev *dev,
 	if (!new)
 		return -ENOMEM;
 
-	new_msg = kbus_copy_message(priv, msg);
+	new_msg = kbus_copy_message(msg);
 	if (!new_msg) {
 		kfree(new);
 		return -EFAULT;
