@@ -125,7 +125,7 @@
 /* Extra debug options. These are unlikely to be of use to non-kbus-hackers
  * so are not exposed as config. */
 
-#define conditional_dbg(cond, dev, format, args...) do { \
+#define kbus_conditional_dbg(cond, dev, format, args...) do { \
 	if (cond) \
 		kbus_maybe_dbg(dev, format, ##args); \
 } while (0)
@@ -135,7 +135,7 @@
 #endif
 
 #define kbus_maybe_dbg_read(dev, format, args...) \
-	conditional_dbg(KBUS_DEBUG_READ, dev, format, ##args)
+	kbus_conditional_dbg(KBUS_DEBUG_READ, dev, format, ##args)
 
 #ifndef KBUS_DEBUG_REFCOUNT
 #define KBUS_DEBUG_REFCOUNT 0
@@ -157,7 +157,7 @@
 #endif
 
 #define kbus_maybe_dbg_write(dev, format, args...) \
-	conditional_dbg(KBUS_DEBUG_WRITE, dev, format, ##args)
+	kbus_conditional_dbg(KBUS_DEBUG_WRITE, dev, format, ##args)
 
 /* Add a distinguisher to make the dmesg output easier to visually scan?
  * This should not be enabled by default. */
