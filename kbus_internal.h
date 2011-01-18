@@ -92,12 +92,12 @@
  * got if we used the deprecated "register_chrdev" to setup our device) is 256,
  * so we'll go with that.
  */
-#define MIN_NUM_DEVICES		  1
+#define KBUS_MIN_NUM_DEVICES		  1
 
 #ifdef CONFIG_KBUS_MAX_NUM_DEVICES
-#define MAX_NUM_DEVICES		CONFIG_KBUS_MAX_NUM_DEVICES
+#define KBUS_MAX_NUM_DEVICES		CONFIG_KBUS_MAX_NUM_DEVICES
 #else
-#define MAX_NUM_DEVICES		256
+#define KBUS_MAX_NUM_DEVICES		256
 #endif
 
 #ifndef CONFIG_KBUS_DEF_NUM_DEVICES
@@ -130,15 +130,15 @@
 		kbus_maybe_dbg(dev, format, ##args); \
 } while (0)
 
-#ifndef DEBUG_READ
-#define DEBUG_READ 0
+#ifndef KBUS_DEBUG_READ
+#define KBUS_DEBUG_READ 0
 #endif
 
 #define kbus_maybe_dbg_read(dev, format, args...) \
-	conditional_dbg(DEBUG_READ, dev, format, ##args)
+	conditional_dbg(KBUS_DEBUG_READ, dev, format, ##args)
 
-#ifndef DEBUG_REFCOUNT
-#define DEBUG_REFCOUNT 0
+#ifndef KBUS_DEBUG_REFCOUNT
+#define KBUS_DEBUG_REFCOUNT 0
 #endif
 
 /* can't quite reuse the same macro for refcount as it's called
@@ -152,12 +152,12 @@
  * "entire" messages of any length. I suspect that this can go away
  * when we've got more examples of the code working in real use.
  */
-#ifndef DEBUG_WRITE
-#define DEBUG_WRITE 0
+#ifndef KBUS_DEBUG_WRITE
+#define KBUS_DEBUG_WRITE 0
 #endif
 
 #define kbus_maybe_dbg_write(dev, format, args...) \
-	conditional_dbg(DEBUG_WRITE, dev, format, ##args)
+	conditional_dbg(KBUS_DEBUG_WRITE, dev, format, ##args)
 
 /* Add a distinguisher to make the dmesg output easier to visually scan?
  * This should not be enabled by default. */
@@ -168,9 +168,9 @@
 
 /* Should we default to verbose? */
 #ifdef CONFIG_KBUS_DEBUG_DEFAULT_VERBOSE
-#define DEBUG_DEFAULT_SETTING true
+#define KBUS_DEBUG_DEFAULT_SETTING true
 #else
-#define DEBUG_DEFAULT_SETTING false
+#define KBUS_DEBUG_DEFAULT_SETTING false
 #endif
 
 /* ========================================================================= */
@@ -627,14 +627,14 @@ struct kbus_private_data {
 };
 
 /* What is a sensible number for the default maximum number of messages? */
-#define DEF_MAX_MESSAGES	100
+#define KBUS_DEF_MAX_MESSAGES	100
 
 /*
  * What about the maximum number of unsent unbind event messages?
  * This may want to be quite large, to allow for Limpets with momentary
  * network outages.
  */
-#define MAX_UNSENT_UNBIND_MESSAGES	1000	/* Probably too small... */
+#define KBUS_MAX_UNSENT_UNBIND_MESSAGES	1000	/* Probably too small... */
 
 /* Information belonging to each /dev/kbus<N> device */
 struct kbus_dev {
@@ -736,7 +736,7 @@ struct kbus_message_queue_item {
 };
 
 /* The sizes of the parts in our reference counted data */
-#define PART_LEN	PAGE_SIZE
-#define PAGE_THRESHOLD	(PAGE_SIZE >> 1)
+#define KBUS_PART_LEN		PAGE_SIZE
+#define KBUS_PAGE_THRESHOLD	(PAGE_SIZE >> 1)
 
 #endif /* _kbus_internal */

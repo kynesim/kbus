@@ -2138,7 +2138,7 @@ static void kbus_safe_report_unbinding(struct kbus_private_data *priv,
 
 	if (priv->dev->unsent_unbind_is_tragic ||
 	    (num_listeners + priv->dev->unsent_unbind_msg_count >
-	     MAX_UNSENT_UNBIND_MESSAGES)) {
+	     KBUS_MAX_UNSENT_UNBIND_MESSAGES)) {
 		struct kbus_msg_id in_reply_to = { 0, 0 };	/* no-one */
 		/*
 		 * Either the list had already gone tragic, or we've
@@ -2602,7 +2602,7 @@ static int kbus_open(struct inode *inode, struct file *filp)
 	priv->dev = dev;
 	priv->id = dev->next_ksock_id++;
 	priv->pid = current->pid;
-	priv->max_messages = DEF_MAX_MESSAGES;
+	priv->max_messages = KBUS_DEF_MAX_MESSAGES;
 	priv->sending = false;
 	priv->num_replies_unsent = 0;
 	priv->max_replies_unsent = 0;
@@ -3033,7 +3033,7 @@ static int kbus_write_data_parts(struct kbus_private_data *priv,
 		if (ii == num_parts - 1)
 			this_part_len = this->ref_data->last_page_len;
 		else
-			this_part_len = PART_LEN;
+			this_part_len = KBUS_PART_LEN;
 
 		sofar = lengths[ii];
 
@@ -3821,7 +3821,7 @@ static int kbus_nextmsg(struct kbus_private_data *priv,
 	this->pos = 0;
 	this->ref_data_index = 0;
 
-	if (DEBUG_READ && priv->dev->verbose) {
+	if (KBUS_DEBUG_READ && priv->dev->verbose) {
 		int ii;
 		printk(KERN_DEBUG
 		       "kbus:   @@ Next message, %d parts, lengths\n",
@@ -3944,19 +3944,19 @@ static int kbus_alloc_ref_data(struct kbus_private_data *priv,
 
 	*ret_ref_data = NULL;
 
-	num_parts = (data_len + PART_LEN - 1) / PART_LEN;
+	num_parts = (data_len + KBUS_PART_LEN - 1) / KBUS_PART_LEN;
 
 	/*
 	 * To save recalculating the length of the last page every time
 	 * we're interested, get it right once and for all.
 	 */
-	last_page_len = data_len - (num_parts - 1) * PART_LEN;
+	last_page_len = data_len - (num_parts - 1) * KBUS_PART_LEN;
 
 	kbus_maybe_dbg(priv->dev,
 		       "kbus: %u/%u Allocate ref data: part=%lu, "
 		       "threshold=%lu, data_len %u -> num_parts %d\n",
-		       priv->dev->index, priv->id, PART_LEN, PAGE_THRESHOLD,
-		       data_len, num_parts);
+		       priv->dev->index, priv->id, KBUS_PART_LEN,
+		       KBUS_PAGE_THRESHOLD, data_len, num_parts);
 
 	parts = kmalloc(sizeof(*parts) * num_parts, GFP_KERNEL);
 	if (!parts)
@@ -3967,7 +3967,7 @@ static int kbus_alloc_ref_data(struct kbus_private_data *priv,
 		return -ENOMEM;
 	}
 
-	if (num_parts == 1 && data_len < PAGE_THRESHOLD) {
+	if (num_parts == 1 && data_len < KBUS_PAGE_THRESHOLD) {
 		/* A single part in "simple" memory */
 		as_pages = false;
 		parts[0] = (unsigned long)kmalloc(data_len, GFP_KERNEL);
@@ -4054,7 +4054,7 @@ static int kbus_wrap_user_data(struct kbus_private_data *priv,
 		if (ii == num_parts - 1)
 			len = ref_data->last_page_len;
 		else
-			len = PART_LEN;
+			len = KBUS_PART_LEN;
 
 		kbus_maybe_dbg(priv->dev,
 			       "kbus:   @@ %d: copy %d bytes "
@@ -5029,9 +5029,9 @@ static int kbus_setup_new_device(int which)
 	struct kbus_dev *new = NULL;
 	dev_t this_devno;
 
-	if (which < 0 || which > (MAX_NUM_DEVICES - 1)) {
+	if (which < 0 || which > (KBUS_MAX_NUM_DEVICES - 1)) {
 		printk(KERN_ERR "kbus: next device index %d not %d..%d\n",
-		       which, MIN_NUM_DEVICES, MAX_NUM_DEVICES);
+		       which, KBUS_MIN_NUM_DEVICES, KBUS_MAX_NUM_DEVICES);
 		return -EINVAL;
 	}
 
@@ -5046,7 +5046,7 @@ static int kbus_setup_new_device(int which)
 	kbus_setup_cdev(new, this_devno);
 	new->index = which;
 
-	new->verbose = DEBUG_DEFAULT_SETTING;
+	new->verbose = KBUS_DEBUG_DEFAULT_SETTING;
 
 	/* ================================================================= */
 	/* +++ NB: before kernel 2.6.13, the functions we use were
@@ -5078,11 +5078,12 @@ static int __init kbus_init(void)
 	 * Not to be enabled by default! */
 #endif
 
-	if (kbus_num_devices < MIN_NUM_DEVICES ||
-	    kbus_num_devices > MAX_NUM_DEVICES) {
+	if (kbus_num_devices < KBUS_MIN_NUM_DEVICES ||
+	    kbus_num_devices > KBUS_MAX_NUM_DEVICES) {
 		printk(KERN_ERR
 		       "kbus: requested number of devices %d not %d..%d\n",
-		       kbus_num_devices, MIN_NUM_DEVICES, MAX_NUM_DEVICES);
+		       kbus_num_devices,
+		       KBUS_MIN_NUM_DEVICES, KBUS_MAX_NUM_DEVICES);
 		return -EINVAL;
 	}
 
@@ -5091,7 +5092,7 @@ static int __init kbus_init(void)
 	 * Our main purpose is to provide /dev/kbus
 	 * We are happy to start our device numbering with device 0
 	 */
-	result = alloc_chrdev_region(&devno, kbus_minor, MAX_NUM_DEVICES,
+	result = alloc_chrdev_region(&devno, kbus_minor, KBUS_MAX_NUM_DEVICES,
 				     "kbus");
 	/* We're quite happy with dynamic allocation of our major number */
 	kbus_major = MAJOR(devno);
@@ -5103,7 +5104,7 @@ static int __init kbus_init(void)
 		return result;
 	}
 
-	kbus_devices = kmalloc(MAX_NUM_DEVICES * sizeof(struct kbus_dev *),
+	kbus_devices = kmalloc(KBUS_MAX_NUM_DEVICES * sizeof(struct kbus_dev *),
 			       GFP_KERNEL);
 	if (!kbus_devices) {
 		printk(KERN_WARNING "kbus: Cannot allocate devices\n");
@@ -5141,7 +5142,8 @@ static int __init kbus_init(void)
 	}
 
 	kbus_class_devices =
-	    kmalloc(MAX_NUM_DEVICES * sizeof(*kbus_class_devices), GFP_KERNEL);
+	    kmalloc(KBUS_MAX_NUM_DEVICES * sizeof(*kbus_class_devices),
+			    GFP_KERNEL);
 	if (!kbus_class_devices) {
 		printk(KERN_ERR
 		       "kbus: Error creating kbus class device array\n");
