@@ -2155,7 +2155,7 @@ static void kbus_safe_report_unbinding(struct kbus_private_data *priv,
 
 	if (priv->dev->unsent_unbind_is_tragic ||
 	    (num_listeners + priv->dev->unsent_unbind_msg_count >
-	     KBUS_MAX_UNSENT_UNBIND_MESSAGES)) {
+	     CONFIG_KBUS_MAX_UNSENT_UNBIND_MESSAGES)) {
 		struct kbus_msg_id in_reply_to = { 0, 0 };	/* no-one */
 		/*
 		 * Either the list had already gone tragic, or we've
@@ -2620,7 +2620,7 @@ static int kbus_open(struct inode *inode, struct file *filp)
 	priv->dev = dev;
 	priv->id = dev->next_ksock_id++;
 	priv->pid = current->pid;
-	priv->max_messages = KBUS_DEF_MAX_MESSAGES;
+	priv->max_messages = CONFIG_KBUS_DEF_MAX_MESSAGES;
 	priv->sending = false;
 	priv->num_replies_unsent = 0;
 	priv->max_replies_unsent = 0;

@@ -654,14 +654,18 @@ struct kbus_private_data {
 };
 
 /* What is a sensible number for the default maximum number of messages? */
-#define KBUS_DEF_MAX_MESSAGES	100
+#ifndef CONFIG_KBUS_DEF_MAX_MESSAGES
+#define CONFIG_KBUS_DEF_MAX_MESSAGES	100
+#endif
 
 /*
  * What about the maximum number of unsent unbind event messages?
  * This may want to be quite large, to allow for Limpets with momentary
  * network outages.
  */
-#define KBUS_MAX_UNSENT_UNBIND_MESSAGES	1000	/* Probably too small... */
+#ifndef CONFIG_KBUS_MAX_UNSENT_UNBIND_MESSAGES
+#define CONFIG_KBUS_MAX_UNSENT_UNBIND_MESSAGES 1000 /* Probably too small... */
+#endif
 
 /* Information belonging to each /dev/kbus<N> device */
 struct kbus_dev {
