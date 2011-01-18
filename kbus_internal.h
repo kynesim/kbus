@@ -262,6 +262,21 @@ enum kbus_msg_parts {
 #define KBUS_NUM_PARTS (KBUS_PART_FINAL_GUARD+1)
 
 /*
+ * Replier typing.
+ * The higher the replier type, the more specific it is.
+ * We trust the binding mechanisms not to have created two replier
+ * bindings of the same type for the same name (so we shan't, for
+ * example, get '$.Fred.*' bound as replier twice).
+ */
+
+enum kbus_replier_type {
+	UNSET = 0,
+	WILD_STAR,
+	WILD_PERCENT,
+	SPECIFIC
+};
+
+/*
  * A reference counting wrapper for message data
  *
  * If 'as_pages' is false, then the data is stored as a single kmalloc'd

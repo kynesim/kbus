@@ -116,6 +116,20 @@ static const char* kbus_msg_part_name(enum kbus_msg_parts p)
 	return "???";
 }
 
+/* What's the symbolic name of a replier type? */
+static const char* kbus_replier_type_name(enum kbus_replier_type t)
+{
+	switch(t) {
+		case UNSET:		return "UNSET";
+		case WILD_STAR:		return "WILD_STAR";
+		case WILD_PERCENT: 	return "WILD_PERCENT";
+		case SPECIFIC:		return "SPECIFIC";
+	}
+	printk(KERN_ERR "kbus: unhandled enum lookup %d in "
+			"kbus_replier_type_name - memory corruption?", t);
+	return "???";
+}
+
 /*
  * Wrap a set of data pointers and lengths in a reference
  */
@@ -1617,24 +1631,8 @@ static int kbus_find_listeners(struct kbus_dev *dev,
 	struct kbus_message_binding *ptr;
 	struct kbus_message_binding *next;
 
-	/*
-	 * The higher the replier type, the more specific it is.
-	 * We trust the binding mechanisms not to have created two replier
-	 * bindings of the same type for the same name (so we shan't get
-	 * '$.Fred.*' bound as replier twice).
-	 */
-	enum replier_type {
-		UNSET,
-		WILD_STAR,
-		WILD_PERCENT,
-		SPECIFIC
-	};
-#define REPLIER_TYPE(r)		((r) == UNSET ? "UNSET" : \
-				 (r) == WILD_STAR ? "WILD_STAR" : \
-				 (r) == WILD_PERCENT ? "WILD_PERCENT" : \
-				 (r) == SPECIFIC ? "SPECIFIC" : "???")
-	enum replier_type replier_type = UNSET;
-	enum replier_type new_replier_type = UNSET;
+	enum kbus_replier_type replier_type = UNSET;
+	enum kbus_replier_type new_replier_type = UNSET;
 
 	kbus_maybe_dbg(dev,
 		       "kbus:   Looking for listeners/repliers for '%.*s'\n",
@@ -1670,15 +1668,14 @@ static int kbus_find_listeners(struct kbus_dev *dev,
 					new_replier_type = SPECIFIC;
 
 				kbus_maybe_dbg(dev,
-					       "kbus:      ..previous replier"
-					       " was %u (%s), looking at %u "
-					       "(%s)\n",
-					       ((*replier) ==
-						NULL ? 0 : (*replier)->
-						bound_to_id),
-					       REPLIER_TYPE(replier_type),
-					       ptr->bound_to_id,
-					       REPLIER_TYPE(new_replier_type));
+					"kbus:      ..previous replier was %u "
+					"(%s), looking at %u (%s)\n",
+					((*replier) == NULL ? 0 :
+						(*replier)-> bound_to_id),
+					kbus_replier_type_name(replier_type),
+					ptr->bound_to_id,
+					kbus_replier_type_name(new_replier_type)
+					);
 
 				/*
 				 * If this is the first replier, just remember
@@ -1693,8 +1690,8 @@ static int kbus_find_listeners(struct kbus_dev *dev,
 						       "kbus:      ..going "
 						       "with replier %u (%s)\n",
 						       ptr->bound_to_id,
-						       REPLIER_TYPE
-						       (new_replier_type));
+						       kbus_replier_type_name(
+							     new_replier_type));
 
 					*replier = ptr;
 					replier_type = new_replier_type;
@@ -1704,8 +1701,8 @@ static int kbus_find_listeners(struct kbus_dev *dev,
 						       "kbus:      ..keeping "
 						       "replier %u (%s)\n",
 						       (*replier)->bound_to_id,
-						       REPLIER_TYPE
-						       (replier_type));
+						       kbus_replier_type_name(
+							       replier_type));
 				}
 			} else {
 				/* It is a listener */
