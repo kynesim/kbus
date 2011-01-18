@@ -48,14 +48,15 @@ def cross_numeric(sym, vals):
 tests = []
 cross_ud('CONFIG_KBUS_DEBUG')
 cross_ud('CONFIG_KBUS_DEBUG_DEBUG_DEFAULT_VERBOSE')
-cross_numeric('DEBUG_READ',[0,1])
-cross_numeric('DEBUG_WRITE',[0,1])
-cross_numeric('DEBUG_REFCOUNT',[0,1])
-cross_numeric('DEBUG_PRINTK_DISTINGUISHER',[0,1])
+cross_numeric('KBUS_DEBUG_READ',[0,1])
+cross_numeric('KBUS_DEBUG_WRITE',[0,1])
+cross_numeric('KBUS_DEBUG_REFCOUNT',[0,1])
+cross_numeric('KBUS_DEBUG_SHOW_TRANSITIONS',[0,1])
 
 #############################################################
 
-def runtest(testflags, show_all_cases = False, show_output_on_err = True):
+def runtest(testflags, show_all_cases = False, show_output_on_err = True,
+		show_output_anyway = False):
 	cflags=[]
 	cflags.extend(globalCFlags)
 	cflags.extend(testflags)
@@ -71,7 +72,11 @@ def runtest(testflags, show_all_cases = False, show_output_on_err = True):
 		print "> %s"%teststr
 
 	os.environ['EXTRA_CFLAGS']=teststr
-	os.environ['VERBOSE']='0'
+	if show_output_anyway:
+		os.environ['VERBOSE']='1'
+	else:
+		os.environ['VERBOSE']='0'
+
 	p = Popen(['make', 'all'], shell=True,
 			stdout=PIPE, stderr=STDOUT)
 	ret = p.communicate()
@@ -84,6 +89,10 @@ def runtest(testflags, show_all_cases = False, show_output_on_err = True):
 			print ret[0]
 			print "======================================="
 		raise CalledProcessError("make", p.returncode)
+	else:
+		if show_output_anyway:
+			print ret[0]
+			print "======================================="
 
 globalCFlags=['-DCONFIG_KBUS']
 
@@ -100,7 +109,7 @@ if verbose:
 for t in tests:
 	try:
 		# TODO: Make this parallel on multiple CPUs
-		runtest(t,verbose,show_errs_detail)
+		runtest(t,verbose,show_errs_detail, False)
 	except CalledProcessError:
 		fails=fails+1
 		if not continueOnError:
