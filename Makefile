@@ -60,7 +60,7 @@ endif
 
 # We use 'O= ' deliberately, because kernel make, which creates the .ko
 # does not like to build object files in non-source directories.
-kbus.ko : kbus.c kbus_defns.h
+kbus.ko : kbus.c kbus_defns.h kbus_internal.h
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= V=$(VERBOSE) \
 		EXTRA_CFLAGS="$(EXTRA_CFLAGS)" \
 		modules
