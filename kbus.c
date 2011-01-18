@@ -99,6 +99,23 @@ static int kbus_alloc_ref_data(struct kbus_private_data *priv,
 			       struct kbus_data_ptr **ret_ref_data);
 /* ========================================================================= */
 
+/* What's the symbolic name of a message part? */
+static const char* kbus_msg_part_name(enum kbus_msg_parts p)
+{
+	switch(p) {
+		case KBUS_PART_HDR:	return "HDR";
+		case KBUS_PART_NAME:	return "NAME";
+		case KBUS_PART_NPAD:	return "NPAD";
+		case KBUS_PART_DATA:	return "DATA";
+		case KBUS_PART_DPAD:	return "DPAD";
+		case KBUS_PART_FINAL_GUARD:	return "FINAL";
+	}
+
+	printk(KERN_ERR "kbus: unhandled enum lookup %d in kbus_msg_part_name "
+			"- memory corruption?", p);
+	return "???";
+}
+
 /*
  * Wrap a set of data pointers and lengths in a reference
  */
@@ -4965,17 +4982,7 @@ static int kbus_stats_seq_show(struct seq_file *s, void *v)
 				"%ssending\n",
 				   (total - left), total,
 				   ptr->write.pos,
-				   (ptr->write.which == KBUS_PART_HDR ? "HDR" :
-				    ptr->write.which ==
-				    KBUS_PART_NAME ? "NAME" : ptr->write.
-				    which ==
-				    KBUS_PART_NPAD ? "NPAD" : ptr->write.
-				    which ==
-				    KBUS_PART_DATA ? "DATA" : ptr->write.
-				    which ==
-				    KBUS_PART_DPAD ? "DPAD" : ptr->write.
-				    which ==
-				    KBUS_PART_FINAL_GUARD ? "FINAL" : "???"),
+				   kbus_msg_part_name(ptr->write.which),
 				   ptr->write.is_finished ? "" : "not ",
 				   ptr->sending ? "" : "not ");
 

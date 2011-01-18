@@ -247,14 +247,19 @@ struct kbus_unreplied_item {
  *
  * Remember that kbus_read always delivers an "entire" message.
  */
-#define KBUS_PART_HDR		0
-#define KBUS_PART_NAME		1
-#define KBUS_PART_NPAD		2
-#define KBUS_PART_DATA		3
-#define KBUS_PART_DPAD		4
-#define KBUS_PART_FINAL_GUARD	5
+enum kbus_msg_parts {
+	KBUS_PART_HDR = 0,
+	KBUS_PART_NAME,
+	KBUS_PART_NPAD,
+	KBUS_PART_DATA,
+	KBUS_PART_DPAD,
+	KBUS_PART_FINAL_GUARD
+};
+/* N.B. New message parts require switch cases in kbus_msg_part_name()
+ * and kbus_write_parts().
+ */
 
-#define KBUS_NUM_PARTS		6
+#define KBUS_NUM_PARTS (KBUS_PART_FINAL_GUARD+1)
 
 /*
  * A reference counting wrapper for message data
@@ -448,7 +453,7 @@ struct kbus_write_msg {
 	uint32_t guard;		/* Whichever guard we're reading */
 	char *user_name_ptr;	/* User space name */
 	void *user_data_ptr;	/* User space data */
-	int which;
+	enum kbus_msg_parts which;
 	uint32_t pos;
 	struct kbus_name_ptr *ref_name;
 	struct kbus_data_ptr *ref_data;
