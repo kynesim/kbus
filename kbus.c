@@ -297,21 +297,19 @@ static int kbus_same_message_id(struct kbus_msg_id *msg_id,
 
 static int kbus_init_msg_id_memory(struct kbus_private_data *priv)
 {
-#define INIT_MSG_ID_MEMSIZE	16
-
 	struct kbus_msg_id_mem *mem = &priv->outstanding_requests;
 	struct kbus_msg_id *ids;
 
-	ids = kmalloc(sizeof(*ids) * INIT_MSG_ID_MEMSIZE, GFP_KERNEL);
+	ids = kmalloc(sizeof(*ids) * KBUS_INIT_MSG_ID_MEMSIZE, GFP_KERNEL);
 	if (!ids)
 		return -ENOMEM;
 
-	memset(ids, 0, sizeof(*ids) * INIT_MSG_ID_MEMSIZE);
+	memset(ids, 0, sizeof(*ids) * KBUS_INIT_MSG_ID_MEMSIZE);
 
 	mem->count = 0;
 	mem->max_count = 0;
 	mem->ids = ids;
-	mem->size = INIT_MSG_ID_MEMSIZE;
+	mem->size = KBUS_INIT_MSG_ID_MEMSIZE;
 	return 0;
 }
 
@@ -1597,9 +1595,8 @@ static int kbus_find_listeners(struct kbus_dev *dev,
 			       struct kbus_message_binding **replier,
 			       uint32_t name_len, char *name)
 {
-#define INIT_LISTENER_ARRAY_SIZE	8
 	int count = 0;
-	int array_size = INIT_LISTENER_ARRAY_SIZE;
+	int array_size = KBUS_INIT_LISTENER_ARRAY_SIZE;
 	struct kbus_message_binding *ptr;
 	struct kbus_message_binding *next;
 
@@ -4956,17 +4953,16 @@ static int kbus_stats_seq_show(struct seq_file *s, void *v)
 			else
 				total = 0;
 
-			/* Sorry for the dangly message format */
-#define KSOCK_DETAIL_FORMAT \
-"    ksock %u last msg %u:%u queue %u of %u\n" \
-"      read byte %u of %u, wrote byte %u of %s (%sfinished), %ssending\n" \
-"      outstanding requests %u (size %u, max %u), unsent replies %u (max %u)\n"
-
-			seq_printf(s, KSOCK_DETAIL_FORMAT,
+			seq_printf(s, "    ksock %u last msg %u:%u "
+					"queue %u of %u\n",
 				   ptr->id,
 				   ptr->last_msg_id_sent.network_id,
 				   ptr->last_msg_id_sent.serial_num,
-				   ptr->message_count, ptr->max_messages,
+				   ptr->message_count, ptr->max_messages);
+
+			seq_printf(s, "      read byte %u of %u, "
+				"wrote byte %u of %s (%sfinished), "
+				"%ssending\n",
 				   (total - left), total,
 				   ptr->write.pos,
 				   (ptr->write.which == KBUS_PART_HDR ? "HDR" :
@@ -4981,12 +4977,16 @@ static int kbus_stats_seq_show(struct seq_file *s, void *v)
 				    which ==
 				    KBUS_PART_FINAL_GUARD ? "FINAL" : "???"),
 				   ptr->write.is_finished ? "" : "not ",
-				   ptr->sending ? "" : "not ",
-				   ptr->outstanding_requests.count,
-				   ptr->outstanding_requests.size,
-				   ptr->outstanding_requests.max_count,
-				   ptr->num_replies_unsent,
-				   ptr->max_replies_unsent);
+				   ptr->sending ? "" : "not ");
+
+			seq_printf(s, "      outstanding requests %u "
+					"(size %u, max %u), "
+					"unsent replies %u (max %u)\n",
+					ptr->outstanding_requests.count,
+					ptr->outstanding_requests.size,
+					ptr->outstanding_requests.max_count,
+					ptr->num_replies_unsent,
+					ptr->max_replies_unsent);
 		}
 		mutex_unlock(&dev->mux);
 	}

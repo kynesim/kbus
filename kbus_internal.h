@@ -173,6 +173,10 @@
 #define KBUS_DEBUG_DEFAULT_SETTING false
 #endif
 
+/* Initial array sizes, could be made configurable for tuning? */
+#define KBUS_INIT_MSG_ID_MEMSIZE	16
+#define KBUS_INIT_LISTENER_ARRAY_SIZE	8
+
 /* ========================================================================= */
 
 /* We need a way of remembering message bindings */
