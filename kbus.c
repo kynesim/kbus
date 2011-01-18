@@ -1685,24 +1685,22 @@ static int kbus_find_listeners(struct kbus_dev *dev,
 				if (*replier == NULL ||
 				    new_replier_type > replier_type) {
 
-					if (*replier)
-						kbus_maybe_dbg(dev,
-						       "kbus:      ..going "
-						       "with replier %u (%s)\n",
-						       ptr->bound_to_id,
-						       kbus_replier_type_name(
-							     new_replier_type));
+					kbus_conditional_dbg(*replier, dev,
+						"kbus:      ..going "
+						"with replier %u (%s)\n",
+						ptr->bound_to_id,
+						kbus_replier_type_name(
+							new_replier_type));
 
 					*replier = ptr;
 					replier_type = new_replier_type;
 				} else {
-					if (*replier)
-						kbus_maybe_dbg(dev,
-						       "kbus:      ..keeping "
-						       "replier %u (%s)\n",
-						       (*replier)->bound_to_id,
-						       kbus_replier_type_name(
-							       replier_type));
+					kbus_conditional_dbg(*replier, dev, 
+					       "kbus:      ..keeping "
+					       "replier %u (%s)\n",
+					       (*replier)->bound_to_id,
+					       kbus_replier_type_name(
+						       replier_type));
 				}
 			} else {
 				/* It is a listener */
