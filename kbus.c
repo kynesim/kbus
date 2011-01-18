@@ -192,7 +192,7 @@ static void kbus_release_data_ref(struct kref *ref)
 						     refcount);
 	kbus_maybe_dbg_refcount("kbus: RELEASE DATA\n");
 	if (refdata->parts == NULL) {
-		/* XXX Do we think this can happen? */
+		/* Not that I think this can happen */
 		printk(KERN_ERR "kbus: Removing data reference,"
 		       " but data ptr already freed\n");
 	} else {
@@ -276,7 +276,7 @@ static void kbus_release_name_ref(struct kref *ref)
 	kbus_maybe_dbg_refcount("kbus:    refname->name is %p\n",
 				refname->name);
 	if (refname->name == NULL) {
-		/* XXX Do we think this can happen? */
+		/* Not that I think this can happen */
 		printk(KERN_ERR "kbus: Removing name reference,"
 		       " but name ptr already freed\n");
 	} else {
@@ -402,7 +402,6 @@ static int kbus_remember_msg_id(struct kbus_private_data *priv,
 				    GFP_KERNEL);
 		if (!mem->ids)
 			return -EFAULT;
-		/* XXX Should probably be a memset or somesuch */
 		for (ii = old_size; ii < new_size; ii++) {
 			mem->ids[ii].network_id = 0;
 			mem->ids[ii].serial_num = 0;
@@ -978,11 +977,11 @@ static int kbus_push_message(struct kbus_private_data *priv,
 		 * So, given that, has a message with that id already been
 		 * added to the message queue?
 		 *
-		 * XXX Note that if a message would be included because of
-		 * XXX multiple message name bindings, we do not say anything
-		 * XXX about which binding we will actually add the message
-		 * XXX for - so unbinding later on may or may not cause a
-		 * XXX message to go away, in this case.
+		 * (Note that if a message would be included because of
+		 * multiple message name bindings, we do not say anything
+		 * about which binding we will actually add the message
+		 * for - so unbinding later on may or may not cause a
+		 * message to go away, in this case.)
 		 */
 		if (kbus_same_message_id(&priv->msg_id_just_pushed,
 					 msg->id.network_id,
@@ -1261,9 +1260,6 @@ struct kbus_msg
 	 *
 	 * In this scenario, the user needs to catch a "bind"/"unbind" return
 	 * of -EAGAIN and realise that it needs to try again.
-	 *
-	 * XXX Ideally, we should be able to use select to wait until that's
-	 * XXX sensible - does that work out of the box???
 	 */
 	new_msg->flags |= KBUS_BIT_ALL_OR_FAIL;
 
@@ -2111,10 +2107,8 @@ static void kbus_safe_report_unbinding(struct kbus_private_data *priv,
 
 	/* Generate the message we'd *like* to send */
 	msg = kbus_new_synthetic_bind_message(priv, false, name_len, name);
-	if (msg == NULL) {
-		/* XXX What can we do? */
-		return;
-	}
+	if (msg == NULL)
+		return;	/* There is nothing sensible to do here */
 
 	/* If we're lucky, we can just send it */
 	retval = kbus_write_to_recipients(priv, priv->dev, msg);
@@ -3666,11 +3660,11 @@ static int kbus_unbind(struct kbus_private_data *priv,
 
 	/*
 	 * If we're unbinding from $.KBUS.ReplierBindEvent, and there
-	 * are (or maybe) any such kept for us on the unread Replier
+	 * are (or may be) any such kept for us on the unread Replier
 	 * Unbind Event list, then we need to remove them as well...
 	 *
-	 * XXX NOTE that the following only detects an exact match to
-	 * XXX $.KBUS.ReplierBindEvent, which is probably not sufficient...
+	 * NOTE that the following only checks for exact matchs to
+	 * $.KBUS.ReplierBindEvent, which should be sufficient...
 	 */
 	if (priv->maybe_got_unsent_unbind_msgs &&
 	    !strcmp(name, KBUS_MSG_NAME_REPLIER_BIND_EVENT)) {
@@ -3687,10 +3681,9 @@ static int kbus_unbind(struct kbus_private_data *priv,
 		int rv = kbus_maybe_move_unsent_unbind_msg(priv);
 		/* If this fails, we're probably stumped */
 		if (rv)	{
-			/* But what to do? XXX
-			 * Don't set retval to rv, that squashes the
-			 * main result. This is really a cleaning-up
-			 * sort of error. */
+			/* The best we can do is grumble gently. We still
+			 * want to return retval, not rv.
+			 */
 			printk(KERN_ERR
 			       "kbus: Failed to move unsent messages on "
 			       "unbind (error %d)\n", -rv);
@@ -4190,7 +4183,7 @@ static int kbus_send(struct kbus_private_data *priv,
 		printk(KERN_ERR "kbus: pid %u [%s]"
 		       " message not finished (in part %d of message)\n",
 		       current->pid, current->comm, priv->write.which);
-		retval = -EINVAL;	/* XXX Consider if there's better */
+		retval = -EINVAL;
 		goto done;
 	}
 
@@ -5160,7 +5153,6 @@ static int __init kbus_init(void)
 		       "kbus: Error creating kbus class device array\n");
 		unregister_chrdev_region(devno, kbus_num_devices);
 		class_destroy(kbus_class_p);
-		/* XXX Is this enough tidying up? CHECK XXX */
 		return -ENOMEM;
 	}
 
