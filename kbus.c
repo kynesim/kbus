@@ -781,6 +781,10 @@ static void kbus_report_message(struct kbus_dev *dev, char *kern_prefix,
 		       (msg->flags & 0xFFFF0000) >> 4,
 		       (msg->flags & 0x0000FFFF));
 	}
+	/* unused if debug off: */
+	(void)dev;
+	(void)kern_prefix;
+	(void)msg;
 }
 
 static void kbus_report_write_msg(struct kbus_private_data *priv)
@@ -2747,6 +2751,7 @@ static int kbus_queue_is_full(struct kbus_private_data *priv,
 			       (is_reply ? "-1" : ""), priv->max_messages);
 		return true;
 	}
+	(void) what; /* unused if debug off */
 }
 
 /*
@@ -3407,6 +3412,8 @@ done:
 		return retval;
 	else
 		return count;
+
+	(void) f_pos; /* unused if debug off */
 }
 
 static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
@@ -3536,6 +3543,8 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 done:
 	mutex_unlock(&dev->mux);
 	return retval;
+
+	(void) f_pos; /* unused if debug off */
 }
 
 static int kbus_bind(struct kbus_private_data *priv,
@@ -3751,6 +3760,7 @@ done:
 	kfree(name);
 	kfree(query);
 	return retval;
+	(void)priv; /* unused if debug off */
 }
 
 /*
@@ -4032,6 +4042,7 @@ static int kbus_alloc_ref_data(struct kbus_private_data *priv,
 	}
 	*ret_ref_data = ref_data;
 	return 0;
+	(void)priv; /* unused if debug off */
 }
 
 /*
@@ -4332,6 +4343,7 @@ static int kbus_nummsgs(struct kbus_private_data *priv,
 		       dev->index, priv->id, count);
 
 	return __put_user(count, (uint32_t __user *) arg);
+	(void)dev; /* unused if debug off */
 }
 
 static int kbus_onlyonce(struct kbus_private_data *priv,

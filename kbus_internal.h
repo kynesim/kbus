@@ -121,7 +121,7 @@
 } while (0)
 #else
 #define KBUS_DEBUG_ENABLED 0
-#define kbus_maybe_dbg(dev, format, args...) /* no-op */
+#define kbus_maybe_dbg(dev, format, args...) ((void)0)/* no-op */
 #endif
 
 /* Extra debug options. These are unlikely to be of use to non-kbus-hackers
