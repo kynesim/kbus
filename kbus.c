@@ -4367,14 +4367,13 @@ static int kbus_set_verbosity(struct kbus_private_data *priv,
 	if (retval)
 		return retval;
 
-#ifdef CONFIG_KBUS_DEBUG
 	/*
 	 * If we're *leaving* verbose mode, we would say so (!),
 	 * and we should arguably announce when we enter it as well...
 	 */
-	printk(KERN_DEBUG "kbus: %u/%u VERBOSE requests %u (was %d)\n",
-	       priv->dev->index, priv->id, verbose, old_value);
-#endif
+	if (KBUS_DEBUG_ENABLED)
+		printk(KERN_INFO "kbus: %u/%u VERBOSE requests %u (was %d)\n",
+				priv->dev->index, priv->id, verbose, old_value);
 
 	switch (verbose) {
 	case 0:
@@ -5071,11 +5070,10 @@ static int __init kbus_init(void)
 
 	printk(KERN_NOTICE "Initialising kbus module (%d device%s)\n",
 	       kbus_num_devices, kbus_num_devices == 1 ? "" : "s");
-#if DEBUG_PRINTK_DISTINGUISHER
-	printk(KERN_NOTICE "========================\n");
+	if (KBUS_DEBUG_ENABLED && KBUS_DEBUG_SHOW_TRANSITIONS)
+		printk(KERN_NOTICE "========================\n");
 	/* This allows hackers to see rmmod/insmod transitions.
 	 * Not to be enabled by default! */
-#endif
 
 	if (kbus_num_devices < KBUS_MIN_NUM_DEVICES ||
 	    kbus_num_devices > KBUS_MAX_NUM_DEVICES) {

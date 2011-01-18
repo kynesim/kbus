@@ -114,11 +114,13 @@
 #endif
 
 #ifdef CONFIG_KBUS_DEBUG
+#define KBUS_DEBUG_ENABLED 1
 #define kbus_maybe_dbg(dev, format, args...) do { \
 	if (dev->verbose) \
 		(void) printk(KERN_DEBUG format, ## args); \
 } while (0)
 #else
+#define KBUS_DEBUG_ENABLED 0
 #define kbus_maybe_dbg(dev, format, args...) /* no-op */
 #endif
 
@@ -159,12 +161,13 @@
 #define kbus_maybe_dbg_write(dev, format, args...) \
 	kbus_conditional_dbg(KBUS_DEBUG_WRITE, dev, format, ##args)
 
-/* Add a distinguisher to make the dmesg output easier to visually scan?
- * This should not be enabled by default. */
-#ifndef DEBUG_PRINTK_DISTINGUISHER
-#define DEBUG_PRINTK_DISTINGUISHER 0
+/* Add a visual distinguisher to printk output to highlight the
+ * insmod/rmmod cycles of a long test run?
+ * This symbol should not be set to 1 unless you are running kbus
+ * tests, as it pollutes the printk output. */
+#ifndef KBUS_DEBUG_SHOW_TRANSITIONS
+#define KBUS_DEBUG_SHOW_TRANSITIONS 0
 #endif
-
 
 /* Should we default to verbose? */
 #ifdef CONFIG_KBUS_DEBUG_DEFAULT_VERBOSE
