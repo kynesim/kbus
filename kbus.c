@@ -107,15 +107,15 @@ static int kbus_alloc_ref_data(struct kbus_private_data *priv,
 /* ========================================================================= */
 
 /* What's the symbolic name of a message part? */
-static const char* kbus_msg_part_name(enum kbus_msg_parts p)
+static const char *kbus_msg_part_name(enum kbus_msg_parts p)
 {
-	switch(p) {
-		case KBUS_PART_HDR:	return "HDR";
-		case KBUS_PART_NAME:	return "NAME";
-		case KBUS_PART_NPAD:	return "NPAD";
-		case KBUS_PART_DATA:	return "DATA";
-		case KBUS_PART_DPAD:	return "DPAD";
-		case KBUS_PART_FINAL_GUARD:	return "FINAL";
+	switch (p) {
+	case KBUS_PART_HDR:	return "HDR";
+	case KBUS_PART_NAME:	return "NAME";
+	case KBUS_PART_NPAD:	return "NPAD";
+	case KBUS_PART_DATA:	return "DATA";
+	case KBUS_PART_DPAD:	return "DPAD";
+	case KBUS_PART_FINAL_GUARD:	return "FINAL";
 	}
 
 	printk(KERN_ERR "kbus: unhandled enum lookup %d in kbus_msg_part_name "
@@ -124,13 +124,13 @@ static const char* kbus_msg_part_name(enum kbus_msg_parts p)
 }
 
 /* What's the symbolic name of a replier type? */
-static const char* kbus_replier_type_name(enum kbus_replier_type t)
+static const char *kbus_replier_type_name(enum kbus_replier_type t)
 {
-	switch(t) {
-		case UNSET:		return "UNSET";
-		case WILD_STAR:		return "WILD_STAR";
-		case WILD_PERCENT: 	return "WILD_PERCENT";
-		case SPECIFIC:		return "SPECIFIC";
+	switch (t) {
+	case UNSET:		return "UNSET";
+	case WILD_STAR:		return "WILD_STAR";
+	case WILD_PERCENT:	return "WILD_PERCENT";
+	case SPECIFIC:		return "SPECIFIC";
 	}
 	printk(KERN_ERR "kbus: unhandled enum lookup %d in "
 			"kbus_replier_type_name - memory corruption?", t);
@@ -1674,7 +1674,7 @@ static int kbus_find_listeners(struct kbus_dev *dev,
 					"kbus:      ..previous replier was %u "
 					"(%s), looking at %u (%s)\n",
 					((*replier) == NULL ? 0 :
-						(*replier)-> bound_to_id),
+						(*replier)->bound_to_id),
 					kbus_replier_type_name(replier_type),
 					ptr->bound_to_id,
 					kbus_replier_type_name(new_replier_type)
@@ -1698,7 +1698,7 @@ static int kbus_find_listeners(struct kbus_dev *dev,
 					*replier = ptr;
 					replier_type = new_replier_type;
 				} else {
-					kbus_conditional_dbg(*replier, dev, 
+					kbus_conditional_dbg(*replier, dev,
 					       "kbus:      ..keeping "
 					       "replier %u (%s)\n",
 					       (*replier)->bound_to_id,
@@ -2261,7 +2261,8 @@ static int kbus_maybe_move_unsent_unbind_msg(struct kbus_private_data *priv)
 		if (ptr->send_to_id == priv->id) {
 			int retval;
 			if (dev->verbose)
-				kbus_report_message(priv->dev, KERN_DEBUG, ptr->msg);
+				kbus_report_message(priv->dev,
+						KERN_DEBUG, ptr->msg);
 			/*
 			 * Move the message into our normal message queue.
 			 *
