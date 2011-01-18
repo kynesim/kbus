@@ -55,6 +55,8 @@
 #include <linux/sched.h>	/* for current->pid */
 #include <linux/uaccess.h>	/* copy_*_user() functions */
 #include <asm/page.h>		/* PAGE_SIZE */
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
 
 #include "kbus_defns.h"
 #include "kbus_internal.h"
@@ -74,6 +76,11 @@ static struct kbus_dev **kbus_devices;
 
 static struct class *kbus_class_p;
 static struct device **kbus_class_devices;
+
+/* /proc */
+static struct proc_dir_entry *kbus_proc_dir;
+static struct proc_dir_entry *kbus_proc_file_bindings;
+static struct proc_dir_entry *kbus_proc_file_stats;
 
 /* ========================================================================= */
 
@@ -4851,12 +4858,6 @@ static void kbus_teardown_cdev(struct kbus_dev *dev)
 
 /* ========================================================================= */
 /* PROC */
-#include <linux/proc_fs.h>
-#include <linux/seq_file.h>
-
-static struct proc_dir_entry *kbus_proc_dir;
-static struct proc_dir_entry *kbus_proc_file_bindings;
-static struct proc_dir_entry *kbus_proc_file_stats;
 
 /*
  * Report on the current bindings, via /proc/kbus/bindings
