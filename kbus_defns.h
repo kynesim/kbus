@@ -75,13 +75,11 @@ struct kbus_msg_id {
 };
 
 /*
- * XXX REWRITE to (a) make sense and (b) be true.
- *
- * The "originally from" and "finally to" ids allow stateful requests to be
- * done over a Limpet-mediated system.
- *
- * Basically, they uniquely identify the source of a message, and the location
- * of the Replier with whom one wishes to communicate.
+ * kbus_orig_from is used for the "originally from" and "finally to" ids
+ * in the message header. These in turn are used when messages are
+ * being sent between KBUS systems (via KBUS "Limpets"). KBUS the kernel
+ * module transmits them, unaltered, but does not use them (although
+ * debug messages may report them).
  *
  * An "originally from" or "finally to" id is made up of two fields, the
  * network id (which indicates the Limpet, if any, that originally gated the
@@ -90,16 +88,9 @@ struct kbus_msg_id {
  *
  * If the network id is 0, then the "originally from" id is not being used.
  *
- * When a Reply is proxied through a Limpet, then the Limpet reading from
- * the Replier's KBUS sets the "originally from" field on the Reply message.
- *
- * When a Stateful Request message is composed (i.e., a Request message
- * whose "to" field is set) the the "to" is set to the Reply's "from"
- * field (as normal), but the Request's "originally from" field should
- * be set to a copy of the Reply's "originally from" field as well.
- *
- * Note that (apart from knowing how to report it) KBUS itself does not
- * touch this field, it just transmits it.
+ * Limpets and these fields are discussed in more detail in the userspace
+ * KBUS documentation - see http://kbus-messaging.org/ for pointers to
+ * more information.
  */
 struct kbus_orig_from {
 	uint32_t network_id;
@@ -138,14 +129,14 @@ struct kbus_message_header {
 	 *
 	 * - 'id' identifies this particular message.
 	 *
-	 *   When writing a new message, set this to {0,0}. KBUS will then
-	 *   set a new message id for the message.
+	 *   When a user writes a new message, they should set this to {0,0}.
+	 *   KBUS will then set a new message id for the message.
 	 *
-	 *   When reading a message, this will have been set by KBUS.
+	 *   When a user reads a message, this will have been set by KBUS.
 	 *
-	 *   When replying to a message, copy this value into the 'in_reply_to'
-	 *   field, so that the recipient will know what message this was a
-	 *   reply to.
+	 *   When a user replies to a message, they should copy this value
+	 *   into the 'in_reply_to' field, so that the recipient will know
+	 *   what message this was a reply to.
 	 *
 	 * - 'in_reply_to' identifies the message this is a reply to.
 	 *
@@ -155,15 +146,15 @@ struct kbus_message_header {
 	 *
 	 * - 'to' is who the message is to be sent to.
 	 *
-	 *   When writing a new message, this should normally be set to {0,0},
-	 *   meaning "anyone listening" (but see below if "state" is being
-	 *   maintained).
+	 *   When a user writes a new message, this should normally be set
+	 *   to {0,0}, meaning "anyone listening" (but see below if "state"
+	 *   is being maintained).
 	 *
 	 *   When replying to a message, it shall be set to the 'from' value
 	 *   of the orginal message.
 	 *
 	 *   When constructing a request message (a message wanting a reply),
-	 *   then it can be set to a specific replier id, to produce a stateful
+	 *   the user can set it to a specific replier id, to produce a stateful
 	 *   request. This is normally done by copying the 'from' of a previous
 	 *   Reply from the appropriate replier. When such a message is sent,
 	 *   if the replier bound (at that time) does not have that specific
@@ -173,38 +164,39 @@ struct kbus_message_header {
 	 *
 	 * - 'from' indicates who sent the message.
 	 *
-	 *   When writing a new message, set this to {0,0}.
+	 *   When a user is writing a new message, they should set this
+	 *   to {0,0}.
 	 *
-	 *   When reading a message, this will have been set by KBUS.
+	 *   When a user is reading a message, this will have been set
+	 *   by KBUS.
 	 *
-	 *   When replying to a message, put the value read into 'to',
-	 *   and set 'from' to {0,0} (see the "hmm" caveat under 'to' above,
-	 *   though).
+	 *   When a user replies to a message, the reply should have its
+	 *   'to' set to the original messages 'from', and its 'from' set
+	 *   to {0,0} (see the "hmm" caveat under 'to' above, though).
 	 *
-	 * - 'orig_from' is used when Limpets are mediating KBUS messages
-	 *   between KBUS devices (possibly on different machines). See
-	 *   the description by the datastructure definition above. When
-	 *   creating a stateful request, copy the 'orig_from' field from
-	 *   the previous Reply from the required replier.
+	 * - 'orig_from' and 'final_to' are used when Limpets are mediating
+	 *   KBUS messages between KBUS devices (possibly on different
+	 *   machines). See the description by the datastructure definition
+	 *   above. The KBUS kernel preserves and propagates their values,
+	 *   but does not alter or use them.
 	 *
-	 * - 'final_to' is somewhat similar XXX missing explanation
-	 *
-	 * - 'extra' is currently unused. KBUS will currently set it to zero,
-	 *   but future versions of the software may use it.
+	 * - 'extra' is currently unused, and KBUS will set it to zero.
+	 *   Future versions of KBUS may treat it differently.
 	 *
 	 * - 'flags' indicates the type of message.
 	 *
-	 *   When writing a message, this can be used to indicate that
+	 *   When a user writes a message, this can be used to indicate
+	 *   that:
 	 *
 	 *   * the message is URGENT
 	 *   * a reply is wanted
 	 *
-	 *   When reading a message, this indicates:
+	 *   When a user reads a message, this indicates if:
 	 *
 	 *   * the message is URGENT
 	 *   * a reply is wanted
 	 *
-	 *   When writing a reply, set this field to 0.
+	 *   When a user writes a reply, this field should be set to 0.
 	 *
 	 *   The top half of the 'flags' is not touched by KBUS, and may
 	 *   be used for any purpose the user wishes.
@@ -260,7 +252,7 @@ struct kbus_message_header {
  * - 'header.name' will point to 'rest[0]'
  * - 'header.data' will point to 'rest[(header.name_len+3)/4]'
  *
- * Followed by the name (padded to 4 bytes, remembering to allow for the
+ * followed by the name (padded to 4 bytes, remembering to allow for the
  * terminating null byte), followed by the data (padded to 4 bytes) followed by
  * (another) end_guard.
  */
@@ -665,7 +657,7 @@ struct kbus_replier_bind_event_data {
  */
 #define KBUS_IOC_REPORTREPLIERBINDS  _IOWR(KBUS_IOC_MAGIC, 17, char *)
 
-/* XXX If adding another IOCTL, remember to increment the next number! XXX */
+/* If adding another IOCTL, remember to increment the next number! */
 #define KBUS_IOC_MAXNR	17
 
 #if !__KERNEL__ && defined(__cplusplus)

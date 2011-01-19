@@ -572,30 +572,30 @@ struct kbus_private_data {
 	 *     from -- given which its easiest just to keep the parts we
 	 *     *do* need, and ignore the data.)
 	 *
-	 * XXX Do I need to limit the size of this list? *Can* it grow
-	 * XXX in an unbounded manner? The limitation is set by the ability
-	 * XXX of the sender(s) to send requests, which in turn is limited
-	 * XXX by the number of slots they can reserve for the replies to
-	 * XXX those requests, in their own message queues.
-	 * XXX
-	 * XXX If I do impose a limit, then I would also need to stop a
-	 * XXX sender sending a request because the replier has too many
-	 * XXX replies outstanding (which sounds like it might have gone
-	 * XXX to sleep). On the other hand, in that case we would also
-	 * XXX assume it's not reponding to messages in general, and so
-	 * XXX it's message queue would fill up, and I *think* that's a
-	 * XXX sufficient condition.
+	 * It was decided not to place a limit on the size of this list.
+	 * Its size is limited by the ability of sender(s) to send
+	 * requests, which in turn is limited by the the number of slots
+	 * they can reserve for the replies to those requests in their
+	 * own message queues.
+	 *
+	 * If a limit was imposed, then we would also need to stop a sender
+	 * sending a request because the replier has too many replies
+	 * outstanding (for instance, because it has gone to sleep). But
+	 * then we'd assume that it is not responding to messages in
+	 * general, and so its message queue would fill up, and that
+	 * should be sufficient protection.
 	 */
 	struct list_head replies_unsent;
 	uint32_t num_replies_unsent;
 	uint32_t max_replies_unsent;
 
 	/*
-	 * XXX ---------------------------------------------------------- XXX
-	 * Discussion: We need to police replying, such that a replier
-	 * may only reply to requests that it has received (where "received"
-	 * means "had placed into its message queue", because KBUS must reply
-	 * for us if the particular Ksock is not going to).
+	 * Managing which messages a replier may reply to
+	 * ----------------------------------------------
+	 * We need to police replying, such that a replier may only reply
+	 * to requests that it has received (where "received" means "had
+	 * placed into its message queue", because KBUS must reply for us
+	 * if the particular Ksock is not going to).
 	 *
 	 * It is possible to do this using either the 'outstanding_requests'
 	 * or the 'replies_unsent' list.
@@ -610,9 +610,8 @@ struct kbus_private_data {
 	 * in said 'replies_unsent' list, and check that the reply *does*
 	 * match the original request. This may be more efficient, depending.
 	 *
-	 * The 'outstanding_requests' list is currently used, simply because
+	 * In fact, the 'outstanding_requests' list is used, simply because
 	 * it was implemented first.
-	 * XXX ---------------------------------------------------------- XXX
 	 */
 
 	/*
@@ -654,14 +653,21 @@ struct kbus_private_data {
 };
 
 /* What is a sensible number for the default maximum number of messages? */
-#define KBUS_DEF_MAX_MESSAGES	100
+#ifndef CONFIG_KBUS_DEF_MAX_MESSAGES
+#define CONFIG_KBUS_DEF_MAX_MESSAGES	100
+#endif
 
 /*
  * What about the maximum number of unsent unbind event messages?
  * This may want to be quite large, to allow for Limpets with momentary
  * network outages.
+ *
+ * The default value is probably too small, but experimantation is
+ * needed to determine a more sensible value.
  */
-#define KBUS_MAX_UNSENT_UNBIND_MESSAGES	1000	/* Probably too small... */
+#ifndef CONFIG_KBUS_MAX_UNSENT_UNBIND_MESSAGES
+#define CONFIG_KBUS_MAX_UNSENT_UNBIND_MESSAGES 1000
+#endif
 
 /* Information belonging to each /dev/kbus<N> device */
 struct kbus_dev {
@@ -671,15 +677,13 @@ struct kbus_dev {
 
 	/*
 	 * The Big Lock
-	 * For the moment, try having a single mutex for all purposes
-	 * - we can do more specific locking later on if it proves useful.
+	 * We use a single mutex for all purposes, and all locking is done
+	 * at the "top level", i.e., in the externally called functions.
+	 * This simplifies the design of the internal (list processing,
+	 * etc.) functions, at the possible cost of making interaction
+	 * with KBUS, in general, slower.
 	 *
-	 * For the moment, all locking is done at the "top level", i.e.,
-	 * in the externally called functions. This simplifies the design
-	 * of the internal (list processing, etc.) functions, at the possible
-	 * cost of making interaction with kbus, in general, slower.
-	 *
-	 * On the other hand, we are not intending to provide a *fast* system.
+	 * On the other hand, we favour reliable over fast.
 	 */
 	struct mutex mux;
 
@@ -687,7 +691,7 @@ struct kbus_dev {
 	struct list_head bound_message_list;
 
 	/*
-	 * The actual Ksock entries (one per 'open("/dev/kbus0")')
+	 * The actual Ksock entries (one per 'open("/dev/kbus<n>")')
 	 * This is to allow us to find the 'kbus_private_data' instances,
 	 * so that we can get at all the message queues. The details of
 	 * how we do this are *definitely* going to change...
