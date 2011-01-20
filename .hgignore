@@ -5,6 +5,7 @@ syntax: glob
 *.so
 *.class
 *.jar
+*.pyc
 jkbus/java/include/com_kynesim_kbus_KMessage.h
 jkbus/java/include/com_kynesim_kbus_Ksock.h
 utils/kmsg
