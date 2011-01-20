@@ -6,9 +6,11 @@ KBUS Python bindings for Limpets
    Limpets
    -------
 
+   The LimpetExample class shows how a limpet might be deployed in practise.
+
    Limpet and run_a_limpet
    ~~~~~~~~~~~~~~~~~~~~~~~
-   .. autoclass:: Limpet
+   .. autoclass:: LimpetKsock
       :members:
       :show-inheritance:
       :undoc-members:
@@ -33,6 +35,11 @@ KBUS Python bindings for Limpets
       :undoc-members:
 
    .. autoclass:: BadMessage
+      :members:
+      :show-inheritance:
+      :undoc-members:
+
+   .. autoclass:: ErrorMessage
       :members:
       :show-inheritance:
       :undoc-members:

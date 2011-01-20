@@ -899,50 +899,52 @@ class Message(object):
 
     The arguments to Message() are:
 
-    - 'arg' -- this is the initial argument, and is a message name (a string
+    - `arg` -- this is the initial argument, and is a message name (a string
       that starts '$.'), a Message, or a string representing an "entire"
       message.
 
-    If 'arg' is a message name, or another Message then the keyword arguments
-    may be used (for another Message, they override the values in that Message).
-    if 'arg' is a message-as-a-string, they will be ignored):
+	    If `arg` is a message name, or another Message then the keyword
+	    arguments may be used (for another Message, they override the
+	    values in that Message).
+	    If `arg` is a message-as-a-string, any keyword arguments will be
+	    ignored.
 
-    - 'data' is data for the Message, either None or a Python string.
-    - 'to' is the Ksock id for the destination, for use in replies or in
+    - `data` is data for the Message, either None or a Python string.
+    - `to` is the Ksock id for the destination, for use in replies or in
       stateful messaging. Normally it should be left 0.
-    - 'from_' is the Ksock id of the sender. Normally this should be left
+    - `from_` is the Ksock id of the sender. Normally this should be left
       0, as it is assigned by KBUS.
-    - if 'in_reply_to' is non-zero, then it is the Ksock id to which the
-      reply shall go (taken from the 'from_' field in the original message).
-      Setting 'in_reply_to' non-zero indicates that the Message *is* a reply.
-      See also the Reply class, and especially the 'reply_to' function, which
+    - if `in_reply_to` is non-zero, then it is the Ksock id to which the
+      reply shall go (taken from the `from_` field in the original message).
+      Setting `in_reply_to` non-zero indicates that the Message *is* a reply.
+      See also the Reply class, and especially the `reply_to` function, which
       makes constructing replies simpler.
-    - 'flags' can be used to set the flags for the message. If all that is
+    - `flags` can be used to set the flags for the message. If all that is
       wanted is to set Messages.WANT_A_REPLY flag, it is simpler to use the
       Request class to construct the message.
-    - 'id' may be used to set the message id, although unless the network_id is
+    - `id` may be used to set the message id, although unless the network_id is
       set, KBUS will ignore this and set the id internally (this can be useful
       when constructing a message to compare received messages against).
 
     Our internal values are:
 
-    - 'msg', which is the actual message datastructure.
+    - `msg`, which is the actual message datastructure.
 
     .. note:: Message data is always held as the appropriate C datastructure
        (via ctypes), mainly to try to minimise copying of data in and out of
        that form.  A "pointy" or "entire" form is used as appropriate.
        
-       The Message fields ("inside" the 'msg' datastructure) are readable
+       The Message fields ("inside" the `msg` datastructure) are readable
        directly (as properties of Message), but are not directly writable.
-       'set_' methods are provided for those which are likely to be sensible
+       Setter methods are provided for those which are likely to be sensible
        to alter in normal use.
 
 
-       If you need to alter the Message contents, beyond use of the 'set_'
-       methods, then you will need to do so via the internal 'msg'
+       If you need to alter the Message contents, beyond use of the setter
+       methods, then you will need to do so via the internal `msg`
        datastructure, with a clear understanding of the KBUS datastructure.
        If you need an example of doing this, see the Limpet codebase (which
-       changes the 'id', 'orig_from' and 'final_to' fields, not something
+       changes the `id`, `orig_from` and `final_to` fields, not something
        normal code should need or want to do).
     """
 
@@ -996,7 +998,7 @@ class Message(object):
     @staticmethod
     def from_sequence(seq, data=None, to=None, from_=None, orig_from=None,
                       final_to=None, in_reply_to=None, flags=None, id=None):
-        """Construct a Message from a sequence, as returned by 'extract'.
+        """Construct a Message from a sequence, as returned by `extract`.
 
         All the values in the old message, except the name, may be changed
         by specifying new values in the argument list.
@@ -1394,7 +1396,8 @@ class Message(object):
         The values are returned in something approximating the order
         within the message itself:
 
-            (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data)
+            (`id`, `in_reply_to`, `to`, `from_`, `orig_from`, `final_to`, 
+	    `flags`, `name`, `data`)
 
         This is not the same order as the keyword arguments to Message().
         """
@@ -1826,7 +1829,7 @@ class Reply(Message):
     """A reply message.
 
         (Note that the constructor for this class does *not* flip fields (such
-        as 'id' and 'in_reply_to', or 'from_' and 'to') when building the Reply
+        as 'id' and 'in_reply_to', or `from_` and 'to') when building the Reply
         - if you want that behaviour (and you probably do), use the "reply_to"
         function.)
 
@@ -2147,7 +2150,7 @@ def stateful_request(earlier_msg, name, data=None, from_=None,
 
     'earlier_msg' is either:
 
-    1. an earlier Reply, whose 'from_' field will be used as the new Request's
+    1. an earlier Reply, whose `from_` field will be used as the new Request's
        'to' field, and whose 'orig_from' field will be used as the new Request's
        'final_to' field.
 
