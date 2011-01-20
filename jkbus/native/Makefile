@@ -1,4 +1,12 @@
-O ?= .
+# O is the desired out-of-tree object directory.
+# If set, we expect to find libkbus/libkbus.a within.
+# If not set we build in-tree, and pick up libkbus.a from ../../libkbus/.
+ifeq ($(O),)
+O := .
+BUILDROOT := ../..
+else
+BUILDROOT := $(O)
+endif
 CC ?= gcc
 JAVA_HOME ?= /usr/lib/jvm/default-java/
 
@@ -18,7 +26,7 @@ CFLAGS := -fPIC -DPIC -I$(JAVA_HOME)/include -I../java/include -I$(O)/include \
 all: dirs $(OBJS) $(O)/lib/$(LIB_NAME)
 
 $(O)/lib/$(LIB_NAME): $(OBJS)
-	$(CC) -o $(O)/lib/$(LIB_NAME) $(SO_FLAGS) $(OBJS) $(O)/libkbus/libkbus.a $(CFLAGS)
+	$(CC) -o $(O)/lib/$(LIB_NAME) $(SO_FLAGS) $(OBJS) $(BUILDROOT)/libkbus/libkbus.a $(CFLAGS)
 
 $(O)/obj/%.o: src/%.c
 	$(CC) -c -o $@ $^ $(CFLAGS)
