@@ -1,0 +1,5 @@
+This is the main repository for the kbus messaging system.
+
+The kernel module in `kbus' is a subrepository.
+
+Visit http://code.google.com/p/kbus/ for more information.

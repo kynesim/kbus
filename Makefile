@@ -23,7 +23,7 @@
 O ?= $(CURDIR)
 DESTDIR ?= /usr/local
 
-SUBDIRS=kbus libkbus utils
+SUBDIRS=libkbus utils
 
 # The MAKE all here is important - there's a distinction in the kbus
 # directory because the kernel makefile objects to building kernel 
