@@ -76,21 +76,21 @@ def _IOWR(t, nr, size):                         # read and write
 
 
 class BindStruct(ctypes.Structure):
-    """The datastucture we need to describe an IOC_BIND argument
+    """The datastucture we need to describe an :const:`IOC_BIND` argument
     """
     _fields_ = [('is_replier', ctypes.c_uint32),
                 ('len',        ctypes.c_uint32),
                 ('name',       ctypes.c_char_p)]
 
 class ReplierStruct(ctypes.Structure):
-    """The datastucture we need to describe an IOC_REPLIER argument
+    """The datastucture we need to describe an :const:`IOC_REPLIER` argument
     """
     _fields_ = [('return_id', ctypes.c_uint32),
                 ('len',       ctypes.c_uint32),
                 ('name',      ctypes.c_char_p)]
 
 class SendResultStruct(ctypes.Structure):
-    """The datastucture we need to describe an IOC_SEND argument/return
+    """The datastucture we need to describe an :const:`IOC_SEND` argument/return
     """
     _fields_ = [('retval',  ctypes.c_int32),
                 ('msg_id',  MessageId)]
@@ -99,11 +99,16 @@ class SendResultStruct(ctypes.Structure):
 class Ksock(object):
     """A wrapper around a KBUS device, for purposes of message sending.
 
-    'which' is which KBUS device to open -- so if 'which' is 3, we open
+    `which` is which KBUS device to open -- so if `which` is 3, we open
     /dev/kbus3.
 
-    'mode' should be 'r' or 'rw' -- i.e., whether to open the device for read or
+    `mode` should be 'r' or 'rw' -- i.e., whether to open the device for read or
     write (opening for write also allows reading, of course).
+
+    Ksock can act like an iterable container; it implements
+    :meth:`__iter__` and :meth:`next` in the usual way. It also provides
+    :meth:`__enter__` and :meth:`__exit__` methods to support the use of 
+    :keyword:`with`.
 
     I'm not really very keen on the name Ksock, but it's better than the
     original "File", which I think was actively misleading.
@@ -156,6 +161,11 @@ class Ksock(object):
             return '<Ksock %s closed>'%(self.name)
 
     def close(self):
+	"""
+	Shuts down the socket.
+	This implicitly unbinds the Ksock client object from every name it was
+	bound to.  Any further attempt to use the object will cause errors.
+	"""
         ret = self.fd.close()
         self.fd = None
         self.mode = None
@@ -164,7 +174,7 @@ class Ksock(object):
     def bind(self, name, replier=False):
         """Bind the given name to the file descriptor.
 
-        If 'replier', then we are binding as the only fd that can reply to this
+        If `replier`, then we are binding as the only fd that can reply to this
         message name.
         """
         arg = BindStruct(replier, len(name), name)
@@ -190,9 +200,10 @@ class Ksock(object):
         return id[0]
 
     def next_msg(self):
-        """Say we want to start reading the next message.
+        """Indicates that we want to start reading the next message.
 
-        Returns the length of said message, or 0 if there is no next message.
+        Returns the length of the next message, or 0 if there is no next
+	message at the present time.
         """
         id = array.array('I', [0])
         fcntl.ioctl(self.fd, Ksock.IOC_NEXTMSG, id, True)
@@ -201,22 +212,22 @@ class Ksock(object):
     def len_left(self):
         """Return how many bytes of the current message are still to be read.
 
-        Returns 0 if there is no current message (i.e., 'next_msg()' has not
-        been called), or if there are no bytes left.
+	Returns 0 if there is no current message (i.e., :meth:`next_msg` has
+        not been called), or if there are no bytes left.
         """
         id = array.array('I', [0])
         fcntl.ioctl(self.fd, Ksock.IOC_LENLEFT, id, True)
         return id[0]
 
     def send(self):
-        """Send the last written message.
-
+        """
         Indicates that we have finished writing a message, and it should
         be sent.
 
-        Returns the message id of the send message.
+	Returns the :class:`MessageId` of the send message.
 
-        Raises IOError with errno ENOMSG if there was no message to send.
+	Raises :class:`IOError` with errno :const:`ENOMSG` if no message
+	has been written, i.e. there is nothing to send.
         """
         arg = array.array('I', [0, 0])
         fcntl.ioctl(self.fd, Ksock.IOC_SEND, arg);
@@ -227,7 +238,7 @@ class Ksock(object):
 
         Indicates that we have should throw away the message we've been
         writing. Has no effect if there is no current message being
-        written (for instance, because 'send' has already been called).
+	written (for instance, because :meth:`send` has already been called).
         be sent.
         """
         fcntl.ioctl(self.fd, Ksock.IOC_DISCARD, 0);
@@ -263,9 +274,9 @@ class Ksock(object):
     def set_max_messages(self, count):
         """Set the number of messages that can be queued on this Ksock.
 
-        A 'count' of 0 does not actually change the value - this may thus be
+        A `count` of 0 does not actually change the value - this may thus be
         used to query the Ksock for the current value of the maximum.
-        However, the "more Pythonic" 'max_messages()' method is provided for
+	However, the "more Pythonic" :meth:`max_messages` method is provided for
         use when such a query is wanted, which is just syntactic sugar around
         such a call.
 
@@ -287,8 +298,8 @@ class Ksock(object):
         """Return the number of replies we still have outstanding.
 
         That is, the number of Requests that we have read, which had the
-        WANT_YOU_TO_REPLY flag set, but for which we have not yet sent a
-        Reply.
+	:const:`Message.WANT_YOU_TO_REPLY` flag set, but for which we have 
+	not yet sent a :class:`Reply`.
         """
         id = array.array('I', [0])
         fcntl.ioctl(self.fd, Ksock.IOC_UNREPLIEDTO, id, True)
@@ -298,22 +309,23 @@ class Ksock(object):
         """Determine whether multiply-bound messages are only received once.
 
         Determine whether we should receive a particular message once, even if
-        it we are both a Replier and Listener for the message, or if it we are
+        we are both a Replier and Listener for the message, or if we are
         registered more than once as a Listener for the message name.
 
-        Note that in the case of a Request that we should reply to, we will
+	Note that in the case of a :class:`Request` that we should reply to,
+	we will
         always get the Request, and it will be the Listener's version of the
         message that will be "dropped".
 
         The default is False, i.e., to receive each message as many times as we
         are bound to its name.
 
-        * if 'only_once' is true then we want to receive each message once only.
-        * if 'just_ask' is true, then we just want to find out the current state
-          of the flag, and 'only_once' will be ignored.
+        * if `only_once` is true then we want to receive each message once only.
+        * if `just_ask` is true, then we just want to find out the current state
+          of the flag, and `only_once` will be ignored.
 
         Returns the previous value of the flag (i.e., what it used to be set to).
-        Which, if 'just_ask' is true, will also be the current state.
+        Which, if `just_ask` is true, will also be the current state.
 
         Beware that setting this flag affects how messages are added to the
         Ksock's message queue *as soon as it is set* - so changing it and then
@@ -334,17 +346,17 @@ class Ksock(object):
 
         Determine whether the kernel module should output verbose messages for
         this device (this Ksock). This will only have any effect if the kernel
-        module was built with VERBOSE_DEBUG defined.
+	module was built with :const:`CONFIG_KBUS_DEBUG` defined.
 
         The default is False, i.e., not to output verbose messages (as this
         clutters up the kernel log).
 
-        * if 'verbose' is true then we want verbose messages.
-        * if 'just_ask' is true, then we just want to find out the current state
-          of the flag, and 'verbose' will be ignored.
+        * if `verbose` is true then we want verbose messages.
+        * if `just_ask` is true, then we just want to find out the current state
+          of the flag, and `verbose` will be ignored.
 
         Returns the previous value of the flag (i.e., what it used to be set to).
-        Which, if 'just_ask' is true, will also be the current state.
+        Which, if `just_ask` is true, will also be the current state.
 
         Beware that setting this flag affects the Ksock as a whole, so it is
         possible for several programs to open a Ksock and "disagree" about how
@@ -394,12 +406,12 @@ class Ksock(object):
 
         The default is False, i.e., not to output report such events.
 
-        * if 'report_events' is true then we want bind/unbind messages.
-        * if 'just_ask' is true, then we just want to find out the current state
-          of the flag, and 'report_events' will be ignored.
+        * if `report_events` is true then we want bind/unbind messages.
+        * if `just_ask` is true, then we just want to find out the current state
+          of the flag, and `report_events` will be ignored.
 
         Returns the previous value of the flag (i.e., what it used to be set to).
-        Which, if 'just_ask' is true, will also be the current state.
+        Which, if `just_ask` is true, will also be the current state.
 
         Beware that setting this flag affects the Ksock as a whole, so it is
         possible for several programs to open a Ksock and "disagree" about how
@@ -427,8 +439,9 @@ class Ksock(object):
     def send_msg(self, message):
         """Write a Message, and then send it.
 
-        Entirely equivalent to calling 'write_msg' and then 'send',
-        and returns the MessageId of the sent message, as 'send' does.
+	Entirely equivalent to calling :meth:`write_msg` and then :meth:`send`,
+	and returns the :class:`MessageId` of the sent message, as
+	:meth:`send` does.
         """
         self.write_msg(message)
         return self.send()
@@ -436,7 +449,8 @@ class Ksock(object):
     def write_data(self, data):
         """Write out (and flush) some data.
 
-        Does not send it, does not imply that it is all of a message
+        This does not actually send the message and does not imply that
+	what has been written is all of a message
         (although clearly it should form *some* of a message).
         """
         ret = self.fd.write(data)
@@ -444,10 +458,10 @@ class Ksock(object):
         return ret
 
     def read_msg(self, length):
-        """Read a Message of length 'length' bytes.
+        """Read a Message of length `length` bytes.
 
-        It is assumed that 'length' was returned by a previous call
-        of 'next_msg'. It must be large enough to cause the entire
+        It is assumed that `length` was returned by a previous call
+	of :meth:`next_msg`. It must be large enough to cause the entire
         message to be read.
 
         After the data has been read, it is passed to Message to
@@ -464,7 +478,7 @@ class Ksock(object):
     def read_next_msg(self):
         """Read the next Message.
 
-        Equivalent to a call of 'next_msg', followed by reading the
+	Equivalent to a call of :meth:`next_msg`, followed by reading the
         appropriate number of bytes and passing that to Message to
         construct a message instance, which is returned.
 
@@ -479,7 +493,7 @@ class Ksock(object):
     def wait_for_msg(self, timeout=None):
         """Wait for the next Message.
 
-        This is a simple wrapper around select.select, waiting for the
+	This is a simple wrapper around :meth:`select.select`, waiting for the
         next Message on this Ksock.
 
         If timeout is given, it is a floating point number of seconds,
@@ -496,7 +510,7 @@ class Ksock(object):
         return self.read_next_msg()
 
     def read_data(self, count):
-        """Read the next 'count' bytes, and return them.
+        """Read the next `count` bytes, and return them.
 
         Returns '' (the empty string) if there was nothing to be read,
         which is consistent with now Python file reads normally behave
@@ -529,6 +543,11 @@ class Ksock(object):
         return self
 
     def next(self):
+	"""
+	This provides iteration support.  Each iteration gives a whole message
+	as returned by :meth:`read_next_msg`. We stop when there is
+	no next message to read.
+	"""
         msg = self.read_next_msg()
         if msg == None:
             raise StopIteration
@@ -538,8 +557,9 @@ class Ksock(object):
     def fileno(self):
         """Return the integer file descriptor from our internal fd.
 
-        This allows a Ksock instance to be used in a call of select.select()
-        - so, for instance, on should be able to do::
+	This allows a Ksock instance to be used in a call of 
+	:meth:`select.select`
+        - so, for instance, one should be able to do::
 
             (r, w, x) = select.select([ksock1, ksock2, ksock3], None, None)
 
@@ -550,9 +570,9 @@ class Ksock(object):
         return self.fd.fileno()
 
 def read_bindings(names):
-    """Read the bindings from /proc/kbus/bindings, and return a list
+    """Read the bindings from ``/proc/kbus/bindings``, and return a list
 
-    /proc/kbus/bindings gives us data like::
+    ``/proc/kbus/bindings`` gives us data like::
 
             0: 10 16319 R $.Fred
             0: 11 17420 L $.Fred.Bob
@@ -561,12 +581,12 @@ def read_bindings(names):
     (i.e., device, file descriptor id, PID of process, whether it is Replier
     or Listener, and the message name concerned).
 
-    'names' is a dictionary of file descriptor binding id to string (name)
+    `names` is a dictionary of file descriptor binding id to string (name)
     - for instance:
 
         { 10:'f1', 11:'f2' }
 
-    If there is no entry in the 'names' dictionary for a given id, then the
+    If there is no entry in the `names` dictionary for a given id, then the
     id will be used (as an integer).
 
     Thus with the above we would return a list of the form::

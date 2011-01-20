@@ -6,7 +6,8 @@ KBUS Python bindings for Limpets
    Limpets
    -------
 
-   The LimpetExample class shows how a limpet might be deployed in practise.
+   See also the :class:`LimpetExample` class, which shows how a limpet
+   might be deployed in practise.
 
    Limpet and run_a_limpet
    ~~~~~~~~~~~~~~~~~~~~~~~

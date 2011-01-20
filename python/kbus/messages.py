@@ -120,7 +120,8 @@ class MessageId(ctypes.Structure):
             return MessageId(self.network_id, self.serial_num+other)
 
 class OrigFrom(ctypes.Structure):
-    """A wrapper around a message's "struct kbus_orig_from" field.
+    """A wrapper to the underlying C `struct kbus_orig_from` type.
+    This is the type of :data:`Message.orig_from` and :data:`Message.final_to`.
 
         >>> a = OrigFrom(1, 2)
         >>> a
@@ -791,13 +792,13 @@ class Message(object):
         >>> msg1
         Message('$.Fred', data='1234')
 
-    A Message can be constructed from another message directly:
+    A :class:`Message` can be constructed from another message directly:
 
         >>> msg2 = Message.from_message(msg1)
         >>> msg2 == msg1
         True
 
-    or from the '.extract()' tuple:
+    or from the tuple returned by :meth:`.extract`:
 
         >>> msg3 = Message.from_sequence(msg1.extract())
         >>> msg3 == msg1
@@ -809,8 +810,8 @@ class Message(object):
         >>> msg3 == msg1
         True
 
-    or one can use a "string" -- for instance, as returned by the Ksock 'read'
-    method:
+    or one can use a "string" -- for instance, as returned by the
+    :meth:`Ksock.read` method:
 
         >>> msg_as_string = msg1.to_bytes()
         >>> msg4 = Message.from_bytes(msg_as_string)
@@ -818,7 +819,7 @@ class Message(object):
         True
 
     Some testing is made on the first argument - a printable string must start
-    with "$." (KBUS itself will make a more stringent test when the message is
+    with ``$.`` (KBUS itself will make a more stringent test when the message is
     sent):
 
         >>> Message('Fred')
@@ -852,7 +853,7 @@ class Message(object):
         >>> msg5a == msg5
         True
 
-    However, whilst it is possible to set (for instance) 'to' back to 0 by this method:
+    However, whilst it is possible to set (for instance) `to` back to 0 by this method:
 
         >>> msg6 = Message.from_message(msg5, to=0)
         >>> msg6
@@ -865,7 +866,7 @@ class Message(object):
         >>> msg6
         Message('$.Fred', data='1234', to=9L, in_reply_to=MessageId(0, 3))
 
-    If you need to do that, go via the 'extract()' method:
+    If you need to do that, go via the :meth:`extract()` method:
 
         >>> (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data) = msg5.extract()
         >>> msg6 = Message(name, data, to, from_, None, None, flags, id)
@@ -900,7 +901,7 @@ class Message(object):
     The arguments to Message() are:
 
     - `arg` -- this is the initial argument, and is a message name (a string
-      that starts '$.'), a Message, or a string representing an "entire"
+      that starts ``$.``), a Message, or a string representing an "entire"
       message.
 
 	    If `arg` is a message name, or another Message then the keyword
@@ -909,7 +910,7 @@ class Message(object):
 	    If `arg` is a message-as-a-string, any keyword arguments will be
 	    ignored.
 
-    - `data` is data for the Message, either None or a Python string.
+    - `data` is data for the Message, either :const:`None` or a Python string.
     - `to` is the Ksock id for the destination, for use in replies or in
       stateful messaging. Normally it should be left 0.
     - `from_` is the Ksock id of the sender. Normally this should be left
@@ -920,9 +921,10 @@ class Message(object):
       See also the Reply class, and especially the `reply_to` function, which
       makes constructing replies simpler.
     - `flags` can be used to set the flags for the message. If all that is
-      wanted is to set Messages.WANT_A_REPLY flag, it is simpler to use the
-      Request class to construct the message.
-    - `id` may be used to set the message id, although unless the network_id is
+      wanted is to set the :const:`.WANT_A_REPLY` flag, it is
+      simpler to use the :class:`Request` class to construct the message.
+    - `id` may be used to set the message id, although unless the `network_id`
+      field is
       set, KBUS will ignore this and set the id internally (this can be useful
       when constructing a message to compare received messages against).
 
@@ -934,9 +936,10 @@ class Message(object):
        (via ctypes), mainly to try to minimise copying of data in and out of
        that form.  A "pointy" or "entire" form is used as appropriate.
        
-       The Message fields ("inside" the `msg` datastructure) are readable
-       directly (as properties of Message), but are not directly writable.
-       Setter methods are provided for those which are likely to be sensible
+       The message fields (inside `msg`) are readable directly (as
+       properties of :class:`Message`), but are not directly writable.
+       Setter methods (:meth:`set_urgent` and :meth:`set_want_reply`)
+       are provided for those which are likely to be sensible
        to alter in normal use.
 
 
@@ -976,7 +979,7 @@ class Message(object):
     @staticmethod
     def from_message(msg, data=None, to=None, from_=None, orig_from=None,
                      final_to=None, in_reply_to=None, flags=None, id=None):
-        """Construct a Message from another message.
+	"""Construct a :class:`Message` from another message.
 
         All the values in the old message, except the name, may be changed
         by specifying new values in the argument list.
@@ -998,7 +1001,7 @@ class Message(object):
     @staticmethod
     def from_sequence(seq, data=None, to=None, from_=None, orig_from=None,
                       final_to=None, in_reply_to=None, flags=None, id=None):
-        """Construct a Message from a sequence, as returned by `extract`.
+	"""Construct a :class:`Message` from a sequence, as returned by `extract`.
 
         All the values in the old message, except the name, may be changed
         by specifying new values in the argument list.
@@ -1023,7 +1026,8 @@ class Message(object):
 
     @staticmethod
     def from_bytes(arg):
-        """Construct a Message from bytes, as read by the Ksock's 'read_data'.
+	"""Construct a :class:`Message` from bytes, as read by
+	:meth:`Ksock.read_data`.
 
         For instance:
 
@@ -1232,33 +1236,29 @@ class Message(object):
 
         Message construction may produce either of these (although
         construction of a message from a string will always produce
-        an "entire" message). Reading a message from a Ksock returns
+	an "entire" message). Reading a message from a :class:`Ksock` returns
         an "entire" message string.
 
         The actual "pointy" or "entire" message data is held in the
-        'msg' value of the Message instance.
+	`msg` value of the :class:`Message` instance.
 
-        The 'to_bytes()' method returns the data for an "entire" message.
+	The :meth:`to_bytes` method returns the data for an "entire" message.
         In certain circumstances (typically, on a 64-byte system) the actual
-        length of data returned by 'to_bytes()' may be slightly too long
+	length of data returned by :meth:`to_bytes()` may be slightly too long
         (due to extra padding at the end).
 
         This method calculates the correct length of the equivalent "entire"
         message for this Message, without any such padding. If you want to
-        write the data returned by 'to_bytes()' into a Ksock, only use the
-        number of bytes indicated by this method.
+	write the data returned by :meth:`to_bytes()` into a :class:`Ksock`,
+	only use the number of bytes indicated by this method.
         """
         return calc_entire_message_len(self.msg.name_len, self.msg.data_len)
 
     def equivalent(self, other):
         """Returns true if the two messages are mostly the same.
 
-        For purposes of this comparison, we ignore:
-
-        * 'id',
-        * 'flags',
-        * 'in_reply_to' and
-        * 'from'
+        For purposes of this comparison, we ignore
+        `id`, `flags`, `in_reply_to` and `from_`.
         """
         return self.msg.equivalent(other.msg)
 
@@ -1279,7 +1279,7 @@ class Message(object):
             self.msg.flags = _clear_bit(self.msg.flags, Message.URGENT)
 
     def wants_us_to_reply(self):
-        """Return True if we (*specifically* us) are should reply to this message.
+	"""Return :const:`True` if we (*specifically* us) are should reply to this message.
         """
         if self.msg.flags & Message.WANT_YOU_TO_REPLY:
             return True
@@ -1287,7 +1287,7 @@ class Message(object):
             return False
 
     def is_synthetic(self):
-        """Return True if this is a synthetic message - one generated by KBUS.
+	"""Return :const:`True` if this is a synthetic message - one generated by KBUS.
         """
         if self.msg.flags & Message.SYNTHETIC:
             return True
@@ -1295,8 +1295,7 @@ class Message(object):
             return False
 
     def is_urgent(self):
-        """Return True if this is an urgent message.
-        """
+	"""Return :const:`True` if this is an urgent message. """
         if self.msg.flags & Message.URGENT:
             return True
         else:
@@ -1304,6 +1303,7 @@ class Message(object):
 
     @property
     def id(self):
+	""" The `id` field of the message header. """
         network_id = self.msg.id.network_id
         serial_num = self.msg.id.serial_num
         if network_id == 0 and serial_num == 0:
@@ -1320,6 +1320,7 @@ class Message(object):
 
     @property
     def in_reply_to(self):
+	""" The `in_reply_to` field of the message header. """
         network_id = self.msg.in_reply_to.network_id
         serial_num = self.msg.in_reply_to.serial_num
         if network_id == 0 and serial_num == 0:
@@ -1336,14 +1337,18 @@ class Message(object):
 
     @property
     def to(self):
+	""" The `to` field of the message header. """
         return self.msg.to
 
     @property
     def from_(self):
+	""" The `from` field of the message header. """
         return self.msg.from_
 
     @property
     def orig_from(self):
+	""" The `orig_from` field of the message header. This is of type
+	:class:`OrigFrom`. """
         network_id = self.msg.orig_from.network_id
         local_id   = self.msg.orig_from.local_id
         if network_id == 0 and local_id == 0:
@@ -1359,6 +1364,8 @@ class Message(object):
 
     @property
     def final_to(self):
+	""" The `final_to` field of the message header. This is of type
+	:class:`OrigFrom`. """
         network_id = self.msg.final_to.network_id
         local_id   = self.msg.final_to.local_id
         if network_id == 0 and local_id == 0:
@@ -1374,10 +1381,13 @@ class Message(object):
 
     @property
     def flags(self):
+	""" The `flags` field of the message header. """
         return self.msg.flags
 
     @property
     def name(self):
+	""" The `name` field of the message header.
+	Any padding bytes are removed."""
         name_len = self.msg.name_len
         # Make sure we remove the padding bytes (although they *should* be
         # '\0', and so "reasonably safe")
@@ -1385,6 +1395,10 @@ class Message(object):
 
     @property
     def data(self):
+	"""
+	Returns the payload of this KBUS message as a Python string, 
+	or None if it is not present.
+	"""
         if self.msg.data_len == 0:
             return None
         # To be friendly, return data as a Python (byte) string
@@ -1399,7 +1413,7 @@ class Message(object):
             (`id`, `in_reply_to`, `to`, `from_`, `orig_from`, `final_to`, 
 	    `flags`, `name`, `data`)
 
-        This is not the same order as the keyword arguments to Message().
+	This is not the same order as the keyword arguments to :meth:`Message`.
         """
         return (self.id, self.in_reply_to, self.to, self.from_, self.orig_from,
                 self.final_to, self.flags, self.name, self.data)
@@ -1413,7 +1427,7 @@ class Message(object):
         message (so that we don't have any dangling "pointers" to the
         name or data).
 
-        See the 'total_length()' method for how to determine the "correct"
+	See the :meth:`total_length` method for how to determine the "correct"
         length of this string.
         """
         (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data) = self.extract()
@@ -1455,10 +1469,12 @@ class Message(object):
             return False
 
     def cast(self):
-        """Return (a copy of) ourselves as an appropriate subclass of Message
+        """Return (a copy of) ourselves as an appropriate subclass of 
+	:class:`Message`.
 
-        Reading from a Ksock returns a Message, whatever the actual message
-        type. Normally, this is OK, but sometimes it would be nice to have
+	Reading from a :class:`Ksock` returns a :class:`Message`, whatever 
+	the actual message type.
+	Normally, this is OK, but sometimes it would be nice to have
         an actual message of the correct class.
         """
         if self.is_reply():
@@ -1504,14 +1520,14 @@ class Announcement(Message):
         >>> ann2 == ann2a
         True
 
-    Since it's an Announcement, there's no 'in_reply_to' argument
+    Since it's an Announcement, there's no `in_reply_to` argument
 
         >>> fail = Announcement('$.Fred', in_reply_to=None)
         Traceback (most recent call last):
         ...
         TypeError: __init__() got an unexpected keyword argument 'in_reply_to'
 
-    and the 'in_reply_to' value in Message objects is ignored:
+    and the `in_reply_to` value in Message objects is ignored:
 
         >>> msg = Message('$.Fred', data='1234', in_reply_to=MessageId(1, 2))
         >>> ann = Announcement.from_message(msg)
@@ -1520,13 +1536,13 @@ class Announcement(Message):
         >>> print ann.in_reply_to
         None
 
-    or from the '.extract()' tuple - again, 'reply_to' will be ignored:
+    or from the :meth:`~Message.extract()` tuple - again, `reply_to` will be ignored:
 
         >>> ann3 = Announcement.from_sequence(ann1.extract())
         >>> ann3 == ann1
         True
 
-    or from an equivalent list (and as above for 'reply_to'):
+    or from an equivalent list (and as above for `reply_to`):
 
         >>> ann3 = Announcement.from_sequence(list(ann1.extract()))
         >>> ann3 == ann1
@@ -1560,6 +1576,7 @@ class Announcement(Message):
 
     1. An Announcement message is such because it is not a message of another
        type. There is nothing else special about it.
+
     """
 
     def __init__(self, name, data=None, to=None, from_=None, flags=None, id=None):
@@ -1601,7 +1618,8 @@ class Announcement(Message):
 
     @staticmethod
     def from_sequence(seq, data=None, to=None, from_=None, flags=None, id=None):
-        """Construct an Announcement from a sequence, as returned by 'extract'.
+	"""Construct an Announcement from a sequence, as returned by
+	:meth:`~Message.extract`.
 
         The optional arguments allow changing the named fields in the new
         Announcement.
@@ -1630,7 +1648,7 @@ class Announcement(Message):
 
     @staticmethod
     def from_bytes(arg):
-        """Construct a Message from bytes, as read by the Ksock's 'read_data'.
+	"""Construct an Announcement from bytes, as read by :meth:`Ksock.read_data`.
 
         For instance:
 
@@ -1675,14 +1693,14 @@ class Request(Message):
     This is intended to be a convenient way of constructing a message that
     wants a reply.
 
-    It doesn't take an 'in_reply_to' initialisation argument:
+    It doesn't take an `in_reply_to` initialisation argument:
 
         >>> fail = Request('$.Fred', in_reply_to=None)
         Traceback (most recent call last):
         ...
         TypeError: __init__() got an unexpected keyword argument 'in_reply_to'
 
-    And it automatically sets the 'wants a reply' flag, but otherwise it
+    And it automatically sets the :const:`WANT_A_REPLY` flag, but otherwise it
     behaves just like a Message.
 
     For instance, consider:
@@ -1696,7 +1714,7 @@ class Request(Message):
         >>> req == msg
         True
 
-    If it is given a 'to' argument, then it is a Stateful Request - it will be
+    If it is given a `to` argument, then it is a Stateful Request - it will be
     an error if it cannot be delivered to that particular Replier (for
     instance, if the Replier had unbound and someone else had bound as Replier
     for this message name).
@@ -1705,7 +1723,7 @@ class Request(Message):
         >>> req
         Request('$.Fred', data='1234', to=1234L, flags=0x00000001)
 
-    A Stateful Request may also need to supply a 'final_to' argument, if the
+    A Stateful Request may also need to supply a `final_to` argument, if the
     original Replier is over a (Limpet) network. This should be taken from an
     earlier Reply from that Replier -- see the convenience function
     stateful_request(). However, it can be done by hand:
@@ -1717,8 +1735,9 @@ class Request(Message):
     Note that:
 
     1. A request message is a request just because it has the
-       Message.WANT_A_REPLY flag set. There is nothing else special about it.
-    2. A stateful request message is then a request that has its 'to' flag set.
+       :const:`Message.WANT_A_REPLY` flag set. There is nothing else special
+       about it.
+    2. A stateful request message is then a request that has its `to` flag set.
     """
 
     def __init__(self, name, data=None, to=None, from_=None, final_to=None,
@@ -1759,7 +1778,8 @@ class Request(Message):
     @staticmethod
     def from_sequence(seq, data=None, to=None, from_=None, final_to=None,
                       flags=None, id=None):
-        """Construct a Request from a sequence, as returned by 'extract'.
+        """Construct a Request from a sequence, as returned by 
+	:meth:`~Message.extract`.
 
         The optional arguments allow changing the named fields in the new
         Request.
@@ -1786,7 +1806,7 @@ class Request(Message):
 
     @staticmethod
     def from_bytes(arg):
-        """Construct a Request from bytes, as read by the Ksock's 'read_data'.
+	"""Construct a Request from bytes, as read by :meth:`Ksock.read_data`.
 
         For instance:
 
@@ -1823,15 +1843,18 @@ class Request(Message):
         return 'Request(%s)'%(', '.join(args))
 
     def set_want_reply(self):
+	""" Calling this method is an error in this subclass, as by 
+	definition a :class:`Request` always has the :const:`WANT_A_REPLY`
+	flag set.  """
         raise TypeError('Request always has "want a reply" set')
 
 class Reply(Message):
     """A reply message.
 
         (Note that the constructor for this class does *not* flip fields (such
-        as 'id' and 'in_reply_to', or `from_` and 'to') when building the Reply
-        - if you want that behaviour (and you probably do), use the "reply_to"
-        function.)
+        as `id` and `in_reply_to`, or `from_` and `to`) when building the Reply
+        - if you want that behaviour (and you probably do), use the
+	:func:`reply_to` function.)
 
     Thus Reply can be used as, for instance:
 
@@ -1842,7 +1865,7 @@ class Reply(Message):
         >>> direct == reply
         True
 
-    Since a Reply is a Message with its 'in_reply_to' set, this *must* be provided:
+    Since a Reply is a Message with its `in_reply_to` set, this *must* be provided:
 
         >>> msg = Message('$.Fred', data='1234', from_=27, to=99, id=MessageId(0, 132), flags=Message.WANT_A_REPLY)
         >>> msg
@@ -1857,15 +1880,15 @@ class Reply(Message):
         Reply('$.Fred', data='1234', to=99L, from_=27L, in_reply_to=MessageId(0, 5), flags=0x00000001, id=MessageId(0, 132))
 
     When Limpet networks are in use, it may be necessary to construct a Reply
-    with its 'orig_from' field set (this should only really be done by a Limpet
+    with its `orig_from` field set (this should only really be done by a Limpet
     itself, though):
 
         >>> reply = Reply.from_message(msg, in_reply_to=MessageId(0, 5), orig_from=OrigFrom(23, 92))
         >>> reply
         Reply('$.Fred', data='1234', to=99L, from_=27L, orig_from=OrigFrom(23, 92), in_reply_to=MessageId(0, 5), flags=0x00000001, id=MessageId(0, 132))
 
-    It's also possible to construct a Reply in most of the other ways a Message
-    can be constructed. For instance:
+    It's also possible to construct a Reply in most of the other ways a
+    :class:`Message` can be constructed. For instance:
 
         >>> rep2 = Reply.from_bytes(direct.to_bytes())
         >>> rep2 == direct
@@ -1895,7 +1918,7 @@ class Reply(Message):
         All the values in the old message, except the name, may be changed
         by specifying new values in the argument list.
 
-        'in_reply_to' must be specified explicitly, if it is not present
+        `in_reply_to` must be specified explicitly, if it is not present
         in the old/template message.
 
         For instance:
@@ -1917,12 +1940,13 @@ class Reply(Message):
     @staticmethod
     def from_sequence(seq, data=None, to=None, from_=None, orig_from=None,
                       in_reply_to=None, flags=None, id=None):
-        """Construct a Message from a sequence, as returned by 'extract'.
+        """Construct a Message from a sequence, as returned by
+	:meth:`~Message.extract`.
 
         All the values in the old message, except the name, may be changed
         by specifying new values in the argument list.
 
-        'in_reply_to' must be specified explicitly, if it is not present
+        `in_reply_to` must be specified explicitly, if it is not present
         in the sequence.
 
         For instance:
@@ -1947,9 +1971,10 @@ class Reply(Message):
 
     @staticmethod
     def from_bytes(arg):
-        """Construct a Message from bytes, as read by the Ksock's 'read_data'.
+        """Construct a Message from bytes, as read by
+	:meth:`Ksock.read_data`.
 
-        'in_reply_to' must be set in the message data.
+        `in_reply_to` must be set in the message data.
 
         For instance:
 
@@ -2012,8 +2037,9 @@ class Status(Message):
 
     Note that:
 
-    1. A status message is such because it is a (sort of) Reply, with the
-       message name starting with '$.KBUS.'.
+    1. A status message is such because it is a (sort of) 
+       :class:`Reply`, with the
+       message name starting with ``$.KBUS.``.
     """
 
     def __init__(self, original):
@@ -2022,7 +2048,7 @@ class Status(Message):
     @staticmethod
     def from_message(msg, data=None, to=None, from_=None, orig_from=None,
                      final_to=None, in_reply_to=None, flags=None, id=None):
-        """Status does not support the 'from_message' static method:
+        """It is not meaningful to create a Status from another Message.
 
             >>> msg1 = Message('$.Fred', '12345678')
             >>> msg1
@@ -2037,7 +2063,7 @@ class Status(Message):
     @staticmethod
     def from_sequence(seq, data=None, to=None, from_=None, orig_from=None,
                       final_to=None, in_reply_to=None, flags=None, id=None):
-        """Status does not support the 'from_sequence' static method:
+        """It is not meaningful to create a Status from a sequence.
 
             >>> msg1 = Message('$.Fred', '12345678')
             >>> msg1
@@ -2045,13 +2071,13 @@ class Status(Message):
             >>> msg2 = Status.from_sequence(msg1.extract())
             Traceback (most recent call last):
             ...
-            NotImplementedError: Status does not support the from_bytes() static method
+            NotImplementedError: Status does not support the from_sequence() static method
         """
-        raise NotImplementedError('Status does not support the from_bytes() static method')
+        raise NotImplementedError('Status does not support the from_sequence() static method')
 
     @staticmethod
     def from_bytes(arg):
-        """Construct a Status from bytes, as read by the Ksock's 'read_data'.
+        """Construct a Status from bytes, as read by :meth:`Ksock.read_data`.
 
         For instance:
 
@@ -2084,7 +2110,7 @@ class Status(Message):
         return 'Status(%s)'%(', '.join(args))
 
 def reply_to(original, data=None, flags=0):
-    """Return a Reply to the given Message.
+    """Return a :class:`Reply` to the given :class:`Message`.
 
     This is intended to be the normal way of constructing a reply message.
 
@@ -2100,25 +2126,26 @@ def reply_to(original, data=None, flags=0):
     Note that:
 
     1. The message we're constructing a reply to must be a message that wants
-       a reply. Specifically, this means that it must have the "WANT_A_REPLY"
-       flag set, and also the "WANT_YOU_TO_REPLY" flag. This last is because
-       anyone listening to a Request will "see" the "WANT_A_REPLY" flag, but
-       only the (single) replier will receive the message with the
-       "WANT_YOU_TO_REPLY" flag set.
-    2. A reply message is a reply because it has the 'in_reply_to' field set.
+       a reply. Specifically, this means that it must have the
+       :const:`WANT_A_REPLY` flag set, and also the :const:`WANT_YOU_TO_REPLY`
+       flag. This last is because
+       anyone listening to a Request will "see" the :const:`WANT_A_REPLY` flag,
+       but only the (single) replier will receive the message with 
+       :const:`WANT_YOU_TO_REPLY` set.
+    2. A reply message is a reply because it has the `in_reply_to` field set.
        This indicates the message id of the original message, the one we're
        replying to.
     3. As normal, the Reply's own message id is unset - KBUS will set this, as
        for any message.
-    4. We give a specific 'to' value, the id of the Ksock that sent the
-       original message, and thus the 'from' value in the original message.
+    4. We give a specific `to` value, the id of the :class:`Ksock` that sent
+       the original message, and thus the `from` value in the original message.
     5. We keep the same message name, but don't copy the original message's
        data. If we want to send data in a reply message, it will be our own
        data.
 
-    The other arguments available are 'flags' (allowing the setting of flags
-    such as Message.ALL_OR_WAIT, for instance), and 'data', allowing reply data
-    to be added:
+    The other arguments available are `flags` (allowing the setting of flags
+    such as :const:`Message.ALL_OR_WAIT`, for instance), and `data`,
+    allowing reply data to be added:
 
         >>> rep4 = reply_to(msg, flags=Message.ALL_OR_WAIT, data='1234')
         >>> rep4
@@ -2144,27 +2171,29 @@ def reply_to(original, data=None, flags=0):
 
 def stateful_request(earlier_msg, name, data=None, from_=None,
                      flags=None, id=None):
-    """Construct a stateful Request, based on an earlier Reply or stateful Request.
+    """Construct a stateful Request, based on an earlier :class:`Reply` or
+    stateful :class:`Request`.
 
     This is intended to be the normal way of constructing a stateful request.
 
-    'earlier_msg' is either:
+    `earlier_msg` is either:
 
     1. an earlier Reply, whose `from_` field will be used as the new Request's
-       'to' field, and whose 'orig_from' field will be used as the new Request's
-       'final_to' field.
+       `to` field, and whose `orig_from` field will be used as the new Request's
+       `final_to` field.
 
-            Remember, a Reply is a message whose 'in_reply_to' field is set.
+            Remember, a Reply is a message whose `in_reply_to` field is set.
 
-    2. an earlier Stateful Request, whose 'to' and 'orig_from' fields will be
+    2. an earlier Stateful Request, whose `to` and `orig_from` fields will be
        copied to the new Request.
 
-            Remember, a Stateful Request is a message with the WANT_A_REPLY
-            flag set (a Request), and whose 'to' field is set (which is to a
+	    Remember, a Stateful Request is a message with the
+	    :const:`WANT_A_REPLY`
+            flag set (a Request), and whose `to` field is set (which is to a
             specific Replier).
 
-    The rest of the arguments are the same as for Request, except that the
-    'to' and 'orig_from' initialiser arguments are missing.
+    The rest of the arguments are the same as for :meth:`Request`, except that the
+    `to` and `orig_from` initialiser arguments are missing.
 
     For instance, in the normal (single network) case:
 
@@ -2205,14 +2234,14 @@ def stateful_request(earlier_msg, name, data=None, from_=None,
 
 
 class _ReplierBindEventHeader(ctypes.Structure):
-    """The "header" part of a '$.KBUS.ReplierBindEvent' message
+    """The "header" part of a ``$.KBUS.ReplierBindEvent`` message
     """
     _fields_ = [('is_bind', ctypes.c_uint32),
                 ('binder',  ctypes.c_uint32),
                 ('name_len',ctypes.c_uint32)]
 
 def split_replier_bind_event_data(data):
-    """Split the data from a '$.KBUS.ReplierBindEvent' message.
+    """Split the data from a ``$.KBUS.ReplierBindEvent`` message.
 
     Returns a tuple of the form (is_bind, binder, name)
     """

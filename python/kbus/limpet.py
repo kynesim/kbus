@@ -1,4 +1,4 @@
-"""Limpet - a mechanims for proxying KBUS messages to/from another Limpet.
+"""Limpet - a mechanism for proxying KBUS messages to/from another Limpet.
 
 This allows messages to be communicated from one KBUS device to another,
 either on the same machine or over a network.
@@ -48,6 +48,10 @@ from kbus.messages import _MessageHeaderStruct, _ReplierBindEventHeader, \
         MSG_HEADER_LEN
 
 class GiveUp(Exception):
+    """Signifies a fatal condition such as a failure to connect to the other
+    Limpet, or when the :data:`termination_message` of a
+    :class:`LimpetKsock` is read.
+    """
     pass
 
 class OtherLimpetGoneAway(Exception):
@@ -197,46 +201,54 @@ class LimpetKsock(Ksock):
     def len_left(self):
         """Not meaningful for this class.
 
-        We only support reading an entire message in one go.
+        We only support reading an entire message in one go with
+	:meth:`read_next_msg`.
         """
         raise NotImplemented('len_left method is not relevant to LimpetKsock')
 
     def discard(self):
         """Not meaningful for this class.
 
-        We only support reading an entire message in one go.
+        We only support reading an entire message in one go with
+	:meth:`read_next_msg`.
         """
         raise NotImplemented('discard method is not relevant to LimpetKsock')
 
     def want_messages_once(self, only_once=False, just_ask=False):
         """Not meaningful for this class.
 
-        We require that this be set, and do not want the user to change it
+        Limpets require this option to be set in order to work properly,
+	and do not allow the user to change it.
         """
         raise NotImplemented('want_messages_once method is not relevant to LimpetKsock')
 
     def report_replier_binds(self, report_events=True, just_ask=False):
         """Not meaningful for this class.
 
-        We require that this be set, and do not want the user to change it
+        Limpets require this option to be set in order to work properly,
+	and do not allow the user to change it.
         """
-        raise NotImplemented('report_replier_binds method is not relevant to LimpetKsock')
+        raise NotImplemented('report_replier_binds method is not allowed on LimpetKsock')
 
     def write_msg(self, message):
         """Not meaningful for this class.
 
-        We only support writing and sending an entire message in one go.
+        We only support writing and sending an entire message in one go
+	with :meth:`send_msg`.
         """
         raise NotImplemented('write_msg method is not relevant to LimpetKsock')
 
     def send_msg(self, message):
-        """Write a Message (from the other Limpet) to our Ksock, and send it.
+        """Write a :class:`~kbus.Message` (from the other Limpet) to our
+	:class:`~kbus.Ksock`, and send it.
 
-        Entirely equivalent to calling 'write_msg' and then 'send',
-        and returns the MessageId of the sent message, as 'send' does.
+	Entirely equivalent to calling :meth:`write_msg` and then
+	:meth:`~kbus.Ksock.send`,
+	and returns the :class:`MessageId` of the sent message, like
+	:meth:`~kbus.Ksock.send` does.
 
         If the message was one we need to ignore (i.e., we're not interested
-        in sending it), raises NoMessage.
+	in sending it), raises :class:`NoMessage`.
 
         If we need to send a message back to the other Limpet, then that
         exception will have the messsage as its argument.
@@ -251,18 +263,19 @@ class LimpetKsock(Ksock):
     def write_data(self, data):
         """Not meaningful for this class.
 
-        We only support writing an entire message in one go.
+        We only support writing an entire message in one go with 
+	:meth:`send_msg`.
         """
         raise NotImplemented('write_data method is not relevant to LimpetKsock')
 
     def read_msg(self, length):
-        """Read a Message of length 'length' bytes.
+        """Read a :class:`Message` of length `length` bytes.
 
-        It is assumed that 'length' was returned by a previous call
-        of 'next_msg'. It must be large enough to cause the entire
-        message to be read.
+        It is assumed that `length` was returned by a previous call
+	of :meth:`~kbus.Ksock.next_msg`. It must be large enough to cause the
+	entire message to be read.
 
-        After the data has been read, it is passed to Message to
+	After the data has been read, it is passed to :meth:`~kbus.Message` to
         construct a message instance, which is returned.
 
         Returns None if there was nothing to be read, or if the message
@@ -283,10 +296,11 @@ class LimpetKsock(Ksock):
         return message
 
     def read_next_msg(self):
-        """Read the next Message.
+        """Read the next Message completely.
 
-        Equivalent to a call of 'next_msg', followed by reading the
-        appropriate number of bytes and passing that to Message to
+	Equivalent to a call of :meth:`kbus.Ksock.next_msg`, followed by
+	reading the
+	appropriate number of bytes and passing that to :meth:`~kbus.Message` to
         construct a message instance, which is returned.
 
         Returns None if there was nothing to be read, or if the message
@@ -312,7 +326,8 @@ class LimpetKsock(Ksock):
     def read_data(self, count):
         """Not meaningful for this class.
 
-        We only support reading an entire message in one go.
+        We only support reading an entire message in one go with
+	:meth:`read_next_msg`.
         """
         raise NotImplemented('read_data method is not relevant to LimpetKsock')
 
@@ -857,11 +872,11 @@ class LimpetExample(object):
         name_len, data_len, array = unserialise_message_header(header)
 
         if array[0] != Message.START_GUARD:
-            raise GiveUp('Message data start guard is %08x,'
+            raise BadMessage('Message data start guard is %08x,'
                          ' not %08x'%(array[0],Message.START_GUARD))
 
         if array[-1] != Message.END_GUARD:
-            raise GiveUp('Message data end guard is %08x,'
+            raise BadMessage('Message data end guard is %08x,'
                          ' not %08x'%(array[-1],Message.END_GUARD))
 
         name = self.sock.recv(calc_padded_name_len(name_len),
@@ -882,7 +897,7 @@ class LimpetExample(object):
         #end = ntohl(value[0])
         end = struct.unpack('!L', end)[0]   # unsigned long, network order
         if end != Message.END_GUARD:
-            raise GiveUp('Final message data end guard is %08x,'
+            raise BadMessage('Final message data end guard is %08x,'
                          ' not %08x'%(end,Message.END_GUARD))
 
         # We know enough to sort out the network order of the integers in
@@ -1030,6 +1045,9 @@ def connect_as_client(address, family, verbosity=1):
         raise GiveUp('Unable to connect to "%s" as client: %s'%(sockname, exc))
 
 def remove_socket_file(name):
+    """Attempts to clean up a socket whose address is a file in the filesystem.
+    This currently only applies to sockets of the AF_UNIX family.
+    """
     # Assuming this is an address representing a file in the filesystem,
     # delete it so we can use it again...
     try:
@@ -1043,10 +1061,10 @@ def run_a_limpet(is_server, address, family, kbus_device, network_id,
 
     A Limpet has two "ends":
 
-    1. 'kbus_device' specifies which KBUS device it should communicate
+    1. `kbus_device` specifies which KBUS device it should communicate
        with, via ``ksock = Ksock(kbus_device, 'rw')``.
 
-    2. 'socket_addresss' is the address for the socket used to
+    2. `socket_address` is the address for the socket used to
        communicate with its paired Limpet. This should generally be a
        path name (if communication is with another Limpet on the same
        machine, via Unix domain sockets), or a ``(host, port)`` tuple (for
@@ -1056,21 +1074,21 @@ def run_a_limpet(is_server, address, family, kbus_device, network_id,
 
     Messages sent from the other Limpet get sent to KBUS.
 
-    - is_server is true if we are the "server" of the Limpet pair, false
+    - `is_server` is true if we are the "server" of the Limpet pair, false
       if we are the "client"
-    - address is the socket address we use to talk to the other Limpet
-    - family is AF_UNIX or AF_INET, determining what sort of address we
+    - `address` is the socket address we use to talk to the other Limpet
+    - `family` is AF_UNIX or AF_INET, determining what sort of address we
       want -- a pathname for the former, a <host>:<port> string for the
       latter
-    - kbus_device is which KBUS device to open
-    - network_id is the network id to set in message ids when we are
+    - `kbus_device` is which KBUS device to open
+    - `network_id` is the network id to set in message ids when we are
       forwarding a message to the other Limpet. It must be greater
       than zero.
-    - message_name is the name of the message (presumably a wildcard)
+    - `message_name` is the name of the message (presumably a wildcard)
       we are forwarding
-    - if termination_message is not None, then we will stop when a message
+    - if `termination_message` is not None, then we will stop when a message
       with that name is read from KBUS
-    - if verbosity is 0, we don't output any "useful" messages, if it is
+    - if `verbosity` is 0, we don't output any "useful" messages, if it is
       1 we just announce ourselves, if it is 2 (or higher) we output
       information about each message as it is processed.
     """
@@ -1115,7 +1133,7 @@ def run_a_limpet(is_server, address, family, kbus_device, network_id,
 def parse_address(word):
     """Work out what sort of address we have.
 
-    Returns (address, family)
+    Returns (address, family).
     """
     if ':' in word:
         try:
