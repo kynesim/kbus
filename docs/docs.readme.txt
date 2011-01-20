@@ -9,7 +9,7 @@ documentation is available at:
 
     http://code.google.com/p/kbus/
 
-or (since you've extracted this from Subversion) it should be available within
+or (since you've extracted this from Mercurial) it should be available within
 this directory at:
 
     _build/html/index.html
@@ -20,9 +20,11 @@ Building the documentation
 --------------------------
 The KBus documentation is built using Sphinx_.
 
-.. note:: It needs (at least) version 0.6 of Sphinx, which is later than the
-          version installed via apt-get on Ubuntu 8.10. The best way to
-          upgrade is with easy_install, as described on the Sphinx website.
+.. note:: It needs (at least) version 0.6 of Sphinx.  Recent versions of
+	Ubuntu provide this in the ``python-sphinx`` package; on older
+	versions you should use ``easy_install`` as described on the
+	Sphinx website.
+
 
 You also need graphviz (which provides ``dot``).
 
@@ -42,27 +44,21 @@ rename such, you may need to alter these files -- please do so appropriately.
 
 Mime type magic
 ---------------
-In order for the documentation in the Google Code Subversion repository to be
+In order for the documentation in the Google Code Mercurial repository to be
 useable as documentation, the HTML, CSS and JavaScript files in the _build
-directory tree need to have the correct mime types. Subversion is clever
-enough to be able to cope with this, and the ``svn_propset`` script shows what
-to do (it should be enough to just run it again after the generated files have
-been committed).
+directory tree need to have the correct mime types. Mercurial is clever
+enough to be able to cope with this.
 
-Subversion gotchas
-------------------
+Mercurial gotchas
+-----------------
 Sphinx believes that the contents of ``_build`` are transitory - i.e., that it
 is free to delete them if it wishes. In particular, ``make clean`` will delete
 all of the contents of ``_build``.
 
-Meanwhile, we've committed ``_build/html`` and its contents to Subversion,
-which has created ``.svn`` directories therein. Deleting these, and then
-recreating the directories without them (via ``make html``) will confuse
-Subversion when it notices this.
+Meanwhile, we've committed ``_build/html`` and its contents to Mercurial.
 
-The simplest solution is:
-
-a. Don't use ``make clean`` (!)
-b. Do use ``svn update`` to retrieve the checked in files/directories if you
-   do - with luck the dependency tracking in the ``make`` process will cope.
+This used to be a problem under Subversion, but is no longer since moving
+to Mercurial. If you accidentally ``make clean`` the docs away, you can
+use ``hg checkout`` to retrieve them.
+With luck the dependency tracking in the ``make`` process will cope.
 
