@@ -1214,7 +1214,7 @@ static int kbus_add_bind_message_data(struct kbus_private_data *priv,
  *
  * Returns the new message, or NULL.
  */
-struct kbus_msg
+static struct kbus_msg
 *kbus_new_synthetic_bind_message(struct kbus_private_data *priv,
 				 uint32_t is_bind,
 				 uint32_t name_len, char *name)
@@ -3463,7 +3463,7 @@ static int kbus_bind(struct kbus_private_data *priv,
 	bind = kmalloc(sizeof(*bind), GFP_KERNEL);
 	if (!bind)
 		return -ENOMEM;
-	if (copy_from_user(bind, (void *)arg, sizeof(*bind))) {
+	if (copy_from_user(bind, (void __user *)arg, sizeof(*bind))) {
 		retval = -EFAULT;
 		goto done;
 	}
@@ -3484,7 +3484,7 @@ static int kbus_bind(struct kbus_private_data *priv,
 		retval = -ENOMEM;
 		goto done;
 	}
-	if (copy_from_user(name, bind->name, bind->name_len)) {
+	if (copy_from_user(name, (char __user *) bind->name, bind->name_len)) {
 		retval = -EFAULT;
 		goto done;
 	}
@@ -3530,7 +3530,7 @@ static int kbus_unbind(struct kbus_private_data *priv,
 	bind = kmalloc(sizeof(*bind), GFP_KERNEL);
 	if (!bind)
 		return -ENOMEM;
-	if (copy_from_user(bind, (void *)arg, sizeof(*bind))) {
+	if (copy_from_user(bind, (void __user *)arg, sizeof(*bind))) {
 		retval = -EFAULT;
 		goto done;
 	}
@@ -3551,7 +3551,7 @@ static int kbus_unbind(struct kbus_private_data *priv,
 		retval = -ENOMEM;
 		goto done;
 	}
-	if (copy_from_user(name, bind->name, bind->name_len)) {
+	if (copy_from_user(name, (char __user *) bind->name, bind->name_len)) {
 		retval = -EFAULT;
 		goto done;
 	}
@@ -3616,7 +3616,7 @@ static int kbus_replier(struct kbus_private_data *priv __maybe_unused,
 	query = kmalloc(sizeof(*query), GFP_KERNEL);
 	if (!query)
 		return -ENOMEM;
-	if (copy_from_user(query, (void *)arg, sizeof(*query))) {
+	if (copy_from_user(query, (void __user *)arg, sizeof(*query))) {
 		retval = -EFAULT;
 		goto done;
 	}
@@ -3633,7 +3633,8 @@ static int kbus_replier(struct kbus_private_data *priv __maybe_unused,
 		retval = -ENOMEM;
 		goto done;
 	}
-	if (copy_from_user(name, query->name, query->name_len)) {
+	if (copy_from_user(name, (char __user *) query->name,
+						 query->name_len)) {
 		retval = -EFAULT;
 		goto done;
 	}
@@ -3654,7 +3655,7 @@ static int kbus_replier(struct kbus_private_data *priv __maybe_unused,
 	 * Copy the whole structure back, rather than try to work out (in a
 	 * guaranteed-safe manner) where the 'id' actually lives
 	 */
-	if (copy_to_user((void *)arg, query, sizeof(*query))) {
+	if (copy_to_user((void __user *)arg, query, sizeof(*query))) {
 		retval = -EFAULT;
 		goto done;
 	}
@@ -3957,7 +3958,7 @@ static int kbus_wrap_user_data(struct kbus_private_data *priv,
 	unsigned long *parts;
 	unsigned *lengths;
 	int ii;
-	uint8_t *data_ptr;
+	uint8_t __user *data_ptr;
 
 	int retval = kbus_alloc_ref_data(priv, data_len, &ref_data);
 	if (retval)
@@ -3971,7 +3972,7 @@ static int kbus_wrap_user_data(struct kbus_private_data *priv,
 		       ref_data->as_pages ? "as pages" : "as kmalloc'ed data");
 
 	/* Given all of the *space* for our data, populate it */
-	data_ptr = user_data_ptr;
+	data_ptr = (void __user *) user_data_ptr;
 	for (ii = 0; ii < num_parts; ii++) {
 		unsigned len;
 		if (ii == num_parts - 1)
@@ -3984,7 +3985,7 @@ static int kbus_wrap_user_data(struct kbus_private_data *priv,
 			       "from user address %lu\n",
 			       ii, len, parts[ii]);
 
-		if (copy_from_user((void *)parts[ii], (void *)data_ptr, len)) {
+		if (copy_from_user((void *)parts[ii], data_ptr, len)) {
 			kbus_lower_data_ref(ref_data);
 			return -EFAULT;
 		}
@@ -4020,7 +4021,7 @@ static int kbus_copy_pointy_parts(struct kbus_private_data *priv,
 	if (!new_name)
 		return -ENOMEM;
 	if (copy_from_user
-	    (new_name, (void *)this->user_name_ptr, msg->name_len + 1)) {
+	    (new_name, (void __user *)this->user_name_ptr, msg->name_len + 1)) {
 		kfree(new_name);
 		return -EFAULT;
 	}
@@ -4197,7 +4198,7 @@ done:
 		kbus_discard(priv);
 
 	if (retval == 0 || retval == -EAGAIN)
-		if (copy_to_user((void *)arg, &priv->last_msg_id_sent,
+		if (copy_to_user((void __user *)arg, &priv->last_msg_id_sent,
 				 sizeof(priv->last_msg_id_sent)))
 			retval = -EFAULT;
 	return retval;
@@ -4511,7 +4512,7 @@ static long kbus_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			       dev->index, id,
 			       priv->last_msg_id_sent.network_id,
 			       priv->last_msg_id_sent.serial_num);
-		if (copy_to_user((void *)arg, &priv->last_msg_id_sent,
+		if (copy_to_user((void __user *)arg, &priv->last_msg_id_sent,
 					sizeof(priv->last_msg_id_sent)))
 			retval = -EFAULT;
 		break;
