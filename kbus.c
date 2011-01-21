@@ -581,9 +581,10 @@ static int kbus_bad_message_name(char *name, size_t name_len)
 /*
  * Is a message name wildcarded?
  *
- * We assume it is already check as a valid name
+ * We assume it is already checked to be a valid name
  *
- * Returns 0 if it's OK, 1 if it's naughty
+ * Returns 1 if it is, 0 if not. In other words, returns 1
+ * if the name is not a valid destination.
  */
 static int kbus_wildcarded_message_name(char *name, size_t name_len)
 {
@@ -882,7 +883,6 @@ static void kbus_empty_read_msg(struct kbus_private_data *priv)
 	this->which = 0;
 	this->pos = 0;
 	this->ref_data_index = 0;
-	return;
 }
 
 static void kbus_empty_write_msg(struct kbus_private_data *priv)
@@ -914,8 +914,6 @@ static void kbus_empty_write_msg(struct kbus_private_data *priv)
 	kbus_maybe_dbg_write(priv->dev,
 			     "kbus: %u/%u ------------ kbus_empty_write_msg\n",
 			     priv->dev->index, priv->id);
-
-	return;
 }
 
 /*
@@ -1131,11 +1129,10 @@ static void kbus_push_synthetic_message(struct kbus_dev *dev,
 		return;
 
 	(void)kbus_push_message(priv, new_msg, NULL, false);
+	/* ignore retval; we can't do anything useful if this goes wrong */
 
 	/* kbus_push_message takes a copy of our message */
 	kbus_free_message(new_msg);
-
-	return;
 }
 
 /*
@@ -1425,8 +1422,6 @@ static void kbus_empty_message_queue(struct kbus_private_data *priv)
 		       "kbus:   %u/%u Leaving %d message%s in queue\n",
 		       priv->dev->index, priv->id, priv->message_count,
 		       priv->message_count == 1 ? "" : "s");
-
-	return;
 }
 
 /*
@@ -1558,8 +1553,6 @@ static void kbus_empty_replies_unsent(struct kbus_private_data *priv)
 		       "kbus:   %u/%u Leaving %d message%s unreplied-to\n",
 		       priv->dev->index, priv->id, priv->num_replies_unsent,
 		       priv->num_replies_unsent == 1 ? "" : "s");
-
-	return;
 }
 
 /*
@@ -1617,7 +1610,7 @@ static int kbus_find_replier(struct kbus_dev *dev,
  * particular listener has bound to the message more than once (but no
  * *binding* will be represented more than once).
  *
- * Returns the number of listeners found (i.e., the length of the array), and a
+ * Returns the number of listeners found (i.e., the length of the array), or a
  * negative value if something went wrong. This is a bit clumsy, because the
  * caller needs to check the return value *and* the 'replier' value, but there
  * is only one caller, so...
@@ -1905,7 +1898,6 @@ static void kbus_forget_matching_messages(struct kbus_private_data *priv,
 		       "kbus:   %u/%u Leaving %d message%s in queue\n",
 		       priv->dev->index, priv->id, priv->message_count,
 		       priv->message_count == 1 ? "" : "s");
-	return;
 }
 
 /*
@@ -2201,7 +2193,6 @@ done_sending:
 	if (msg)
 		kbus_free_message(msg);
 	/* We aren't returning any status code. Oh well. */
-	return;
 }
 
 /*
@@ -2333,7 +2324,6 @@ static void kbus_forget_unbound_unsent_unbind_msgs(struct kbus_private_data
 	 */
 	if (list_empty(&dev->unsent_unbind_msg_list))
 		dev->unsent_unbind_is_tragic = false;
-	return;
 }
 
 /*
@@ -2374,7 +2364,6 @@ static void kbus_forget_my_unsent_unbind_msgs(struct kbus_private_data *priv)
 	 */
 	if (list_empty(&dev->unsent_unbind_msg_list))
 		dev->unsent_unbind_is_tragic = false;
-	return;
 }
 
 /*
@@ -2408,7 +2397,6 @@ static void kbus_forget_unsent_unbind_msgs(struct kbus_dev *dev)
 		kfree(ptr);
 		dev->unsent_unbind_msg_count--;
 	}
-	return;
 }
 
 /*
@@ -2446,7 +2434,6 @@ static void kbus_forget_my_bindings(struct kbus_private_data *priv)
 			kfree(ptr);
 		}
 	}
-	return;
 }
 
 /*
@@ -2475,7 +2462,6 @@ static void kbus_forget_all_bindings(struct kbus_dev *dev)
 		kfree(ptr->name);
 		kfree(ptr);
 	}
-	return;
 }
 
 /*
@@ -2565,7 +2551,6 @@ static void kbus_forget_all_open_ksocks(struct kbus_dev *dev)
 		list_del(&ptr->list);
 		/* But *we* mustn't free the actual datastructure! */
 	}
-	return;
 }
 
 static int kbus_open(struct inode *inode, struct file *filp)
@@ -2728,7 +2713,6 @@ static int kbus_queue_is_full(struct kbus_private_data *priv,
 	if (already_accounted_for < priv->max_messages) {
 		return false;
 	} else {
-
 		kbus_maybe_dbg(priv->dev,
 			       "kbus:   Message queue for %s %u is full"
 			       " (%u+%u%s > %u messages)\n", what, priv->id,
@@ -3882,8 +3866,7 @@ static int kbus_nextmsg(struct kbus_private_data *priv,
 			    (uint32_t __user *) arg);
 	if (retval)
 		return retval;
-	else
-		return 1;	/* We had a message */
+	return 1;	/* We had a message */
 }
 
 /* How much of the current message is left to read? */
@@ -3922,9 +3905,8 @@ static uint32_t kbus_lenleft(struct kbus_private_data *priv)
 			}
 		}
 		return total - sofar;
-	} else {
-		return 0;
 	}
+	return 0; /* no message => nothing to read */
 }
 
 /*
@@ -4739,9 +4721,8 @@ static int kbus_poll_try_send_again(struct kbus_private_data *priv,
 	if (retval == 0) {
 		kbus_discard(priv);
 		return true;
-	} else {
-		return false;
 	}
+	return false;
 }
 
 static unsigned int kbus_poll(struct file *filp, poll_table * wait)
