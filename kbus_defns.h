@@ -350,10 +350,9 @@ static inline void *kbus_msg_data_ptr(const struct kbus_message_header
 static inline uint32_t *kbus_msg_end_ptr(struct kbus_entire_message
 					 *entire)
 {
-	uint32_t end_guard_idx;
-	end_guard_idx =
-	    KBUS_ENTIRE_MSG_END_GUARD_INDEX(entire->header.name_len,
-					    entire->header.data_len);
+	uint32_t end_guard_idx =
+		KBUS_ENTIRE_MSG_END_GUARD_INDEX(entire->header.name_len,
+						entire->header.data_len);
 	return (uint32_t *) &entire->rest[end_guard_idx];
 }
 
