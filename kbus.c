@@ -311,12 +311,9 @@ static uint32_t kbus_next_size(uint32_t old_size)
 	if (old_size < 16)
 		/* For very small numbers, just double */
 		return old_size << 1;
-	else
-		/*
-		 * Otherwise, try something like the mechanism used for Python
-		 * lists - doubling feels a bit over the top
-		 */
-		return old_size + (old_size >> 3);
+	/* Otherwise, try something like the mechanism used for Python
+	 * lists - doubling feels a bit over the top */
+	return old_size + (old_size >> 3);
 }
 
 /* Determine (and return) the next message serial number */
@@ -791,12 +788,11 @@ static void kbus_report_write_msg(struct kbus_private_data *priv)
 		       priv->write.pointers_are_local, priv->write.msg,
 		       priv->write.which, priv->write.pos, priv->write.ref_data,
 		       priv->write.ref_data_index);
-	if (priv->write.msg) {
+	if (priv->write.msg)
 		kbus_maybe_dbg_write(priv->dev,
 				"kbus:      msg name %p data %p\n",
 			       priv->write.msg->name_ref,
 			       priv->write.msg->data_ref);
-	}
 }
 
 /*
@@ -828,10 +824,9 @@ static struct kbus_msg *kbus_copy_message(struct kbus_msg *old_msg)
 
 	new_msg->name_ref = kbus_raise_name_ref(old_msg->name_ref);
 
-	if (new_msg->data_len) {
+	if (new_msg->data_len)
 		/* Take a new reference to the data */
 		new_msg->data_ref = kbus_raise_data_ref(old_msg->data_ref);
-	}
 	return new_msg;
 }
 
@@ -1045,15 +1040,14 @@ static int kbus_push_message(struct kbus_private_data *priv,
 		 */
 		int retval = kbus_forget_msg_id(priv, &msg->in_reply_to);
 
-		if (retval) {
+		if (retval)
+			/* But there's not much we can do about it */
 			printk(KERN_ERR
 			       "kbus: %u/%u Error forgetting "
 			       "outstanding request %u:%u\n",
 			       priv->dev->index, priv->id,
 			       msg->in_reply_to.network_id,
 			       msg->in_reply_to.serial_num);
-			/* But there's not much we can do about it */
-		}
 	}
 
 	/* And indicate that there is something available to read */
@@ -1399,11 +1393,10 @@ static void kbus_empty_message_queue(struct kbus_private_data *priv)
 		 * going away (but take care not to send a message to
 		 * ourselves, by accident!)
 		 */
-		if (is_OUR_request && msg->to != priv->id) {
+		if (is_OUR_request && msg->to != priv->id)
 			kbus_push_synthetic_message(priv->dev, priv->id,
 					    msg->from, msg->id,
 					    KBUS_MSG_NAME_REPLIER_GONEAWAY);
-		}
 
 		/* Remove it from the list */
 		list_del(&ptr->list);
@@ -1912,9 +1905,8 @@ static int kbus_forget_binding(struct kbus_dev *dev,
 		 */
 		int retval = kbus_push_synthetic_bind_message(priv, false,
 							      name_len, name);
-		if (retval != 0) {	/* Hopefully, just -EBUSY */
+		if (retval != 0)	/* Hopefully, just -EBUSY */
 			return retval;
-		}
 		/*
 		 * Note that if we were ourselves listening for replier bind
 		 * events, then we will ourselves get the message announcing
@@ -1935,9 +1927,8 @@ static int kbus_forget_binding(struct kbus_dev *dev,
 	 * Maybe including any set-aside Replier Unbind Events...
 	 */
 	if (!strncmp(KBUS_MSG_NAME_REPLIER_BIND_EVENT, binding->name,
-		     binding->name_len)) {
+		     binding->name_len))
 		kbus_forget_unbound_unsent_unbind_msgs(priv, binding);
-	}
 
 	/*
 	 * We carefully don't try to do anything about requests that
@@ -2025,13 +2016,12 @@ static int kbus_listener_already_got_tragic_msg(struct kbus_dev *dev,
 		if (kbus_message_name_matches(
 					ptr->msg->name_ref->name,
 					ptr->msg->name_len,
-					KBUS_MSG_NAME_REPLIER_BIND_EVENT)) {
+					KBUS_MSG_NAME_REPLIER_BIND_EVENT))
 			/*
 			 * If we get a Replier Bind Event, then we're past all
 			 * the "tragic world" messages
 			 */
 			break;
-		}
 		if (ptr->send_to_id == listener->id) {
 			kbus_maybe_dbg(dev, "kbus:   %u Found\n", dev->index);
 			return true;
@@ -2925,21 +2915,19 @@ static int32_t kbus_write_to_recipients(struct kbus_private_data *priv,
 	if (replier) {
 		retval =
 		    kbus_push_message(replier->bound_to, msg, replier, true);
-		if (retval == 0) {
-			num_sent++;
-			/* And we'll need a reply for that, thank you */
-			retval = kbus_remember_msg_id(priv, &msg->id);
-			if (retval) {
-				/*
-				 * Out of memory - what *can* we do?
-				 * (basically, nothing, it's all gone horribly
-				 * wrong)
-				 */
-				goto done_sending;
-			}
-		} else {
+		if (retval)
 			goto done_sending;
-		}
+
+		num_sent++;
+		/* And we'll need a reply for that, thank you */
+		retval = kbus_remember_msg_id(priv, &msg->id);
+		if (retval)
+			/*
+			 * Out of memory - what *can* we do?
+			 * (basically, nothing, it's all gone horribly
+			 * wrong)
+			 */
+			goto done_sending;
 	}
 
 	/* For each listener, if they're still interested, send it */
@@ -3122,7 +3110,7 @@ static int kbus_write_parts(struct kbus_private_data *priv,
 			this->user_name_ptr = user_msg->name;
 			this->user_data_ptr = user_msg->data;
 
-			if (user_msg->name) {
+			if (user_msg->name)
 				/*
 				 * If we're reading a "pointy" message header,
 				 * then that's all we need - we shan't try to
@@ -3130,9 +3118,8 @@ static int kbus_write_parts(struct kbus_private_data *priv,
 				 * user says to SEND.
 				 */
 				this->is_finished = true;
-			} else {
+			else
 				this->pointers_are_local = true;
-			}
 			kbus_maybe_dbg_write(priv->dev,
 				"kbus:      HDR finished (%s, %s)\n",
 				this->is_finished ? "finished" : "not finished",
@@ -3212,9 +3199,8 @@ static int kbus_write_parts(struct kbus_private_data *priv,
 		}
 		if (this->ref_data == NULL) {
 			if (kbus_alloc_ref_data(priv, msg->data_len,
-						&this->ref_data)) {
+						&this->ref_data))
 				return -ENOMEM;
-			}
 			this->ref_data_index = 0;	/* current part index */
 		}
 		/* Overall, how far are we through the message's data? */
@@ -3409,8 +3395,7 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 				if (copy_to_user(buf,
 						 (void *)
 						 dp->parts[this->ref_data_index]
-							 + this->pos,
-						 len)) {
+							 + this->pos, len)) {
 					printk(KERN_ERR
 					       "kbus: error reading from "
 					       "dev %u/%u\n",
@@ -3537,10 +3522,9 @@ static int kbus_bind(struct kbus_private_data *priv,
 
 	retval = kbus_remember_binding(dev, priv,
 				       bind->is_replier, bind->name_len, name);
-	if (retval == 0) {
+	if (retval == 0)
 		/* The binding will use our copy of the message name */
 		name = NULL;
-	}
 
 done:
 	kfree(name);
@@ -3607,9 +3591,8 @@ static int kbus_unbind(struct kbus_private_data *priv,
 	 * $.KBUS.ReplierBindEvent, which should be sufficient...
 	 */
 	if (priv->maybe_got_unsent_unbind_msgs &&
-	    !strcmp(name, KBUS_MSG_NAME_REPLIER_BIND_EVENT)) {
+	    !strcmp(name, KBUS_MSG_NAME_REPLIER_BIND_EVENT))
 		kbus_forget_my_unsent_unbind_msgs(priv);
-	}
 
 	/*
 	 * If that removed any messages from the message queue, then we have
@@ -3620,14 +3603,13 @@ static int kbus_unbind(struct kbus_private_data *priv,
 	    priv->maybe_got_unsent_unbind_msgs) {
 		int rv = kbus_maybe_move_unsent_unbind_msg(priv);
 		/* If this fails, we're probably stumped */
-		if (rv)	{
+		if (rv)
 			/* The best we can do is grumble gently. We still
 			 * want to return retval, not rv.
 			 */
 			printk(KERN_ERR
 			       "kbus: Failed to move unsent messages on "
 			       "unbind (error %d)\n", -rv);
-		}
 	}
 
 done:
@@ -4220,19 +4202,17 @@ done:
 	 * -EAGAIN means we were blocked from sending, and the caller
 	 *  should try again (as one might expect).
 	 */
-	if (retval == -EAGAIN) {
+	if (retval == -EAGAIN)
 		/* Remember we're still trying to send this message */
 		priv->sending = true;
-	} else {
+	else
 		/* We've now finished with our copy of the message header */
 		kbus_discard(priv);
-	}
 
-	if (retval == 0 || retval == -EAGAIN) {
+	if (retval == 0 || retval == -EAGAIN)
 		if (copy_to_user((void *)arg, &priv->last_msg_id_sent,
 				 sizeof(priv->last_msg_id_sent)))
 			retval = -EFAULT;
-	}
 	return retval;
 }
 
@@ -4544,9 +4524,8 @@ static long kbus_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			       dev->index, id,
 			       priv->last_msg_id_sent.network_id,
 			       priv->last_msg_id_sent.serial_num);
-		if (copy_to_user
-		    ((void *)arg, &priv->last_msg_id_sent,
-		     sizeof(priv->last_msg_id_sent)))
+		if (copy_to_user((void *)arg, &priv->last_msg_id_sent,
+					sizeof(priv->last_msg_id_sent)))
 			retval = -EFAULT;
 		break;
 
