@@ -426,16 +426,14 @@ static int kbus_find_msg_id(struct kbus_private_data *priv,
 	struct kbus_msg_id_mem *mem = &priv->outstanding_requests;
 	int ii;
 	for (ii = 0; ii < mem->size; ii++) {
-		if (kbus_same_message_id(&mem->ids[ii],
-					 id->network_id, id->serial_num)) {
-			kbus_maybe_dbg(priv->dev,
-				       "kbus:   %u/%u Found outstanding "
-				       "request %u:%u (count=%d)\n",
-				       priv->dev->index, priv->id,
-				       id->network_id, id->serial_num,
-				       mem->count);
-			return 0;
-		}
+		if (!kbus_same_message_id(&mem->ids[ii],
+					  id->network_id, id->serial_num))
+			continue;
+		kbus_maybe_dbg(priv->dev, "kbus:   %u/%u Found outstanding "
+			       "request %u:%u (count=%d)\n",
+			       priv->dev->index, priv->id, id->network_id,
+			       id->serial_num, mem->count);
+		return 0;
 	}
 	kbus_maybe_dbg(priv->dev,
 		       "kbus:   %u/%u Could not find outstanding "
@@ -452,20 +450,20 @@ static int kbus_forget_msg_id(struct kbus_private_data *priv,
 	struct kbus_msg_id_mem *mem = &priv->outstanding_requests;
 	int ii;
 	for (ii = 0; ii < mem->size; ii++) {
-		if (kbus_same_message_id(&mem->ids[ii],
-					 id->network_id, id->serial_num)) {
-			mem->ids[ii].network_id = 0;
-			mem->ids[ii].serial_num = 0;
-			mem->count--;
-			kbus_maybe_dbg(priv->dev,
-				       "kbus:   %u/%u Forgot outstanding "
-				       "request %u:%u (count<-%d)\n",
-				       priv->dev->index, priv->id,
-				       id->network_id, id->serial_num,
-				       mem->count);
+		if (!kbus_same_message_id(&mem->ids[ii],
+					 id->network_id, id->serial_num))
+			continue;
 
-			return 0;
-		}
+		mem->ids[ii].network_id = 0;
+		mem->ids[ii].serial_num = 0;
+		mem->count--;
+		kbus_maybe_dbg(priv->dev,
+			       "kbus:   %u/%u Forgot outstanding "
+			       "request %u:%u (count<-%d)\n",
+			       priv->dev->index, priv->id, id->network_id,
+			       id->serial_num, mem->count);
+
+		return 0;
 	}
 	kbus_maybe_dbg(priv->dev,
 		       "kbus:   %u/%u Could not forget outstanding "
@@ -1480,37 +1478,33 @@ static int kbus_reply_now_sent(struct kbus_private_data *priv,
 	struct kbus_unreplied_item *next;
 
 	list_for_each_entry_safe(ptr, next, queue, list) {
-		if (kbus_same_message_id(&ptr->id,
+		if (!kbus_same_message_id(&ptr->id,
 					 msg_id->network_id,
-					 msg_id->serial_num)) {
+					 msg_id->serial_num))
+			continue;
 
-			kbus_maybe_dbg(priv->dev,
-			       "kbus:   %u/%u Reply to %u:%u %.*s now sent\n",
-			       priv->dev->index, priv->id,
-			       msg_id->network_id, msg_id->serial_num,
-			       ptr->name_len, ptr->name_ref->name);
+		kbus_maybe_dbg(priv->dev,
+		       "kbus:   %u/%u Reply to %u:%u %.*s now sent\n",
+		       priv->dev->index, priv->id, msg_id->network_id,
+		       msg_id->serial_num, ptr->name_len, ptr->name_ref->name);
 
-			/* Remove it from the list */
-			list_del(&ptr->list);
-			/* And forget all about it... */
-			kbus_lower_name_ref(ptr->name_ref);
-			kfree(ptr);
+		/* Remove it from the list */
+		list_del(&ptr->list);
+		/* And forget all about it... */
+		kbus_lower_name_ref(ptr->name_ref);
+		kfree(ptr);
 
-			priv->num_replies_unsent--;
+		priv->num_replies_unsent--;
 
-			kbus_maybe_dbg(priv->dev,
-			       "kbus:   %u/%u Leaving %d "
-			       "message%s unreplied-to\n",
-			       priv->dev->index, priv->id,
-			       priv->num_replies_unsent,
-			       priv->num_replies_unsent == 1 ? "" : "s");
+		kbus_maybe_dbg(priv->dev,
+		       "kbus:   %u/%u Leaving %d message%s unreplied-to\n",
+		       priv->dev->index, priv->id, priv->num_replies_unsent,
+		       priv->num_replies_unsent == 1 ? "" : "s");
 
-			return 0;
-		}
+		return 0;
 	}
 
-	printk(KERN_ERR
-	       "kbus: %u/%u Could not find message %u:%u in unsent "
+	printk(KERN_ERR "kbus: %u/%u Could not find message %u:%u in unsent "
 	       "replies list\n",
 	       priv->dev->index, priv->id, msg_id->network_id,
 	       msg_id->serial_num);
@@ -1576,18 +1570,15 @@ static int kbus_find_replier(struct kbus_dev *dev,
 		 * only checking if they expect a positive result, so it's
 		 * simpler to do a lazier check.
 		 */
-		if (ptr->is_replier &&
-		    ptr->name_len == name_len &&
-		    !strncmp(name, ptr->name, name_len)) {
+		if (!ptr->is_replier || ptr->name_len != name_len ||
+		    strncmp(name, ptr->name, name_len))
+			continue;
 
-			kbus_maybe_dbg(dev,
-				       "kbus:   %u '%.*s' has replier %u\n",
-				       dev->index, ptr->name_len, ptr->name,
-				       ptr->bound_to_id);
-
-			*bound_to = ptr->bound_to;
-			return 1;
-		}
+		kbus_maybe_dbg(dev, "kbus:   %u '%.*s' has replier %u\n",
+			       dev->index, ptr->name_len, ptr->name,
+			       ptr->bound_to_id);
+		*bound_to = ptr->bound_to;
+		return 1;
 	}
 	return 0;
 }
@@ -1639,80 +1630,73 @@ static int kbus_find_listeners(struct kbus_dev *dev,
 
 	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
 
-		if (kbus_message_name_matches(name, name_len, ptr->name)) {
+		if (!kbus_message_name_matches(name, name_len, ptr->name))
+			continue;
+
+		kbus_maybe_dbg(dev, "kbus:      Name '%.*s' matches "
+			       "'%s' for %s %u\n",
+			       name_len, name, ptr->name,
+			       ptr->is_replier ? "replier" : "listener",
+			       ptr->bound_to_id);
+
+		if (ptr->is_replier) {
+			/* It *may* be the replier for this message */
+			size_t last_char = strlen(ptr->name) - 1;
+			if (ptr->name[last_char] == '*')
+				new_replier_type = WILD_STAR;
+			else if (ptr->name[last_char] == '%')
+				new_replier_type = WILD_PERCENT;
+			else
+				new_replier_type = SPECIFIC;
 
 			kbus_maybe_dbg(dev,
-				       "kbus:      Name '%.*s' matches "
-				       "'%s' for %s %u\n",
-				       name_len, name, ptr->name,
-				       ptr->is_replier ? "replier" : "listener",
-				       ptr->bound_to_id);
+				"kbus:      ..previous replier was %u "
+				"(%s), looking at %u (%s)\n",
+				((*replier) == NULL ? 0 :
+					(*replier)->bound_to_id),
+				kbus_replier_type_name(replier_type),
+				ptr->bound_to_id,
+				kbus_replier_type_name(new_replier_type));
 
-			if (ptr->is_replier) {
-				/* It *may* be the replier for this message */
-				size_t last_char = strlen(ptr->name) - 1;
-				if (ptr->name[last_char] == '*')
-					new_replier_type = WILD_STAR;
-				else if (ptr->name[last_char] == '%')
-					new_replier_type = WILD_PERCENT;
-				else
-					new_replier_type = SPECIFIC;
+			/*
+			 * If this is the first replier, just remember
+			 * it. Otherwise, if it's more specific than
+			 * our previous replier, remember it instead.
+			 */
+			if (*replier == NULL ||
+			    new_replier_type > replier_type) {
 
-				kbus_maybe_dbg(dev,
-					"kbus:      ..previous replier was %u "
-					"(%s), looking at %u (%s)\n",
-					((*replier) == NULL ? 0 :
-						(*replier)->bound_to_id),
-					kbus_replier_type_name(replier_type),
-					ptr->bound_to_id,
-					kbus_replier_type_name(new_replier_type)
-					);
+				kbus_conditional_dbg(*replier, dev,
+					"kbus:      ..going with "
+					"replier %u (%s)\n", ptr->bound_to_id,
+					kbus_replier_type_name(
+						new_replier_type));
 
-				/*
-				 * If this is the first replier, just remember
-				 * it. Otherwise, if it's more specific than
-				 * our previous replier, remember it instead.
-				 */
-				if (*replier == NULL ||
-				    new_replier_type > replier_type) {
-
-					kbus_conditional_dbg(*replier, dev,
-						"kbus:      ..going "
-						"with replier %u (%s)\n",
-						ptr->bound_to_id,
-						kbus_replier_type_name(
-							new_replier_type));
-
-					*replier = ptr;
-					replier_type = new_replier_type;
-				} else {
-					kbus_conditional_dbg(*replier, dev,
-					       "kbus:      ..keeping "
-					       "replier %u (%s)\n",
-					       (*replier)->bound_to_id,
-					       kbus_replier_type_name(
-						       replier_type));
-				}
+				*replier = ptr;
+				replier_type = new_replier_type;
 			} else {
-				/* It is a listener */
-				if (count == array_size) {
-					uint32_t new_size =
-					    kbus_next_size(array_size);
-
-					kbus_maybe_dbg(dev,
-					       "kbus:      XXX listener "
-					       "array size %d -> %d\n",
-					       array_size, new_size);
-
-					array_size = new_size;
-					*listeners = krealloc(*listeners,
-					      sizeof(**listeners) * array_size,
-					      GFP_KERNEL);
-					if (!(*listeners))
-						return -EFAULT;
-				}
-				(*listeners)[count++] = ptr;
+				kbus_conditional_dbg(*replier, dev,
+				       "kbus:      ..keeping replier %u (%s)\n",
+				       (*replier)->bound_to_id,
+				       kbus_replier_type_name(replier_type));
 			}
+		} else {
+			/* It is a listener */
+			if (count == array_size) {
+				uint32_t new_size = kbus_next_size(array_size);
+
+				kbus_maybe_dbg(dev, "kbus:      XXX listener "
+				       "array size %d -> %d\n",
+				       array_size, new_size);
+
+				array_size = new_size;
+				*listeners = krealloc(*listeners,
+				      sizeof(**listeners) * array_size,
+				      GFP_KERNEL);
+				if (!(*listeners))
+					return -EFAULT;
+			}
+			(*listeners)[count++] = ptr;
 		}
 	}
 
@@ -1812,15 +1796,14 @@ static struct kbus_message_binding
 			continue;
 		if (name_len != ptr->name_len)
 			continue;
-		if (!strncmp(name, ptr->name, name_len)) {
+		if (strncmp(name, ptr->name, name_len))
+			continue;
 
-			kbus_maybe_dbg(priv->dev,
-				       "kbus:   %u/%u Found %c '%.*s'\n",
-				       dev->index, priv->id,
-				       (ptr->is_replier ? 'R' : 'L'),
-				       ptr->name_len, ptr->name);
-			return ptr;
-		}
+		kbus_maybe_dbg(priv->dev, "kbus:   %u/%u Found %c '%.*s'\n",
+			       dev->index, priv->id,
+			       (ptr->is_replier ? 'R' : 'L'),
+			       ptr->name_len, ptr->name);
+		return ptr;
 	}
 	return NULL;
 }
@@ -2235,31 +2218,31 @@ static int kbus_maybe_move_unsent_unbind_msg(struct kbus_private_data *priv)
 
 	list_for_each_entry_safe(ptr, next, &dev->unsent_unbind_msg_list,
 				 list) {
-		if (ptr->send_to_id == priv->id) {
-			int retval;
-			if (dev->verbose)
-				kbus_report_message(priv->dev,
-						KERN_DEBUG, ptr->msg);
-			/*
-			 * Move the message into our normal message queue.
-			 *
-			 * We *must* use kbus_push_message() to do this, as
-			 * we wish to keep our promise that this shall be the
-			 * only way of adding a message to the queue.
-			 */
-			retval = kbus_push_message(priv, ptr->msg,
-						   ptr->binding, false);
-			if (retval)
-				return retval;	/* What else can we do? */
+		int retval;
 
-			/* Remove it from the list */
-			list_del(&ptr->list);
-			/* Mustn't forget to free *our* copy of the message */
-			kbus_free_message(ptr->msg);
-			kfree(ptr);
-			dev->unsent_unbind_msg_count--;
-			goto check_tragic;
-		}
+		if (ptr->send_to_id != priv->id)
+			continue;
+
+		if (dev->verbose)
+			kbus_report_message(priv->dev, KERN_DEBUG, ptr->msg);
+		/*
+		 * Move the message into our normal message queue.
+		 *
+		 * We *must* use kbus_push_message() to do this, as
+		 * we wish to keep our promise that this shall be the
+		 * only way of adding a message to the queue.
+		 */
+		retval = kbus_push_message(priv, ptr->msg, ptr->binding, false);
+		if (retval)
+			return retval;	/* What else can we do? */
+
+		/* Remove it from the list */
+		list_del(&ptr->list);
+		/* Mustn't forget to free *our* copy of the message */
+		kbus_free_message(ptr->msg);
+		kfree(ptr);
+		dev->unsent_unbind_msg_count--;
+		goto check_tragic;
 	}
 
 	/*
@@ -2413,22 +2396,20 @@ static void kbus_forget_my_bindings(struct kbus_private_data *priv)
 		       dev->index, priv->id);
 
 	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
-		if (bound_to_id == ptr->bound_to_id) {
+		if (bound_to_id != ptr->bound_to_id)
+			continue;
 
-			kbus_maybe_dbg(dev, "kbus:   Unbound %u %c '%.*s'\n",
-				       ptr->bound_to_id,
-				       (ptr->is_replier ? 'R' : 'L'),
-				       ptr->name_len, ptr->name);
+		kbus_maybe_dbg(dev, "kbus:   Unbound %u %c '%.*s'\n",
+			       ptr->bound_to_id, (ptr->is_replier ? 'R' : 'L'),
+			       ptr->name_len, ptr->name);
 
-			if (ptr->is_replier && dev->report_replier_binds) {
-				kbus_safe_report_unbinding(priv, ptr->name_len,
-							   ptr->name);
-			}
+		if (ptr->is_replier && dev->report_replier_binds)
+			kbus_safe_report_unbinding(priv, ptr->name_len,
+							 ptr->name);
 
-			list_del(&ptr->list);
-			kfree(ptr->name);
-			kfree(ptr);
-		}
+		list_del(&ptr->list);
+		kfree(ptr->name);
+		kfree(ptr);
 	}
 }
 
@@ -2510,17 +2491,16 @@ static int kbus_forget_open_ksock(struct kbus_dev *dev, uint32_t id)
 
 	/* We don't want anyone writing to the list whilst we do this */
 	list_for_each_entry_safe(ptr, next, &dev->open_ksock_list, list) {
-		if (id == ptr->id) {
+		if (id != ptr->id)
+			continue;
 
-			kbus_maybe_dbg(dev,
-				       "kbus:   %u Forgetting open Ksock %u\n",
-				       dev->index, id);
+		kbus_maybe_dbg(dev, "kbus:   %u Forgetting open Ksock %u\n",
+			       dev->index, id);
 
-			/* So remove it from our list */
-			list_del(&ptr->list);
-			/* But *we* mustn't free the actual datastructure! */
-			return 0;
-		}
+		/* So remove it from our list */
+		list_del(&ptr->list);
+		/* But *we* mustn't free the actual datastructure! */
+		return 0;
 	}
 	kbus_maybe_dbg(dev, "kbus:   %u Could not forget open Ksock %u\n",
 		       dev->index, id);
