@@ -741,9 +741,9 @@ static int kbus_check_message_written(struct kbus_write_msg *this)
 /*
  * Output a description of an in-kernel message
  */
-static void kbus_report_message(struct kbus_dev *dev __maybe_unused,
-				char *kern_prefix __maybe_unused,
-				struct kbus_msg *msg __maybe_unused)
+static void kbus_maybe_report_message(struct kbus_dev *dev __maybe_unused,
+				      char *kern_prefix __maybe_unused,
+				      struct kbus_msg *msg __maybe_unused)
 {
 	if (msg->data_len) {
 		struct kbus_data_ptr *data_p = msg->data_ref;
@@ -992,8 +992,7 @@ static int kbus_push_message(struct kbus_private_data *priv,
 		kbus_free_message(new_msg);
 		return -ENOMEM;
 	}
-	if (priv->dev->verbose)
-		kbus_report_message(priv->dev, KERN_DEBUG, new_msg);
+	kbus_maybe_report_message(priv->dev, KERN_DEBUG, new_msg);
 
 	if (for_replier && (KBUS_BIT_WANT_A_REPLY & msg->flags)) {
 		/*
@@ -1297,12 +1296,10 @@ static int kbus_push_synthetic_bind_message(struct kbus_private_data *priv,
 	if (new_msg == NULL)
 		return -ENOMEM;
 
-	if (priv->dev->verbose) {
-		kbus_report_message(priv->dev, KERN_DEBUG, new_msg);
-		kbus_maybe_dbg(priv->dev,
-			       "kbus: Writing synthetic message to "
-			       "recipients\n");
-	}
+	kbus_maybe_report_message(priv->dev, KERN_DEBUG, new_msg);
+	kbus_maybe_dbg(priv->dev,
+		       "kbus: Writing synthetic message to "
+		       "recipients\n");
 
 	retval = kbus_write_to_recipients(priv, priv->dev, new_msg);
 	/*
@@ -1356,14 +1353,11 @@ static struct kbus_msg *kbus_pop_message(struct kbus_private_data *priv)
 	if (priv->message_count == (priv->max_messages - 1))
 		wake_up_interruptible(&priv->dev->write_wait);
 
-	if (priv->dev->verbose) {
-		kbus_report_message(priv->dev, KERN_DEBUG, msg);
-
-		kbus_maybe_dbg(priv->dev,
-			       "kbus:   %u/%u Leaving %d message%s in queue\n",
-			       priv->dev->index, priv->id, priv->message_count,
-			       priv->message_count == 1 ? "" : "s");
-	}
+	kbus_maybe_report_message(priv->dev, KERN_DEBUG, msg);
+	kbus_maybe_dbg(priv->dev,
+		       "kbus:   %u/%u Leaving %d message%s in queue\n",
+		       priv->dev->index, priv->id, priv->message_count,
+		       priv->message_count == 1 ? "" : "s");
 
 	return msg;
 }
@@ -1385,8 +1379,7 @@ static void kbus_empty_message_queue(struct kbus_private_data *priv)
 		struct kbus_msg *msg = ptr->msg;
 		int is_OUR_request = (KBUS_BIT_WANT_YOU_TO_REPLY & msg->flags);
 
-		if (priv->dev->verbose)
-			kbus_report_message(priv->dev, KERN_DEBUG, msg);
+		kbus_maybe_report_message(priv->dev, KERN_DEBUG, msg);
 
 		/*
 		 * If it wanted a reply (from us). let the sender know it's
@@ -1830,11 +1823,9 @@ static void kbus_forget_matching_messages(struct kbus_private_data *priv,
 		if (ptr->binding != binding)
 			continue;
 
-		if (priv->dev->verbose) {
-			kbus_maybe_dbg(priv->dev,
-				       "kbus:   Deleting message from queue\n");
-			kbus_report_message(priv->dev, KERN_DEBUG, msg);
-		}
+		kbus_maybe_dbg(priv->dev,
+				"kbus:   Deleting message from queue\n");
+		kbus_maybe_report_message(priv->dev, KERN_DEBUG, msg);
 
 		/*
 		 * If it wanted a reply (from us). let the sender know it's
@@ -1843,12 +1834,9 @@ static void kbus_forget_matching_messages(struct kbus_private_data *priv,
 		 */
 		if (is_OUR_request && msg->to != priv->id) {
 
-			if (priv->dev->verbose) {
-				kbus_maybe_dbg(priv->dev,
-					       "kbus:   >>> is_OUR_request,"
-					       " sending fake reply\n");
-				kbus_report_message(priv->dev, KERN_DEBUG, msg);
-			}
+			kbus_maybe_dbg(priv->dev, "kbus:   >>> is_OUR_request,"
+				       " sending fake reply\n");
+			kbus_maybe_report_message(priv->dev, KERN_DEBUG, msg);
 			kbus_push_synthetic_message(priv->dev, priv->id,
 					    msg->from, msg->id,
 					    KBUS_MSG_NAME_REPLIER_UNBOUND);
@@ -2213,8 +2201,7 @@ static int kbus_maybe_move_unsent_unbind_msg(struct kbus_private_data *priv)
 		if (ptr->send_to_id != priv->id)
 			continue;
 
-		if (dev->verbose)
-			kbus_report_message(priv->dev, KERN_DEBUG, ptr->msg);
+		kbus_maybe_report_message(priv->dev, KERN_DEBUG, ptr->msg);
 		/*
 		 * Move the message into our normal message queue.
 		 *
@@ -2353,11 +2340,11 @@ static void kbus_forget_unsent_unbind_msgs(struct kbus_dev *dev)
 	list_for_each_entry_safe(ptr, next, &dev->unsent_unbind_msg_list,
 			list) {
 
-		if (dev->verbose && !kbus_message_name_matches(
+		if (!kbus_message_name_matches(
 					    ptr->msg->name_ref->name,
 					    ptr->msg->name_len,
 					    KBUS_MSG_NAME_REPLIER_BIND_EVENT))
-			kbus_report_message(dev, KERN_DEBUG, ptr->msg);
+			kbus_maybe_report_message(dev, KERN_DEBUG, ptr->msg);
 
 		/* Remove it from the list */
 		list_del(&ptr->list);
