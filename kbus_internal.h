@@ -107,7 +107,7 @@
 /* Debugging setup */
 
 #ifndef CONFIG_KBUS
-	/* ... then we're not running in the kernel,
+	/* ... then we're not building in-tree,
 	 * so none of our CONFIG_* are set.
 	 * Default sensibly. */
 #define CONFIG_KBUS_DEBUG
