@@ -9,15 +9,16 @@ documentation is available at:
 
     http://html.kbus.googlecode.com/hg/docs/html/index.html
 
-or within the Mercurial ``web`` repository at:
+or within the Mercurial ``html`` repository at:
 
-    ``docs/html/index.html``
+    ``html/docs/html/index.html``
 
 Building the documentation
 --------------------------
 The KBus documentation is built using Sphinx_.
 
-.. note:: It needs (at least) version 0.6 of Sphinx.  Recent versions of
+.. note:: The documentation needs (at least) version 0.6 of Sphinx. 
+	Recent versions of
 	Ubuntu provide this in the ``python-sphinx`` package; on older
 	versions you should use ``easy_install`` as described on the
 	Sphinx website.

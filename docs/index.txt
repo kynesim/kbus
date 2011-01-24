@@ -17,7 +17,7 @@ Contents:
 
    simple_intro
    goldfish
-   docs
+   specification
    limpet
    kbus-python-messages
    kbus-python-ksocks
