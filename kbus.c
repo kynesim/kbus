@@ -5101,6 +5101,8 @@ static void __exit kbus_exit(void)
 }
 
 module_param(kbus_num_devices, int, S_IRUGO);
+MODULE_PARM_DESC(kbus_num_devices,
+		"Number of KBUS device nodes to initially create");
 module_init(kbus_init);
 module_exit(kbus_exit);
 
