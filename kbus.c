@@ -3886,7 +3886,7 @@ static int kbus_alloc_ref_data(struct kbus_private_data *priv __maybe_unused,
 	if (!parts)
 		return -ENOMEM;
 	lengths = kmalloc(sizeof(*lengths) * num_parts, GFP_KERNEL);
-	if (!parts) {
+	if (!lengths) {
 		kfree(parts);
 		return -ENOMEM;
 	}
