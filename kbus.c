@@ -3886,7 +3886,7 @@ static int kbus_alloc_ref_data(struct kbus_private_data *priv __maybe_unused,
 	if (!parts)
 		return -ENOMEM;
 	lengths = kmalloc(sizeof(*lengths) * num_parts, GFP_KERNEL);
-	if (!parts) {
+	if (!lengths) {
 		kfree(parts);
 		return -ENOMEM;
 	}
@@ -5101,6 +5101,8 @@ static void __exit kbus_exit(void)
 }
 
 module_param(kbus_num_devices, int, S_IRUGO);
+MODULE_PARM_DESC(kbus_num_devices,
+		"Number of KBUS device nodes to initially create");
 module_init(kbus_init);
 module_exit(kbus_exit);
 
