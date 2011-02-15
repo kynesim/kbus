@@ -64,8 +64,9 @@ kbus.ko :
 #
 # Just to make life more fun, in Ubuntu 9.10, the file has to be in
 # /lib/udev/rules.d - putting it in the previous location doesn't seem
-# to do anything (at least on a fresh install of 9.10). It *does*, however
-# appear to be enough to link one to the other...
+# to do anything (at least on a fresh install of 9.10). On the other hand,
+# Ubuntu 10.10 will accept the file in either location, but claims to
+# ignore (soft) links in /lib/udev/rules.d.
 
 # On Ubuntu, if we want ordinary users (in the admin group) to be able to
 # read/write '/dev/kbus<n>' then we need to have a rules file to say so.
