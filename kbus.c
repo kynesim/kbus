@@ -69,7 +69,7 @@ static int kbus_minor;	/* 0 => We're happy to start with device 0 */
 
 /* We can't need more than 8 characters of padding, by definition! */
 static char *static_zero_padding = "\0\0\0\0\0\0\0\0";
-static uint32_t static_end_guard = KBUS_MSG_END_GUARD;
+static u32 static_end_guard = KBUS_MSG_END_GUARD;
 
 /* Our actual devices, 0 through kbus_num_devices-1 */
 static struct kbus_dev **kbus_devices;
@@ -86,15 +86,15 @@ static struct proc_dir_entry *kbus_proc_file_stats;
 
 /* As few foreshadowings as I can get away with */
 static struct kbus_private_data *kbus_find_open_ksock(struct kbus_dev *dev,
-						      uint32_t id);
+						      u32 id);
 
 /* I really want this function where it is in the code, so need to foreshadow */
 static int kbus_setup_new_device(int which);
 
 /* More or less ditto */
-static int32_t kbus_write_to_recipients(struct kbus_private_data *priv,
-					struct kbus_dev *dev,
-					struct kbus_msg *msg);
+static int kbus_write_to_recipients(struct kbus_private_data *priv,
+				    struct kbus_dev *dev,
+				    struct kbus_msg *msg);
 
 static void kbus_forget_unbound_unsent_unbind_msgs(struct kbus_private_data
 						   *priv,
@@ -102,7 +102,7 @@ static void kbus_forget_unbound_unsent_unbind_msgs(struct kbus_private_data
 						   *binding);
 
 static int kbus_alloc_ref_data(struct kbus_private_data *priv,
-			       uint32_t data_len,
+			       u32 data_len,
 			       struct kbus_data_ptr **ret_ref_data);
 /* ========================================================================= */
 
@@ -306,7 +306,7 @@ static void kbus_lower_name_ref(struct kbus_name_ptr *refname)
 /*
  * Return a stab at the next size for an array
  */
-static uint32_t kbus_next_size(uint32_t old_size)
+static u32 kbus_next_size(u32 old_size)
 {
 	if (old_size < 16)
 		/* For very small numbers, just double */
@@ -317,7 +317,7 @@ static uint32_t kbus_next_size(uint32_t old_size)
 }
 
 /* Determine (and return) the next message serial number */
-static uint32_t kbus_next_serial_num(struct kbus_dev *dev)
+static u32 kbus_next_serial_num(struct kbus_dev *dev)
 {
 	if (dev->next_msg_serial_num == 0)
 		dev->next_msg_serial_num++;
@@ -325,7 +325,7 @@ static uint32_t kbus_next_serial_num(struct kbus_dev *dev)
 }
 
 static int kbus_same_message_id(struct kbus_msg_id *msg_id,
-				uint32_t network_id, uint32_t serial_num)
+				u32 network_id, u32 serial_num)
 {
 	return msg_id->network_id == network_id &&
 	    msg_id->serial_num == serial_num;
@@ -388,8 +388,8 @@ static int kbus_remember_msg_id(struct kbus_private_data *priv,
 	}
 	/* Otherwise, give in and use a new one */
 	if (mem->count == mem->size) {
-		uint32_t old_size = mem->size;
-		uint32_t new_size = kbus_next_size(old_size);
+		u32 old_size = mem->size;
+		u32 new_size = kbus_next_size(old_size);
 
 		kbus_maybe_dbg(priv->dev, "kbus:   %u/%u XXX outstanding"
 			       " request array size %u -> %u\n",
@@ -488,8 +488,8 @@ static int kbus_message_is_reply(struct kbus_msg *msg)
 static struct kbus_msg
 *kbus_build_kbus_message(struct kbus_dev *dev,
 			 char *msg_name,
-			 uint32_t from,
-			 uint32_t to, struct kbus_msg_id in_reply_to)
+			 u32 from,
+			 u32 to, struct kbus_msg_id in_reply_to)
 {
 	struct kbus_msg *new_msg;
 	struct kbus_name_ptr *name_ref;
@@ -1084,8 +1084,8 @@ static int kbus_push_message(struct kbus_private_data *priv,
  * goes wrong.
  */
 static void kbus_push_synthetic_message(struct kbus_dev *dev,
-					uint32_t from,
-					uint32_t to,
+					u32 from,
+					u32 to,
 					struct kbus_msg_id in_reply_to,
 					char *name)
 {
@@ -1134,14 +1134,14 @@ static void kbus_push_synthetic_message(struct kbus_dev *dev,
  */
 static int kbus_add_bind_message_data(struct kbus_private_data *priv,
 				      struct kbus_msg *new_msg,
-				      uint32_t is_bind,
-				      uint32_t name_len, char *name)
+				      u32 is_bind,
+				      u32 name_len, char *name)
 {
 	struct kbus_replier_bind_event_data *data;
 	struct kbus_data_ptr *wrapped_data;
-	uint32_t padded_name_len = KBUS_PADDED_NAME_LEN(name_len);
-	uint32_t data_len = sizeof(*data) + padded_name_len;
-	uint32_t rest_len = padded_name_len / 4;
+	u32 padded_name_len = KBUS_PADDED_NAME_LEN(name_len);
+	u32 data_len = sizeof(*data) + padded_name_len;
+	u32 rest_len = padded_name_len / 4;
 	char *name_p;
 
 	unsigned long *parts;
@@ -1216,8 +1216,8 @@ static int kbus_add_bind_message_data(struct kbus_private_data *priv,
  */
 static struct kbus_msg
 *kbus_new_synthetic_bind_message(struct kbus_private_data *priv,
-				 uint32_t is_bind,
-				 uint32_t name_len, char *name)
+				 u32 is_bind,
+				 u32 name_len, char *name)
 {
 	ssize_t retval = 0;
 	struct kbus_msg *new_msg;
@@ -1279,8 +1279,8 @@ static struct kbus_msg
  * have bound to receive it.
  */
 static int kbus_push_synthetic_bind_message(struct kbus_private_data *priv,
-					    uint32_t is_bind,
-					    uint32_t name_len, char *name)
+					    u32 is_bind,
+					    u32 name_len, char *name)
 {
 
 	ssize_t retval = 0;
@@ -1540,7 +1540,7 @@ static void kbus_empty_replies_unsent(struct kbus_private_data *priv)
  */
 static int kbus_find_replier(struct kbus_dev *dev,
 			     struct kbus_private_data **bound_to,
-			     uint32_t name_len, char *name)
+			     u32 name_len, char *name)
 {
 	struct kbus_message_binding *ptr;
 	struct kbus_message_binding *next;
@@ -1592,7 +1592,7 @@ static int kbus_find_replier(struct kbus_dev *dev,
 static int kbus_find_listeners(struct kbus_dev *dev,
 			       struct kbus_message_binding **listeners[],
 			       struct kbus_message_binding **replier,
-			       uint32_t name_len, char *name)
+			       u32 name_len, char *name)
 {
 	int count = 0;
 	int array_size = KBUS_INIT_LISTENER_ARRAY_SIZE;
@@ -1669,7 +1669,7 @@ static int kbus_find_listeners(struct kbus_dev *dev,
 		} else {
 			/* It is a listener */
 			if (count == array_size) {
-				uint32_t new_size = kbus_next_size(array_size);
+				u32 new_size = kbus_next_size(array_size);
 
 				kbus_maybe_dbg(dev, "kbus:      XXX listener "
 				       "array size %d -> %d\n",
@@ -1708,8 +1708,8 @@ static int kbus_find_listeners(struct kbus_dev *dev,
  */
 static int kbus_remember_binding(struct kbus_dev *dev,
 				 struct kbus_private_data *priv,
-				 uint32_t replier,
-				 uint32_t name_len, char *name)
+				 u32 replier,
+				 u32 name_len, char *name)
 {
 	int retval = 0;
 	struct kbus_message_binding *new;
@@ -1770,7 +1770,7 @@ static int kbus_remember_binding(struct kbus_dev *dev,
 static struct kbus_message_binding
 *kbus_find_binding(struct kbus_dev *dev,
 		   struct kbus_private_data *priv,
-		   uint32_t replier, uint32_t name_len, char *name)
+		   u32 replier, u32 name_len, char *name)
 {
 	struct kbus_message_binding *ptr;
 	struct kbus_message_binding *next;
@@ -1867,7 +1867,7 @@ static void kbus_forget_matching_messages(struct kbus_private_data *priv,
  */
 static int kbus_forget_binding(struct kbus_dev *dev,
 			       struct kbus_private_data *priv,
-			       uint32_t replier, uint32_t name_len, char *name)
+			       u32 replier, u32 name_len, char *name)
 {
 	struct kbus_message_binding *binding;
 
@@ -2026,7 +2026,7 @@ static int kbus_listener_already_got_tragic_msg(struct kbus_dev *dev,
  * right away.
  */
 static void kbus_safe_report_unbinding(struct kbus_private_data *priv,
-				       uint32_t name_len, char *name)
+				       u32 name_len, char *name)
 {
 	/* 1. Generate a new unbinding event message
 	 * 2. Try sending it to everyone who cares
@@ -2155,14 +2155,14 @@ done_sending:
 /*
  * Return how many messages we have in the unsent Replier Unbind Event list.
  */
-static uint32_t kbus_count_unsent_unbind_msgs(struct kbus_private_data *priv)
+static u32 kbus_count_unsent_unbind_msgs(struct kbus_private_data *priv)
 {
 	struct kbus_dev *dev = priv->dev;
 
 	struct kbus_unsent_message_item *ptr;
 	struct kbus_unsent_message_item *next;
 
-	uint32_t count = 0;
+	u32 count = 0;
 
 	kbus_maybe_dbg(dev, "kbus: %u/%u Counting unsent unbind messages\n",
 		       dev->index, priv->id);
@@ -2253,7 +2253,7 @@ static void kbus_forget_unbound_unsent_unbind_msgs(struct kbus_private_data
 	struct kbus_unsent_message_item *ptr;
 	struct kbus_unsent_message_item *next;
 
-	uint32_t count = 0;
+	u32 count = 0;
 
 	kbus_maybe_dbg(dev,
 		       "kbus: %u/%u Forgetting unsent unbind messages for "
@@ -2294,7 +2294,7 @@ static void kbus_forget_my_unsent_unbind_msgs(struct kbus_private_data *priv)
 	struct kbus_unsent_message_item *ptr;
 	struct kbus_unsent_message_item *next;
 
-	uint32_t count = 0;
+	u32 count = 0;
 
 	kbus_maybe_dbg(dev,
 		       "kbus: %u/%u Forgetting my unsent unbind messages\n",
@@ -2364,7 +2364,7 @@ static void kbus_forget_unsent_unbind_msgs(struct kbus_dev *dev)
 static void kbus_forget_my_bindings(struct kbus_private_data *priv)
 {
 	struct kbus_dev *dev = priv->dev;
-	uint32_t bound_to_id = priv->id;
+	u32 bound_to_id = priv->id;
 
 	struct kbus_message_binding *ptr;
 	struct kbus_message_binding *next;
@@ -2439,7 +2439,7 @@ static int kbus_remember_open_ksock(struct kbus_dev *dev,
  * Return NULL if we can't find it.
  */
 static struct kbus_private_data *kbus_find_open_ksock(struct kbus_dev *dev,
-						      uint32_t id)
+						      u32 id)
 {
 	struct kbus_private_data *ptr;
 	struct kbus_private_data *next;
@@ -2461,7 +2461,7 @@ static struct kbus_private_data *kbus_find_open_ksock(struct kbus_dev *dev,
  *
  * Returns 0 if all went well, -EINVAL if we couldn't find the open Ksock
  */
-static int kbus_forget_open_ksock(struct kbus_dev *dev, uint32_t id)
+static int kbus_forget_open_ksock(struct kbus_dev *dev, u32 id)
 {
 	struct kbus_private_data *ptr;
 	struct kbus_private_data *next;
@@ -2609,7 +2609,7 @@ static int kbus_release(struct inode *inode __always_unused, struct file *filp)
  */
 static struct kbus_private_data
 *kbus_find_private_data(struct kbus_private_data *our_priv,
-			struct kbus_dev *dev, uint32_t id)
+			struct kbus_dev *dev, u32 id)
 {
 	struct kbus_private_data *l_priv;
 	if (id == our_priv->id) {
@@ -2696,9 +2696,9 @@ static int kbus_queue_is_full(struct kbus_private_data *priv,
  *
  * Otherwise, it returns a negative value for error.
  */
-static int32_t kbus_write_to_recipients(struct kbus_private_data *priv,
-					struct kbus_dev *dev,
-					struct kbus_msg *msg)
+static int kbus_write_to_recipients(struct kbus_private_data *priv,
+				    struct kbus_dev *dev,
+				    struct kbus_msg *msg)
 {
 	struct kbus_message_binding **listeners = NULL;
 	struct kbus_message_binding *replier = NULL;
@@ -2946,7 +2946,7 @@ static int kbus_write_data_parts(struct kbus_private_data *priv,
 {
 	struct kbus_write_msg *this = &(priv->write);
 
-	uint32_t num_parts = this->ref_data->num_parts;
+	u32 num_parts = this->ref_data->num_parts;
 	size_t local_count = bytes_to_use;
 	size_t local_buf_pos = 0;
 
@@ -3337,8 +3337,8 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 	struct kbus_dev *dev = priv->dev;
 	struct kbus_read_msg *this = &(priv->read);
 	ssize_t retval = 0;
-	uint32_t len, left;
-	uint32_t which = this->which;
+	u32 len, left;
+	u32 which = this->which;
 
 	if (mutex_lock_interruptible(&dev->mux))
 		return -EAGAIN;	/* Just try again later */
@@ -3371,7 +3371,7 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 			struct kbus_data_ptr *dp = this->msg->data_ref;
 
 			left = dp->lengths[this->ref_data_index] - this->pos;
-			len = min(left, (uint32_t) count);
+			len = min(left, (u32) count);
 			kbus_maybe_dbg_read(priv->dev,
 				    "kbus:   xx which %d, part %d length %u, "
 				    "pos %u, left %u, len %u, count %u\n",
@@ -3406,7 +3406,7 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 			}
 		} else {
 			left = this->lengths[which] - this->pos;
-			len = min(left, (uint32_t) count);
+			len = min(left, (u32) count);
 			kbus_maybe_dbg_read(priv->dev,
 			       "kbus:   xx which %d, read_len[%d] %u, pos %u, "
 			       "left %u, len %u, count %u\n",
@@ -3525,7 +3525,7 @@ static int kbus_unbind(struct kbus_private_data *priv,
 	int retval = 0;
 	struct kbus_bind_request *bind;
 	char *name = NULL;
-	uint32_t old_message_count = priv->message_count;
+	u32 old_message_count = priv->message_count;
 
 	bind = kmalloc(sizeof(*bind), GFP_KERNEL);
 	if (!bind)
@@ -3696,7 +3696,7 @@ static int kbus_nextmsg(struct kbus_private_data *priv,
 		 * A return value of 0 means no message, and that's
 		 * what __put_user returns for success.
 		 */
-		return __put_user(0, (uint32_t __user *) arg);
+		return __put_user(0, (u32 __user *) arg);
 	}
 	kbus_maybe_dbg_read(priv->dev, "kbus:   xx Setting up read_hdr\n");
 
@@ -3802,20 +3802,20 @@ static int kbus_nextmsg(struct kbus_private_data *priv,
 	}
 
 	retval = __put_user(KBUS_ENTIRE_MSG_LEN(msg->name_len, msg->data_len),
-			    (uint32_t __user *) arg);
+			    (u32 __user *) arg);
 	if (retval)
 		return retval;
 	return 1;	/* We had a message */
 }
 
 /* How much of the current message is left to read? */
-static uint32_t kbus_lenleft(struct kbus_private_data *priv)
+static u32 kbus_lenleft(struct kbus_private_data *priv)
 {
 	struct kbus_read_msg *this = &(priv->read);
 	if (this->msg) {
 		int ii, jj;
-		uint32_t sofar = 0;
-		uint32_t total = KBUS_ENTIRE_MSG_LEN(this->msg->name_len,
+		u32 sofar = 0;
+		u32 total = KBUS_ENTIRE_MSG_LEN(this->msg->name_len,
 						     this->msg->data_len);
 		/* Add up the items we're read all of, so far */
 		for (ii = 0; ii < this->which; ii++) {
@@ -3855,7 +3855,7 @@ static uint32_t kbus_lenleft(struct kbus_private_data *priv)
  * Note that the 'lengths[n]' field to each page 'n' will be set to zero.
  */
 static int kbus_alloc_ref_data(struct kbus_private_data *priv __maybe_unused,
-			       uint32_t data_len,
+			       u32 data_len,
 			       struct kbus_data_ptr **ret_ref_data)
 {
 	int num_parts = 0;
@@ -3949,7 +3949,7 @@ static int kbus_alloc_ref_data(struct kbus_private_data *priv __maybe_unused,
  * space, as a reference counted quantity, possibly spread over multiple pages.
  */
 static int kbus_wrap_user_data(struct kbus_private_data *priv,
-			       uint32_t data_len,
+			       u32 data_len,
 			       void *user_data_ptr,
 			       struct kbus_data_ptr **new_data)
 {
@@ -4208,9 +4208,9 @@ static int kbus_maxmsgs(struct kbus_private_data *priv,
 			unsigned long arg)
 {
 	int retval = 0;
-	uint32_t requested_max;
+	u32 requested_max;
 
-	retval = __get_user(requested_max, (uint32_t __user *) arg);
+	retval = __get_user(requested_max, (u32 __user *) arg);
 	if (retval)
 		return retval;
 
@@ -4222,13 +4222,13 @@ static int kbus_maxmsgs(struct kbus_private_data *priv,
 	if (requested_max > 0)
 		priv->max_messages = requested_max;
 
-	return __put_user(priv->max_messages, (uint32_t __user *) arg);
+	return __put_user(priv->max_messages, (u32 __user *) arg);
 }
 
 static int kbus_nummsgs(struct kbus_private_data *priv,
 			struct kbus_dev *dev __maybe_unused, unsigned long arg)
 {
-	uint32_t count = priv->message_count;
+	u32 count = priv->message_count;
 
 	if (priv->maybe_got_unsent_unbind_msgs) {
 		kbus_maybe_dbg(dev, "kbus: %u/%u NUMMSGS 'main' count %u\n",
@@ -4239,17 +4239,17 @@ static int kbus_nummsgs(struct kbus_private_data *priv,
 	kbus_maybe_dbg(dev, "kbus: %u/%u NUMMSGS %u\n",
 		       dev->index, priv->id, count);
 
-	return __put_user(count, (uint32_t __user *) arg);
+	return __put_user(count, (u32 __user *) arg);
 }
 
 static int kbus_onlyonce(struct kbus_private_data *priv,
 			 unsigned long arg)
 {
 	int retval = 0;
-	uint32_t only_once;
+	u32 only_once;
 	int old_value = priv->messages_only_once;
 
-	retval = __get_user(only_once, (uint32_t __user *) arg);
+	retval = __get_user(only_once, (u32 __user *) arg);
 	if (retval)
 		return retval;
 
@@ -4269,17 +4269,17 @@ static int kbus_onlyonce(struct kbus_private_data *priv,
 		return -EINVAL;
 	}
 
-	return __put_user(old_value, (uint32_t __user *) arg);
+	return __put_user(old_value, (u32 __user *) arg);
 }
 
 static int kbus_set_verbosity(struct kbus_private_data *priv,
 			      unsigned long arg)
 {
 	int retval = 0;
-	uint32_t verbose;
+	u32 verbose;
 	int old_value = priv->dev->verbose;
 
-	retval = __get_user(verbose, (uint32_t __user *) arg);
+	retval = __get_user(verbose, (u32 __user *) arg);
 	if (retval)
 		return retval;
 
@@ -4304,7 +4304,7 @@ static int kbus_set_verbosity(struct kbus_private_data *priv,
 		return -EINVAL;
 	}
 
-	return __put_user(old_value, (uint32_t __user *) arg);
+	return __put_user(old_value, (u32 __user *) arg);
 }
 
 /* Report all existing replier bindings to the requester */
@@ -4353,10 +4353,10 @@ static int kbus_set_report_binds(struct kbus_private_data *priv,
 				 struct kbus_dev *dev, unsigned long arg)
 {
 	int retval = 0;
-	uint32_t report_replier_binds;
+	u32 report_replier_binds;
 	int old_value = priv->dev->report_replier_binds;
 
-	retval = __get_user(report_replier_binds, (uint32_t __user *) arg);
+	retval = __get_user(report_replier_binds, (u32 __user *) arg);
 	if (retval)
 		return retval;
 
@@ -4382,7 +4382,7 @@ static int kbus_set_report_binds(struct kbus_private_data *priv,
 		return -EINVAL;
 	}
 
-	return __put_user(old_value, (uint32_t __user *) arg);
+	return __put_user(old_value, (u32 __user *) arg);
 }
 
 static long kbus_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
@@ -4391,7 +4391,7 @@ static long kbus_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	int retval = 0;
 	struct kbus_private_data *priv = filp->private_data;
 	struct kbus_dev *dev = priv->dev;
-	uint32_t id = priv->id;
+	u32 id = priv->id;
 
 	if (_IOC_TYPE(cmd) != KBUS_IOC_MAGIC)
 		return -ENOTTY;
@@ -4445,7 +4445,7 @@ static long kbus_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		 */
 		kbus_maybe_dbg(priv->dev, "kbus: %u/%u KSOCKID %u\n",
 			       dev->index, id, id);
-		retval = __put_user(id, (uint32_t __user *) arg);
+		retval = __put_user(id, (u32 __user *) arg);
 		break;
 
 	case KBUS_IOC_REPLIER:
@@ -4477,10 +4477,10 @@ static long kbus_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case KBUS_IOC_LENLEFT:
 		/* How many bytes are left to read in the current message? */
 		{
-			uint32_t left = kbus_lenleft(priv);
+			u32 left = kbus_lenleft(priv);
 			kbus_maybe_dbg(priv->dev, "kbus: %u/%u LENLEFT %u\n",
 				       dev->index, id, left);
-			retval = __put_user(left, (uint32_t __user *) arg);
+			retval = __put_user(left, (u32 __user *) arg);
 		}
 		break;
 
@@ -4543,7 +4543,7 @@ static long kbus_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		kbus_maybe_dbg(priv->dev, "kbus: %u/%u UNREPLIEDTO %d\n",
 			       dev->index, id, priv->num_replies_unsent);
 		retval = __put_user(priv->num_replies_unsent,
-				(uint32_t __user *) arg);
+				(u32 __user *) arg);
 		break;
 
 	case KBUS_IOC_MSGONLYONCE:
@@ -4581,7 +4581,7 @@ static long kbus_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		if (retval > 0) {
 			kbus_num_devices++;
 			retval = __put_user(kbus_num_devices - 1,
-				       (uint32_t __user *) arg);
+				       (u32 __user *) arg);
 		}
 		break;
 
@@ -4848,8 +4848,8 @@ static int kbus_stats_seq_show(struct seq_file *s, void *v __always_unused)
 		list_for_each_entry_safe(ptr, next,
 					 &dev->open_ksock_list, list) {
 
-			uint32_t left = kbus_lenleft(ptr);
-			uint32_t total;
+			u32 left = kbus_lenleft(ptr);
+			u32 total;
 			if (ptr->read.msg)
 				total =
 				    KBUS_ENTIRE_MSG_LEN(ptr->read.msg->name_len,
