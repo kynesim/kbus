@@ -1,13 +1,12 @@
-/* Kbus kernel module - internal definitions
+/* KBUS kernel module - internal definitions
  *
  * This is a character device driver, providing the messaging support
- * for kbus.
+ * for KBUS.
  *
  * This header contains the definitions used internally by kbus.c.
- * At the moment nothing else is expected to include this file, but
- * that may change later.
+ * At the moment nothing else is expected to include this file.
  *
- * kbus clients should include (at least) kbus_defns.h.
+ * KBUS clients should include (at least) kbus_defns.h.
  */
 
 /*
@@ -70,9 +69,8 @@
 /*
  * KBUS can support multiple devices, as /dev/kbus<N>. These all have
  * the same major device number, and map to differing minor device
- * numbers. It may or may not be a surprise that <N> just happens to be
- * the minor device number as well (but don't use that  information for
- * anything).
+ * numbers. <N> will also be the minor device number, but don't rely
+ * on that for anything.
  *
  * When KBUS starts up, it will always setup a single device (/dev/kbus0),
  * but it can be asked to setup more - for instance:
@@ -117,7 +115,7 @@
 #define KBUS_DEBUG_ENABLED 1
 #define kbus_maybe_dbg(dev, format, args...) do { \
 	if (dev->verbose) \
-		(void) printk(KERN_DEBUG format, ## args); \
+		(void) dev_dbg(KERN_DEBUG format, ## args); \
 } while (0)
 #else
 #define KBUS_DEBUG_ENABLED 0

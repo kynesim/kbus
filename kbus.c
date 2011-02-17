@@ -4980,7 +4980,8 @@ static int __init kbus_init(void)
 	/* ================================================================= */
 	/*
 	 * Our main purpose is to provide /dev/kbus
-	 * We are happy to start our device numbering with device 0
+	 * We wish to start our device numbering with device 0, and device 0
+	 * should always be present,
 	 */
 	result = alloc_chrdev_region(&devno, kbus_minor, KBUS_MAX_NUM_DEVICES,
 				     "kbus");
@@ -5001,14 +5002,6 @@ static int __init kbus_init(void)
 		return -ENOMEM;
 	}
 	memset(kbus_devices, 0, kbus_num_devices * sizeof(struct kbus_dev *));
-
-	/* ================================================================= */
-	/* +++ NB: before kernel 2.6.13, the functions we use were
-	 * +++ "simple_class_create" and "simple_class_device_add". They are
-	 * +++ documented as such in Linux Device Drivers, 3rd edition. When it
-	 * +++ became clear that everyone was using the "simple" API, the
-	 * +++ kernel code was refactored to make that the norm.
-	 */
 
 	/*
 	 * To make the user's life as simple as possible, let's make our device
