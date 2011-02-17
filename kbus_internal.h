@@ -105,66 +105,22 @@
 /* Debugging setup */
 
 #ifndef CONFIG_KBUS
-	/* ... then we're not building in-tree,
-	 * so none of our CONFIG_* are set.
-	 * Default sensibly. */
+	/*
+	 * We're not building in-tree, so none of our CONFIG_* are set.
+	 * Default to allow debug
+	 */
 #define CONFIG_KBUS_DEBUG
 #endif
 
 #ifdef CONFIG_KBUS_DEBUG
-#define KBUS_DEBUG_ENABLED 1
-#define kbus_maybe_dbg(dev, format, args...) do { \
-	if (dev->verbose) \
-		(void) dev_dbg(KERN_DEBUG format, ## args); \
+#define DEBUG 1
+#define kbus_maybe_dbg(kbus_dev, format, args...) do { \
+	if ((kbus_dev)->verbose) \
+		(void) dev_dbg((kbus_dev)->cdev.dev, format, ## args); \
 } while (0)
 #else
-#define KBUS_DEBUG_ENABLED 0
-#define kbus_maybe_dbg(dev, format, args...) ((void)0)/* no-op */
-#endif
-
-/* Extra debug options. These are unlikely to be of use to non-kbus-hackers
- * so are not exposed as config. */
-
-#define kbus_conditional_dbg(cond, dev, format, args...) do { \
-	if (cond) \
-		kbus_maybe_dbg(dev, format, ##args); \
-} while (0)
-
-#ifndef KBUS_DEBUG_READ
-#define KBUS_DEBUG_READ 0
-#endif
-
-#define kbus_maybe_dbg_read(dev, format, args...) \
-	kbus_conditional_dbg(KBUS_DEBUG_READ, dev, format, ##args)
-
-#ifndef KBUS_DEBUG_REFCOUNT
-#define KBUS_DEBUG_REFCOUNT 0
-#endif
-
-/* can't quite reuse the same macro for refcount as it's called
- * in functions which don't have a dev */
-#define kbus_maybe_dbg_refcount(format, args...) do { \
-	(void) printk(KERN_DEBUG format, ## args); \
-} while (0)
-
-/*
- * And even more debug for the rewrite of kbus_write() to support
- * "entire" messages of any length. I suspect that this can go away
- * when we've got more examples of the code working in real use.
- */
-#ifndef KBUS_DEBUG_WRITE
-#define KBUS_DEBUG_WRITE 0
-#endif
-
-#define kbus_maybe_dbg_write(dev, format, args...) \
-	kbus_conditional_dbg(KBUS_DEBUG_WRITE, dev, format, ##args)
-
-/* Add a visual distinguisher to printk output to highlight the
- * insmod/rmmod cycles of a long test run?
- * This symbol should not be set to 1 unless you are running kbus
- * tests, as it pollutes the printk output. */
-#ifndef KBUS_DEBUG_SHOW_TRANSITIONS
-#define KBUS_DEBUG_SHOW_TRANSITIONS 0
+#define DEBUG 0
+#define kbus_maybe_dbg(kbus_dev, format, args...) ((void)0)
 #endif
 
 /* Should we default to verbose? */
