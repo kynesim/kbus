@@ -86,9 +86,34 @@
 #define CONFIG_KBUS_DEF_NUM_DEVICES	1
 #endif
 
-/* Initial array sizes, could be made configurable for tuning? */
+/*
+ * Our initial array sizes could arguably be made configurable
+ * for tuning, if we discover this is useful
+ */
 #define KBUS_INIT_MSG_ID_MEMSIZE	16
 #define KBUS_INIT_LISTENER_ARRAY_SIZE	8
+
+/*
+ * Setting CONFIG_KBUS_DEBUG will cause the Makefile
+ * to define DEBUG for us
+ */
+#ifdef DEBUG
+#define kbus_maybe_dbg(kbus_dev, format, args...) do { \
+	if ((kbus_dev)->verbose) \
+		(void) dev_dbg((kbus_dev)->dev, format, ## args); \
+} while (0)
+#else
+#define kbus_maybe_dbg(kbus_dev, format, args...) ((void)0)
+#endif
+
+/*
+ * This is really only directly useful if CONFIG_KBUS_DEBUG is on
+ */
+#ifdef CONFIG_KBUS_DEBUG_DEFAULT_VERBOSE
+#define KBUS_DEFAULT_VERBOSE_SETTING true
+#else
+#define KBUS_DEFAULT_VERBOSE_SETTING false
+#endif
 
 /* ========================================================================= */
 

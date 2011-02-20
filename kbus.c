@@ -45,8 +45,6 @@
 #include <linux/init.h>
 #include <linux/module.h>
 
-#include "kbus_debug.h"		/* Beware - may define DEBUG */
-
 #include <linux/fs.h>
 #include <linux/device.h>	/* device classes (for hotplugging), &c */
 #include <linux/cdev.h>		/* registering character devices */
@@ -4125,10 +4123,11 @@ static int kbus_set_verbosity(struct kbus_private_data *priv,
 	 * mode, and that means we can't use kbus_maybe_dbg (since
 	 * we're not yet in verbose mode)
 	 */
-	if (DEBUG)
-		dev_dbg(priv->dev->dev,
-				"%u/%u VERBOSE requests %u (was %d)\n",
-				priv->dev->index, priv->id, verbose, old_value);
+#ifdef DEBUG
+	dev_dbg(priv->dev->dev,
+		"%u/%u VERBOSE requests %u (was %d)\n",
+		priv->dev->index, priv->id, verbose, old_value);
+#endif
 
 	switch (verbose) {
 	case 0:
@@ -4777,7 +4776,7 @@ static int kbus_setup_new_device(int which)
 	kbus_setup_cdev(new, this_devno);
 	new->index = which;
 
-	new->verbose = KBUS_DEBUG_DEFAULT_SETTING;
+	new->verbose = KBUS_DEFAULT_VERBOSE_SETTING;
 
 	new->dev = device_create(kbus_class_p, NULL,
 				 this_devno, NULL, "kbus%d", which);

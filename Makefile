@@ -31,6 +31,11 @@ RULES_NAME = 45-kbus.rules
 ifneq ($(KERNELRELEASE),)
 	# We are being invoked from inside a kernel build
 	# so can just ask it to build us
+
+ifeq ($(CONFIG_KBUS_DEBUG),y)
+	EXTRA_CFLAGS		+= -DDEBUG
+endif
+
 	obj-m = kbus.o
 else
 	# We are being invoked by make directly
@@ -47,6 +52,9 @@ endif
 	PWD = $(shell pwd)
 	KREL_DIR = modules/$(shell uname -r)
 
+# When building outwith the kernel, we don't have CONFIG_KBUS_DEBUG
+# to tell us if we want verbosity available - assume we do
+	EXTRA_CFLAGS		+= -DDEBUG
 
 # For kbus global builds - build everything here, then move the target
 # out of the way and clean up. Turns out that the Kernel makefile
