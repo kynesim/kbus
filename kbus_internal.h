@@ -50,22 +50,6 @@
 #ifndef _kbus_internal
 #define _kbus_internal
 
-#include <linux/init.h>
-#include <linux/module.h>
-
-#include <linux/fs.h>
-#include <linux/device.h>	/* device classes (for hotplugging), &c */
-#include <linux/cdev.h>		/* registering character devices */
-#include <linux/list.h>
-#include <linux/ctype.h>	/* for isalnum */
-#include <linux/poll.h>
-#include <linux/slab.h>		/* for kmalloc, etc. */
-#include <linux/sched.h>	/* for current->pid */
-#include <linux/uaccess.h>	/* copy_*_user() functions */
-#include <asm/page.h>		/* PAGE_SIZE */
-
-#include "kbus_defns.h"
-
 /*
  * KBUS can support multiple devices, as /dev/kbus<N>. These all have
  * the same major device number, and map to differing minor device
@@ -100,34 +84,6 @@
 
 #ifndef CONFIG_KBUS_DEF_NUM_DEVICES
 #define CONFIG_KBUS_DEF_NUM_DEVICES	1
-#endif
-
-/* Debugging setup */
-
-#ifndef CONFIG_KBUS
-	/*
-	 * We're not building in-tree, so none of our CONFIG_* are set.
-	 * Default to allow debug
-	 */
-#define CONFIG_KBUS_DEBUG
-#endif
-
-#ifdef CONFIG_KBUS_DEBUG
-#define DEBUG 1
-#define kbus_maybe_dbg(kbus_dev, format, args...) do { \
-	if ((kbus_dev)->verbose) \
-		(void) dev_dbg((kbus_dev)->cdev.dev, format, ## args); \
-} while (0)
-#else
-#define DEBUG 0
-#define kbus_maybe_dbg(kbus_dev, format, args...) ((void)0)
-#endif
-
-/* Should we default to verbose? */
-#ifdef CONFIG_KBUS_DEBUG_DEFAULT_VERBOSE
-#define KBUS_DEBUG_DEFAULT_SETTING true
-#else
-#define KBUS_DEBUG_DEFAULT_SETTING false
 #endif
 
 /* Initial array sizes, could be made configurable for tuning? */
@@ -626,6 +582,7 @@ struct kbus_private_data {
 /* Information belonging to each /dev/kbus<N> device */
 struct kbus_dev {
 	struct cdev cdev;	/* Character device data */
+	struct device *dev;	/* Our very selves */
 
 	u32 index;		/* Which /dev/kbus<n> device we are */
 
