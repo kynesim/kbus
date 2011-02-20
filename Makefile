@@ -58,7 +58,11 @@ all: kbus.ko $(RULES_NAME)
 # does not like to build object files in non-source directories.
 kbus.ko :
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= modules
-	
+
+# To see preprocessor expansions
+kbus.i:
+	$(MAKE) -C $(KERNELDIR) M=$(PWD) kbus.i
+
 # The mechanism is a bit hacky (!) - first we make sure we've got a local
 # copy of the file we want, then we copy it into place
 #
