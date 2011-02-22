@@ -57,6 +57,8 @@ endif
 # Also, we want our own version of linux/kbus_defns.h
 	CFLAGS_kbus.o		+= -I$(PWD)
 
+export CFLAGS_kbus.o
+
 # For kbus global builds - build everything here, then move the target
 # out of the way and clean up. Turns out that the Kernel makefile
 # really doesn't like building object files in non-source directories,
@@ -66,7 +68,8 @@ all: kbus.ko $(RULES_NAME)
 # We use 'O= ' deliberately, because kernel make, which creates the .ko
 # does not like to build object files in non-source directories.
 kbus.ko :
-	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= CFLAGS_kbus.o='$(CFLAGS_kbus.o)' modules
+	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= modules
+	#$(MAKE) -C $(KERNELDIR) M=$(PWD) O= CFLAGS_kbus.o='$(CFLAGS_kbus.o)' modules
 
 # To see preprocessor expansions
 kbus.i:
