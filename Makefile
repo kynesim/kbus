@@ -69,7 +69,6 @@ all: kbus.ko $(RULES_NAME)
 # does not like to build object files in non-source directories.
 kbus.ko :
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= modules
-	#$(MAKE) -C $(KERNELDIR) M=$(PWD) O= CFLAGS_kbus.o='$(CFLAGS_kbus.o)' modules
 
 # To see preprocessor expansions
 kbus.i:
