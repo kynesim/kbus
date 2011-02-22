@@ -58,7 +58,7 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 
-#include "kbus_defns.h"
+#include <linux/kbus_defns.h>
 #include "kbus_internal.h"
 
 static int kbus_num_devices = CONFIG_KBUS_DEF_NUM_DEVICES;

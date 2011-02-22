@@ -33,7 +33,7 @@ ifneq ($(KERNELRELEASE),)
 	# so can just ask it to build us
 
 ifeq ($(CONFIG_KBUS_DEBUG),y)
-	EXTRA_CFLAGS		+= -DDEBUG
+	ccflags-y += -DDEBUG
 endif
 
 	obj-m = kbus.o
@@ -50,11 +50,12 @@ ifeq ($(strip $(KERNELDIR)),)
 endif
 
 	PWD = $(shell pwd)
-	KREL_DIR = modules/$(shell uname -r)
 
 # When building outwith the kernel, we don't have CONFIG_KBUS_DEBUG
-# to tell us if we want verbosity available - assume we do
-	EXTRA_CFLAGS		+= -DDEBUG
+# to tell us if we want verbosity available - we'll pretend it was set
+	CFLAGS_kbus.o		= -DDEBUG
+# Also, we want our own version of linux/kbus_defns.h
+	CFLAGS_kbus.o		+= -I$(PWD)
 
 # For kbus global builds - build everything here, then move the target
 # out of the way and clean up. Turns out that the Kernel makefile
@@ -65,7 +66,7 @@ all: kbus.ko $(RULES_NAME)
 # We use 'O= ' deliberately, because kernel make, which creates the .ko
 # does not like to build object files in non-source directories.
 kbus.ko :
-	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= modules
+	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= CFLAGS_kbus.o='$(CFLAGS_kbus.o)' modules
 
 # To see preprocessor expansions
 kbus.i:
