@@ -56,8 +56,20 @@ endif
 # to tell us if we want verbosity available - we'll pretend it was set
 	CFLAGS_kbus_main.o		= -DDEBUG
 # Also, we want our own version of linux/kbus_defns.h
-	CFLAGS_kbus_main.o		+= -I$(PWD)
+	CFLAGS_kbus_main.o	+= -I$(PWD)
 	CFLAGS_kbus_report.o	+= -I$(PWD)
+
+
+ifeq ($(TEST), y)
+	# Extra flags for checking stuff
+	TEST_FLAGS = -W
+	export C=1
+	export CF="-D__CHECK_ENDIAN__"
+	#
+	CFLAGS_kbus_main.o	+= $(TEST_FLAGS)
+	CFLAGS_kbus_report.o	+= $(TEST_FLAGS)
+endif
+
 
 export CFLAGS_kbus_main.o
 export CFLAGS_kbus_report.o
