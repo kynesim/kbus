@@ -482,32 +482,12 @@ struct kbus_replier_bind_event_data {
  *   bound as Replier closed.
  * * ErrorSending - an unexpected error occurred when trying to send a Request
  *   to its Replier whilst polling.
- *
- * Synthetic Announcements with no data
- * ------------------------------------
- * * UnbindEventsLost - sent (instead of a Replier Bind Event) when the unbind
- *   events "set aside" list has filled up, and thus unbind events have been
- *   lost.
  */
 #define KBUS_MSG_NAME_REPLIER_GONEAWAY		"$.KBUS.Replier.GoneAway"
 #define KBUS_MSG_NAME_REPLIER_IGNORED		"$.KBUS.Replier.Ignored"
 #define KBUS_MSG_NAME_REPLIER_UNBOUND		"$.KBUS.Replier.Unbound"
 #define KBUS_MSG_NAME_REPLIER_DISAPPEARED	"$.KBUS.Replier.Disappeared"
 #define KBUS_MSG_NAME_ERROR_SENDING		"$.KBUS.ErrorSending"
-#define KBUS_MSG_NAME_UNBIND_EVENTS_LOST	"$.KBUS.UnbindEventsLost"
-
-/*
- * Replier Bind Event
- * ------------------
- * This is the only message name for which KBUS generates data -- see
- * kbus_replier_bind_event_data. It is also the only message name which KBUS
- * does not allow binding to as a Replier.
- *
- * This is the message that is sent when a Replier binds or unbinds to another
- * message name, if the KBUS_IOC_REPORTREPLIERBINDS ioctl has been used to
- * request such notification.
- */
-#define KBUS_MSG_NAME_REPLIER_BIND_EVENT	"$.KBUS.ReplierBindEvent"
 
 #define KBUS_IOC_MAGIC	'k'	/* 0x6b - which seems fair enough for now */
 /*
@@ -601,21 +581,13 @@ struct kbus_replier_bind_event_data {
  * retval: 0 for success, negative for failure
  */
 #define KBUS_IOC_UNREPLIEDTO _IOR(KBUS_IOC_MAGIC, 13, char *)
+
 /*
- * MSGONLYONCE - should we receive a message only once?
- *
- * This IOCTL tells a Ksock whether it should only receive a particular message
- * once, even if it is both a Replier and Listener for the message (in which
- * case it will always get the message as Replier, if appropriate), or if it is
- * registered as multiple Listeners for the message.
- *
- * arg(in): __u32, 1 to change to "only once", 0 to change to the default,
- * 0xFFFFFFFF to just return the current/previous state.
- * arg(out): __u32, the previous state.
- * retval: 0 for success, negative for failure (-EINVAL if arg in was not one
- * of the specified values)
+ * IOCTL 14 is not used, because it is introduced in the next revision,
+ * (obviously, in real history this was done in a different order) and
+ * I don't want to alter the number for VERBOSE.
  */
-#define KBUS_IOC_MSGONLYONCE  _IOWR(KBUS_IOC_MAGIC, 14, char *)
+
 /*
  * VERBOSE - should KBUS output verbose "printk" messages (for this device)?
  *
@@ -631,33 +603,8 @@ struct kbus_replier_bind_event_data {
  */
 #define KBUS_IOC_VERBOSE  _IOWR(KBUS_IOC_MAGIC, 15, char *)
 
-/*
- * NEWDEVICE - request another KBUS device (/dev/kbus<n>).
- *
- * The next device number (up to a maximum of 255) will be allocated.
- *
- * arg(out): __u32, the new device number (<n>)
- * retval: 0 for success, negative for failure
- */
-#define KBUS_IOC_NEWDEVICE _IOR(KBUS_IOC_MAGIC, 16, char *)
-
-/*
- * REPORTREPLIERBINDS - request synthetic messages announcing Replier
- * bind/unbind events.
- *
- * If this flag is set, then when someone binds or unbinds to a message name as
- * a Replier, KBUS will send out a synthetic Announcement of this fact.
- *
- * arg(in): __u32, 1 to change to "report", 0 to change to "do not report",
- * 0xFFFFFFFF to just return the current/previous state.
- * arg(out): __u32, the previous state.
- * retval: 0 for success, negative for failure (-EINVAL if arg in was not one
- * of the specified values)
- */
-#define KBUS_IOC_REPORTREPLIERBINDS  _IOWR(KBUS_IOC_MAGIC, 17, char *)
-
 /* If adding another IOCTL, remember to increment the next number! */
-#define KBUS_IOC_MAXNR	17
+#define KBUS_IOC_MAXNR	15
 
 #if !__KERNEL__ && defined(__cplusplus)
 }
