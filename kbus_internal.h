@@ -706,4 +706,13 @@ struct kbus_message_queue_item {
 #define KBUS_PART_LEN		PAGE_SIZE
 #define KBUS_PAGE_THRESHOLD	(PAGE_SIZE >> 1)
 
+/* Manage the files used to report KBUS internal state */
+/* From kbus_internal.c */
+extern void kbus_setup_reporting(void);
+extern void kbus_remove_reporting(void);
+/* From kbus.c itself */
+extern void kbus_get_device_data(int *num_devices,
+				 struct kbus_dev ***devices);
+extern u32 kbus_lenleft(struct kbus_private_data *priv);
+
 #endif /* _kbus_internal */
