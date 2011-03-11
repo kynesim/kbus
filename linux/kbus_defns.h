@@ -482,19 +482,12 @@ struct kbus_replier_bind_event_data {
  *   bound as Replier closed.
  * * ErrorSending - an unexpected error occurred when trying to send a Request
  *   to its Replier whilst polling.
- *
- * Synthetic Announcements with no data
- * ------------------------------------
- * * UnbindEventsLost - sent (instead of a Replier Bind Event) when the unbind
- *   events "set aside" list has filled up, and thus unbind events have been
- *   lost.
  */
 #define KBUS_MSG_NAME_REPLIER_GONEAWAY		"$.KBUS.Replier.GoneAway"
 #define KBUS_MSG_NAME_REPLIER_IGNORED		"$.KBUS.Replier.Ignored"
 #define KBUS_MSG_NAME_REPLIER_UNBOUND		"$.KBUS.Replier.Unbound"
 #define KBUS_MSG_NAME_REPLIER_DISAPPEARED	"$.KBUS.Replier.Disappeared"
 #define KBUS_MSG_NAME_ERROR_SENDING		"$.KBUS.ErrorSending"
-#define KBUS_MSG_NAME_UNBIND_EVENTS_LOST	"$.KBUS.UnbindEventsLost"
 
 /*
  * Replier Bind Event

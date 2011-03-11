@@ -1,0 +1,117 @@
+config KBUS
+	tristate "KBUS messaging system"
+	default n
+	---help---
+	  KBUS is a lightweight messaging system, particularly aimed
+	  at embedded platforms. This option provides the kernel support
+	  for mediating messages between client processes.
+
+	  KBUS documentation may be found in Documentation/Kbus.txt
+
+	  If you want KBUS support, you should say Y or M here. If you
+	  choose M, the module will be called kbus.
+
+	  If unsure, say N.
+
+if KBUS
+
+config KBUS_DEBUG
+	bool "Make KBUS debugging messages available"
+	default y
+	---help---
+	  This is the master switch for KBUS debug kernel messages.
+
+	  If N is selected, all debug messages will be compiled out,
+	  and the KBUS_IOC_VERBOSE ioctl will have no effect.
+
+	  If Y is selected, then KBUS_DEBUG_DEFAULT_VERBOSE sets
+	  the default for whether debug messages are emitted or not,
+	  and the KBUS_IOC_VERBOSE ioctl can be used at runtime to
+	  set/unset the output of debugging messages per KBUS device.
+
+	  If unsure, say Y.
+
+config KBUS_DEBUG_DEFAULT_VERBOSE
+	bool "Output KBUS debug messages by default"
+	depends on KBUS_DEBUG
+	default n
+	---help---
+	  This sets the default state for the output of debugging messages,
+	  It only has effect if KBUS_DEBUG is already set.
+
+	  If Y is selected, then KBUS devices default to outputting debug
+	  messages. If N is selected, they do not.
+
+	  In either case, debug messages for a particular KBUS device can
+	  be turned on or off at runtime with the KBUS_IOC_VERBOSE ioctl.
+
+	  If unsure, say N.
+
+config KBUS_DEF_NUM_DEVICES
+	int "Number of KBUS devices to auto-create"
+	default 1
+	range 1 KBUS_MAX_NUM_DEVICES
+	---help---
+	  This specifies the number of KBUS devices automatically created
+	  when the KBUS subsystem initialises (when the module is loaded
+			  or the kernel booted, as appropriate).
+
+	  If KBUS is built as a module, this number may also be given as a
+	  parameter; for example: kbus_num_devices=5.
+
+	  Additional devices can be added at runtime using the
+	  KBUS_IOC_NEWDEVICE ioctl.
+
+config KBUS_MAX_NUM_DEVICES
+	int "Maximum number of KBUS devices"
+	default 256
+	range 1 2147483647
+	# We don't impose a limit on the max, so if you've got enough
+	# RAM the only practical limit will be the (int) minor count
+	# passed to __register_chrdev_region.
+	---help---
+	  The maximum number of KBUS devices to support. If unsure, use
+	  the default of 256.
+
+	  Note that this setting controls the size of an array of pointers
+	  to in-kernel KBUS structures; reducing it only saves a tiny amount
+	  of RAM. On the other hand, once a KBUS device is used, the various
+	  message lists and so on do take space.
+
+config KBUS_DEF_MAX_MESSAGES
+	int "Default KBUS message queue size limit"
+	default 100
+	range 1 2147483647
+	---help---
+	  Specify the default incoming message queue size limit. This default
+	  is applied to all clients whenever they open or reopen a KBUS device
+	  node.
+
+	  Clients sending messages may specify the desired behaviour if any
+	  of the recipients' message queues are full. If a senders own queue
+	  is full, it may not send a message flagged as a Request. Refer to
+	  the KBBUS documentation ("Queues filling up") for details.
+
+	  Clients may change their own queue size limits at any time with the
+	  KBUS_IOC_MAXMSGS ioctl.
+
+	  The default is believed to be a reasonable conservative choice.
+
+config KBUS_MAX_UNSENT_UNBIND_MESSAGES
+	int "Maximum number of unsent KBUS unbind event messages"
+	default 1000
+	range 1 2147483647
+	---help---
+	  KBUS devices may request (by ioctl) that they want to receive
+	  messages when clients bind or unbind as repliers. If such a
+	  message is sent when their incoming queue is full, it is instead
+	  saved onto a set-aside queue, and delivered later. This setting
+	  determines the size of the set-aside queue; if the limit is reached,
+	  a special "bind/unbind event messages were lost" message is queued
+	  instead, and any further bind/unbind messages will be lost, until
+	  such time as the special message can be delivered.
+
+	  If unsure, choose the default.
+
+endif # KBUS
+

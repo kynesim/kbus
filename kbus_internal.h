@@ -414,20 +414,6 @@ struct kbus_write_msg {
 };
 
 /*
- * The data for an unsent Replier Bind Event (in the unsent_unbind_msg_list)
- *
- * Note that 'binding' may theroretically be NULL (although I don't think this
- * should ever actually happen).
- */
-struct kbus_unsent_message_item {
-	struct list_head list;
-	struct kbus_private_data *send_to;	/* who we want to send it to */
-	u32 send_to_id;	/* but the id is often useful */
-	struct kbus_msg *msg;	/* the message itself */
-	struct kbus_message_binding *binding;	/* and why we remembered it */
-};
-
-/*
  * This is the data for an individual Ksock
  *
  * Each time we open /dev/kbus<n>, we need to remember a unique id for
@@ -578,30 +564,11 @@ struct kbus_private_data {
 	 * message pushed onto the queue. Which is much simpler.
 	 */
 	struct kbus_msg_id msg_id_just_pushed;
-
-	/*
-	 * If this flag is set, then we may have outstanding Replier Unbound
-	 * Event messages (kept on a list on our device). These must be read
-	 * before any "normal" messages (on our message_queue) get read.
-	 */
-	int maybe_got_unsent_unbind_msgs;
 };
 
 /* What is a sensible number for the default maximum number of messages? */
 #ifndef CONFIG_KBUS_DEF_MAX_MESSAGES
 #define CONFIG_KBUS_DEF_MAX_MESSAGES	100
-#endif
-
-/*
- * What about the maximum number of unsent unbind event messages?
- * This may want to be quite large, to allow for Limpets with momentary
- * network outages.
- *
- * The default value is probably too small, but experimantation is
- * needed to determine a more sensible value.
- */
-#ifndef CONFIG_KBUS_MAX_UNSENT_UNBIND_MESSAGES
-#define CONFIG_KBUS_MAX_UNSENT_UNBIND_MESSAGES 1000
 #endif
 
 /* Information belonging to each /dev/kbus<N> device */
@@ -656,35 +623,6 @@ struct kbus_dev {
 	 * Are we wanting to send a synthetic message for each Replier
 	 * bind/unbind? */
 	u32 report_replier_binds;
-
-	/*
-	 * If Replier (un)bind events have been requested, then when
-	 * kbus_release is called, a message must be sent for each Replier that
-	 * is (of necessity) unbound from the Ksock being released. For a
-	 * normal unbound, if any of the Repliers doesn't have room in its
-	 * message queue for such an event, then the unbind fails with -EAGAIN.
-	 * This isn't acceptable for kbus_release (apart from anything else,
-	 * the release might be due to the original program falling over).
-	 * It's not acceptable to fail to send the messages (that's a general
-	 * KBUS principle).
-	 *
-	 * The only sensible solution seems to be to put the messages we'd
-	 * like to have sent onto a set-aside list, and mark each recipient
-	 * as having messages thereon. Then, each time a Ksock looks for a
-	 * new message, it should first check to see if it might have one
-	 * on the set-aside list, and if it does, read that instead.
-	 *
-	 * Once we're doing this, though, we need some limit on how big that
-	 * set-aside list may grow (to allow for user processes that keep
-	 * binding and falling over!). When the list gets "too long", we set a
-	 * "gone tragically wrong" flag, and instead of adding more unbind
-	 * events, we instead add a single "gone tragically wrong" message for
-	 * each Ksock. We don't revert to remembering unbind events again until
-	 * the list has been emptied.
-	 */
-	struct list_head unsent_unbind_msg_list;
-	u32 unsent_unbind_msg_count;
-	int unsent_unbind_is_tragic;
 };
 
 /*
