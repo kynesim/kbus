@@ -566,7 +566,7 @@ static int kbus_wildcarded_message_name(char *name, size_t name_len)
  * Returns 0 if it's OK, 1 if it's naughty
  */
 static int kbus_invalid_message_name(struct kbus_dev *dev,
-									 char *name, size_t name_len)
+				     char *name, size_t name_len)
 {
 	if (kbus_bad_message_name(name, name_len)) {
 		dev_err(dev->dev, "pid %u [%s]"
@@ -757,7 +757,7 @@ static void kbus_maybe_report_message(struct kbus_dev *dev __maybe_unused,
  * name and data.
  */
 static struct kbus_msg *kbus_copy_message(struct kbus_dev *dev,
-										  struct kbus_msg *old_msg)
+					  struct kbus_msg *old_msg)
 {
 	struct kbus_msg *new_msg;
 
@@ -1602,8 +1602,8 @@ static int kbus_find_listeners(struct kbus_dev *dev,
 				*replier = ptr;
 				replier_type = new_replier_type;
 			} else {
-				if (*replier)
-				    kbus_maybe_dbg(dev,
+			    if (*replier)
+				kbus_maybe_dbg(dev,
 				       "     ..keeping replier %u (%s)\n",
 				       (*replier)->bound_to_id,
 				       kbus_replier_type_name(replier_type));
@@ -2186,8 +2186,8 @@ check_tragic:
  * Called from kbus_release.
  */
 static void kbus_forget_unbound_unsent_unbind_msgs(
-    struct kbus_private_data *priv,
-    struct kbus_message_binding *binding)
+					struct kbus_private_data *priv,
+					struct kbus_message_binding *binding)
 {
 	struct kbus_dev *dev = priv->dev;
 
@@ -3054,8 +3054,8 @@ static int kbus_write_parts(struct kbus_private_data *priv,
 			 * that can involve a *lot* of copying...
 			 */
 			if (kbus_invalid_message_name(priv->dev,
-										  this->ref_name->name,
-										  msg->name_len))
+						      this->ref_name->name,
+						      msg->name_len))
 				return -EBADMSG;
 
 			this->msg->name_ref = this->ref_name;
@@ -3987,9 +3987,9 @@ static int kbus_send(struct kbus_private_data *priv,
 	 */
 	if ((msg->flags & KBUS_BIT_WANT_A_REPLY) &&
 	    kbus_queue_is_full(priv, "sender", false)) {
-		dev_err(priv->dev->dev, "%u/%u Unable to send Request because no"
-		       " room for a Reply in sender's message queue\n",
-		       priv->dev->index, priv->id);
+		dev_err(priv->dev->dev, "%u/%u Unable to send Request becausei"
+			" no room for a Reply in sender's message queue\n",
+			priv->dev->index, priv->id);
 		retval = -ENOLCK;
 		goto done;
 	}
@@ -4792,7 +4792,7 @@ static int __init kbus_init(void)
 	dev_t devno = 0;
 
 	pr_notice("Initialising KBUS module (%d device%s)\n",
-	          kbus_num_devices, kbus_num_devices == 1 ? "" : "s");
+		  kbus_num_devices, kbus_num_devices == 1 ? "" : "s");
 	/* This allows hackers to see rmmod/insmod transitions.
 	 * Not to be enabled by default! */
 
