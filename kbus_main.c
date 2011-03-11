@@ -88,11 +88,6 @@ static int kbus_write_to_recipients(struct kbus_private_data *priv,
 				    struct kbus_dev *dev,
 				    struct kbus_msg *msg);
 
-static void kbus_forget_unbound_unsent_unbind_msgs(struct kbus_private_data
-						   *priv,
-						   struct kbus_message_binding
-						   *binding);
-
 static int kbus_alloc_ref_data(struct kbus_private_data *priv,
 			       u32 data_len,
 			       struct kbus_data_ptr **ret_ref_data);
@@ -322,10 +317,9 @@ static int kbus_remember_msg_id(struct kbus_private_data *priv,
 	struct kbus_msg_id_mem *mem = &priv->outstanding_requests;
 	int ii, which;
 
-	kbus_maybe_dbg(priv->dev, "  %u/%u Remembering outstanding"
+	kbus_maybe_dbg(priv->dev, "  %u Remembering outstanding"
 		       " request %u:%u (count->%d)\n",
-		       priv->dev->index, priv->id,
-		       id->network_id, id->serial_num, mem->count + 1);
+		       priv->id, id->network_id, id->serial_num, mem->count + 1);
 
 	/* First, try for an empty slot we can re-use */
 	for (ii = 0; ii < mem->size; ii++) {
@@ -340,9 +334,9 @@ static int kbus_remember_msg_id(struct kbus_private_data *priv,
 		u32 old_size = mem->size;
 		u32 new_size = kbus_next_size(old_size);
 
-		kbus_maybe_dbg(priv->dev, "  %u/%u XXX outstanding"
+		kbus_maybe_dbg(priv->dev, "  %u XXX outstanding"
 			       " request array size %u -> %u\n",
-			       priv->dev->index, priv->id, old_size, new_size);
+			       priv->id, old_size, new_size);
 
 		mem->ids = krealloc(mem->ids,
 				    new_size * sizeof(struct kbus_msg_id),
@@ -375,16 +369,16 @@ static int kbus_find_msg_id(struct kbus_private_data *priv,
 		if (!kbus_same_message_id(&mem->ids[ii],
 					  id->network_id, id->serial_num))
 			continue;
-		kbus_maybe_dbg(priv->dev, "  %u/%u Found outstanding "
+		kbus_maybe_dbg(priv->dev, "  %u Found outstanding "
 			       "request %u:%u (count=%d)\n",
-			       priv->dev->index, priv->id, id->network_id,
+			       priv->id, id->network_id,
 			       id->serial_num, mem->count);
 		return 0;
 	}
 	kbus_maybe_dbg(priv->dev,
-		       "  %u/%u Could not find outstanding "
+		       "  %u Could not find outstanding "
 		       "request %u:%u (count=%d)\n",
-		       priv->dev->index, priv->id, id->network_id,
+		       priv->id, id->network_id,
 		       id->serial_num, mem->count);
 	return -1;
 }
@@ -404,17 +398,17 @@ static int kbus_forget_msg_id(struct kbus_private_data *priv,
 		mem->ids[ii].serial_num = 0;
 		mem->count--;
 		kbus_maybe_dbg(priv->dev,
-			       "  %u/%u Forgot outstanding "
+			       "  %u Forgot outstanding "
 			       "request %u:%u (count<-%d)\n",
-			       priv->dev->index, priv->id, id->network_id,
+			       priv->id, id->network_id,
 			       id->serial_num, mem->count);
 
 		return 0;
 	}
 	kbus_maybe_dbg(priv->dev,
-		       "  %u/%u Could not forget outstanding "
+		       "  %u Could not forget outstanding "
 		       "request %u:%u (count<-%d)\n",
-		       priv->dev->index, priv->id, id->network_id,
+		       priv->id, id->network_id,
 		       id->serial_num, mem->count);
 	return -1;
 }
@@ -854,9 +848,8 @@ static int kbus_push_message(struct kbus_private_data *priv,
 	struct kbus_message_queue_item *item;
 
 	kbus_maybe_dbg(priv->dev,
-		       "  %u/%u Pushing message onto queue (%s)\n",
-		       priv->dev->index, priv->id,
-		       for_replier ? "replier" : "listener");
+		       "  %u Pushing message onto queue (%s)\n",
+		       priv->id, for_replier ? "replier" : "listener");
 
 	/*
 	 * 1. Check to see if this Ksock has the "only one copy
@@ -891,9 +884,9 @@ static int kbus_push_message(struct kbus_private_data *priv,
 					 msg->id.network_id,
 					 msg->id.serial_num)) {
 			kbus_maybe_dbg(priv->dev,
-				       "  %u/%u Ignoring message "
+				       "  %u Ignoring message "
 				       "under 'once only' rule\n",
-				       priv->dev->index, priv->id);
+				       priv->id);
 			return 0;
 		}
 	}
@@ -958,10 +951,9 @@ static int kbus_push_message(struct kbus_private_data *priv,
 		if (retval)
 			/* But there's not much we can do about it */
 			dev_err(priv->dev->dev,
-			       "%u/%u Error forgetting "
+			       "%u Error forgetting "
 			       "outstanding request %u:%u\n",
-			       priv->dev->index, priv->id,
-			       msg->in_reply_to.network_id,
+			       priv->id, msg->in_reply_to.network_id,
 			       msg->in_reply_to.serial_num);
 	}
 
@@ -969,8 +961,8 @@ static int kbus_push_message(struct kbus_private_data *priv,
 	wake_up_interruptible(&priv->read_wait);
 
 	kbus_maybe_dbg(priv->dev,
-		       "%u/%u Leaving %d message%s in queue\n",
-		       priv->dev->index, priv->id, priv->message_count,
+		       "%u Leaving %d message%s in queue\n",
+		       priv->id, priv->message_count,
 		       priv->message_count == 1 ? "" : "s");
 
 	return 0;
@@ -1012,14 +1004,13 @@ static void kbus_push_synthetic_message(struct kbus_dev *dev,
 	priv = kbus_find_open_ksock(dev, to);
 	if (!priv) {
 		dev_err(dev->dev,
-		       "%u pid %u [%s] Cannot send synthetic reply to %u,"
-		       " as they are gone\n", dev->index, current->pid,
-		       current->comm, to);
+		       "pid %u [%s] Cannot send synthetic reply to %u,"
+		       " as they are gone\n", current->pid, current->comm, to);
 		return;
 	}
 
-	kbus_maybe_dbg(priv->dev, "  %u Pushing synthetic message '%s'"
-		       " onto queue for %u\n", dev->index, name, to);
+	kbus_maybe_dbg(priv->dev, "  Pushing synthetic message '%s'"
+		       " onto queue for %u\n", name, to);
 
 	/*
 	 * Note that we do not check if the destination queue is full
@@ -1040,204 +1031,6 @@ static void kbus_push_synthetic_message(struct kbus_dev *dev,
 }
 
 /*
- * Add the data part to a bind/unbind synthetic message.
- *
- * 'is_bind' is true if this was a "bind" event, false if it was an "unbind".
- *
- * 'name' is the message name (or wildcard) that was bound (or unbound) to.
- *
- * Returns 0 if all goes well, or a negative value if something goes wrong.
- */
-static int kbus_add_bind_message_data(struct kbus_private_data *priv,
-				      struct kbus_msg *new_msg,
-				      u32 is_bind,
-				      u32 name_len, char *name)
-{
-	struct kbus_replier_bind_event_data *data;
-	struct kbus_data_ptr *wrapped_data;
-	u32 padded_name_len = KBUS_PADDED_NAME_LEN(name_len);
-	u32 data_len = sizeof(*data) + padded_name_len;
-	u32 rest_len = padded_name_len / 4;
-	char *name_p;
-
-	unsigned long *parts;
-	unsigned *lengths;
-
-	data = kmalloc(data_len, GFP_KERNEL);
-	if (!data) {
-		kbus_free_message(new_msg);
-		return -ENOMEM;
-	}
-
-	name_p = (char *)&data->rest[0];
-
-	data->is_bind = is_bind;
-	data->binder = priv->id;
-	data->name_len = name_len;
-
-	data->rest[rest_len - 1] = 0;	/* terminating with enough '\0' */
-	strncpy(name_p, name, name_len);
-
-	/*
-	 * And that data, unfortunately for our simple mindedness,
-	 * needs wrapping up in a reference count...
-	 *
-	 * Note/remember that we are happy for the reference counting
-	 * wrapper to "own" our data, and free it when the it is done
-	 * with it.
-	 *
-	 * I'm going to assert that we have less than a PAGE length
-	 * of data, so we can simply do:
-	 */
-	parts = kmalloc(sizeof(*parts), GFP_KERNEL);
-	if (!parts) {
-		kfree(data);
-		return -ENOMEM;
-	}
-	lengths = kmalloc(sizeof(*lengths), GFP_KERNEL);
-	if (!lengths) {
-		kfree(parts);
-		kfree(data);
-		return -ENOMEM;
-	}
-	lengths[0] = data_len;
-	parts[0] = (unsigned long)data;
-	wrapped_data =
-	    kbus_wrap_data_in_ref(false, 1, parts, lengths, data_len);
-	if (!wrapped_data) {
-		kfree(lengths);
-		kfree(parts);
-		kfree(data);
-		return -ENOMEM;
-	}
-
-	new_msg->data_len = data_len;
-	new_msg->data_ref = wrapped_data;
-	return 0;
-}
-
-/*
- * Create a new Replier Bind Event synthetic message.
- *
- * The initial design of things didn't really expect us to be
- * generating messages with actual data inside the kernel module,
- * so it's all a little bit more complicated than it might otherwise
- * be, and there's some playing with things directly that might best
- * be done otherwise (notably, sorting out the wrapping up of the
- * data in a reference count). I think that's excusable given this
- * should be the only sort of message we ever generate with actual
- * data (or so I believe).
- *
- * Returns the new message, or NULL.
- */
-static struct kbus_msg
-*kbus_new_synthetic_bind_message(struct kbus_private_data *priv,
-				 u32 is_bind,
-				 u32 name_len, char *name)
-{
-	ssize_t retval = 0;
-	struct kbus_msg *new_msg;
-	struct kbus_msg_id in_reply_to = { 0, 0 };	/* no-one */
-
-	kbus_maybe_dbg(priv->dev,
-		       "  %u Creating synthetic bind message for '%s'"
-		       " (%s)\n", priv->dev->index, name,
-		       is_bind ? "bind" : "unbind");
-
-	new_msg = kbus_build_kbus_message(priv->dev,
-					  KBUS_MSG_NAME_REPLIER_BIND_EVENT,
-					  0, 0, in_reply_to);
-	if (!new_msg)
-		return NULL;
-
-	/*
-	 * What happens if any one of the listeners can't receive the message
-	 * because they don't have room in their queues?
-	 *
-	 * If we flag the message as ALL_OR_FAIL, then if we can't deliver
-	 * to all of the listeners who care, we will get -EBUSY returned to
-	 * us, which we shall then return as -EAGAIN (people expect to check
-	 * for -EAGAIN to find out if they should, well, try again).
-	 *
-	 * In this scenario, the user needs to catch a "bind"/"unbind" return
-	 * of -EAGAIN and realise that it needs to try again.
-	 */
-	new_msg->flags |= KBUS_BIT_ALL_OR_FAIL;
-
-	/*
-	 * That gave us the basis of the message, but now we need to add in
-	 * its meaning.
-	 */
-	retval = kbus_add_bind_message_data(priv, new_msg, is_bind,
-					    name_len, name);
-	if (retval < 0) {
-		kbus_free_message(new_msg);
-		return NULL;
-	}
-
-	return new_msg;
-}
-
-/*
- * Generate a bind/unbind synthetic message, and broadcast it.
- *
- * This is for use when we have been asked to announce when a Replier binds or
- * unbinds.
- *
- * 'priv' is the sender - the entity that is doing the actual bind/unbind.
- *
- * 'is_bind' is true if this was a "bind" event, false if it was an "unbind".
- *
- * 'name' is the message name (or wildcard) that was bound (or unbound) to.
- *
- * Returns 0 if all goes well, or a negative value if something goes wrong,
- * notably -EAGAIN if we couldn't send the message to ALL the Listeners who
- * have bound to receive it.
- */
-static int kbus_push_synthetic_bind_message(struct kbus_private_data *priv,
-					    u32 is_bind,
-					    u32 name_len, char *name)
-{
-
-	ssize_t retval = 0;
-	struct kbus_msg *new_msg;
-
-	kbus_maybe_dbg(priv->dev,
-		       "  %u Pushing synthetic bind message for '%s'"
-		       " (%s) onto queue\n", priv->dev->index, name,
-		       is_bind ? "bind" : "unbind");
-
-	new_msg =
-	    kbus_new_synthetic_bind_message(priv, is_bind, name_len, name);
-	if (new_msg == NULL)
-		return -ENOMEM;
-
-	kbus_maybe_report_message(priv->dev, new_msg);
-	kbus_maybe_dbg(priv->dev,
-		       "Writing synthetic message to "
-		       "recipients\n");
-
-	retval = kbus_write_to_recipients(priv, priv->dev, new_msg);
-	/*
-	 * kbus_push_message takes a copy of our message data, so we
-	 * must remember to free ours. Since we've made sure that it
-	 * looks just like a user-generated message (i.e., the name
-	 * can be freed as well as the data), this is fairly simple.
-	 */
-	kbus_free_message(new_msg);
-
-	/*
-	 * Because we used ALL_OR_FAIL, we will get -EBUSY back if we FAIL,
-	 * but we want to tell the user -EAGAIN, since they *should* try
-	 * again later.
-	 */
-	if (retval == -EBUSY)
-		retval = -EAGAIN;
-
-	return retval;
-}
-
-/*
  * Pop the next message off our queue.
  *
  * Returns a pointer to the message, or NULL if there is no next message.
@@ -1248,8 +1041,8 @@ static struct kbus_msg *kbus_pop_message(struct kbus_private_data *priv)
 	struct kbus_message_queue_item *item;
 	struct kbus_msg *msg = NULL;
 
-	kbus_maybe_dbg(priv->dev, "  %u/%u Popping message from queue\n",
-		       priv->dev->index, priv->id);
+	kbus_maybe_dbg(priv->dev, "  %u Popping message from queue\n",
+				   priv->id);
 
 	if (list_empty(queue))
 		return NULL;
@@ -1271,8 +1064,8 @@ static struct kbus_msg *kbus_pop_message(struct kbus_private_data *priv)
 
 	kbus_maybe_report_message(priv->dev, msg);
 	kbus_maybe_dbg(priv->dev,
-		       "  %u/%u Leaving %d message%s in queue\n",
-		       priv->dev->index, priv->id, priv->message_count,
+		       "  %u Leaving %d message%s in queue\n",
+		       priv->id, priv->message_count,
 		       priv->message_count == 1 ? "" : "s");
 
 	return msg;
@@ -1288,8 +1081,7 @@ static void kbus_empty_message_queue(struct kbus_private_data *priv)
 	struct kbus_message_queue_item *ptr;
 	struct kbus_message_queue_item *next;
 
-	kbus_maybe_dbg(priv->dev, "  %u/%u Emptying message queue\n",
-		       priv->dev->index, priv->id);
+	kbus_maybe_dbg(priv->dev, "  %u Emptying message queue\n", priv->id);
 
 	list_for_each_entry_safe(ptr, next, queue, list) {
 		struct kbus_msg *msg = ptr->msg;
@@ -1307,17 +1099,15 @@ static void kbus_empty_message_queue(struct kbus_private_data *priv)
 					    msg->from, msg->id,
 					    KBUS_MSG_NAME_REPLIER_GONEAWAY);
 
-		/* Remove it from the list */
 		list_del(&ptr->list);
-		/* And forget all about it... */
 		kbus_free_message(ptr->msg);
 
 		priv->message_count--;
 	}
 
 	kbus_maybe_dbg(priv->dev,
-		       "  %u/%u Leaving %d message%s in queue\n",
-		       priv->dev->index, priv->id, priv->message_count,
+		       "  %u Leaving %d message%s in queue\n",
+		       priv->id, priv->message_count,
 		       priv->message_count == 1 ? "" : "s");
 }
 
@@ -1332,9 +1122,9 @@ static int kbus_reply_needed(struct kbus_private_data *priv,
 	struct kbus_unreplied_item *item;
 
 	kbus_maybe_dbg(priv->dev,
-		       "  %u/%u Adding message %u:%u to unsent "
+		       "  %u Adding message %u:%u to unsent "
 		       "replies list\n",
-		       priv->dev->index, priv->id, msg->id.network_id,
+		       priv->id, msg->id.network_id,
 		       msg->id.serial_num);
 
 	item = kmalloc(sizeof(*item), GFP_KERNEL);
@@ -1360,8 +1150,8 @@ static int kbus_reply_needed(struct kbus_private_data *priv,
 		priv->max_replies_unsent = priv->num_replies_unsent;
 
 	kbus_maybe_dbg(priv->dev,
-		       "  %u/%u Leaving %d message%s unreplied-to\n",
-		       priv->dev->index, priv->id, priv->num_replies_unsent,
+		       "  %u Leaving %d message%s unreplied-to\n",
+		       priv->id, priv->num_replies_unsent,
 		       priv->num_replies_unsent == 1 ? "" : "s");
 
 	return 0;
@@ -1386,30 +1176,27 @@ static int kbus_reply_now_sent(struct kbus_private_data *priv,
 			continue;
 
 		kbus_maybe_dbg(priv->dev,
-		       "  %u/%u Reply to %u:%u %.*s now sent\n",
-		       priv->dev->index, priv->id, msg_id->network_id,
+		       "  %u Reply to %u:%u %.*s now sent\n",
+		       priv->id, msg_id->network_id,
 		       msg_id->serial_num, ptr->name_len, ptr->name_ref->name);
 
-		/* Remove it from the list */
 		list_del(&ptr->list);
-		/* And forget all about it... */
 		kbus_lower_name_ref(ptr->name_ref);
 		kfree(ptr);
 
 		priv->num_replies_unsent--;
 
 		kbus_maybe_dbg(priv->dev,
-		       "  %u/%u Leaving %d message%s unreplied-to\n",
-		       priv->dev->index, priv->id, priv->num_replies_unsent,
+		       "  %u Leaving %d message%s unreplied-to\n",
+		       priv->id, priv->num_replies_unsent,
 		       priv->num_replies_unsent == 1 ? "" : "s");
 
 		return 0;
 	}
 
-	dev_err(priv->dev->dev, "%u/%u Could not find message %u:%u in unsent "
+	dev_err(priv->dev->dev, "%u Could not find message %u:%u in unsent "
 	       "replies list\n",
-	       priv->dev->index, priv->id, msg_id->network_id,
-	       msg_id->serial_num);
+	       priv->id, msg_id->network_id, msg_id->serial_num);
 	return -1;
 }
 
@@ -1424,8 +1211,7 @@ static void kbus_empty_replies_unsent(struct kbus_private_data *priv)
 	struct kbus_unreplied_item *next;
 
 	kbus_maybe_dbg(priv->dev,
-		       "  %u/%u Emptying unreplied messages list\n",
-		       priv->dev->index, priv->id);
+		       "  %u Emptying unreplied messages list\n", priv->id);
 
 	list_for_each_entry_safe(ptr, next, queue, list) {
 
@@ -1433,9 +1219,7 @@ static void kbus_empty_replies_unsent(struct kbus_private_data *priv)
 					    ptr->from, ptr->id,
 					    KBUS_MSG_NAME_REPLIER_IGNORED);
 
-		/* Remove it from the list */
 		list_del(&ptr->list);
-		/* And forget all about it... */
 		kbus_lower_name_ref(ptr->name_ref);
 		kfree(ptr);
 
@@ -1443,8 +1227,8 @@ static void kbus_empty_replies_unsent(struct kbus_private_data *priv)
 	}
 
 	kbus_maybe_dbg(priv->dev,
-		       "  %u/%u Leaving %d message%s unreplied-to\n",
-		       priv->dev->index, priv->id, priv->num_replies_unsent,
+		       "  %u Leaving %d message%s unreplied-to\n",
+		       priv->id, priv->num_replies_unsent,
 		       priv->num_replies_unsent == 1 ? "" : "s");
 }
 
@@ -1461,7 +1245,6 @@ static int kbus_find_replier(struct kbus_dev *dev,
 	struct kbus_message_binding *ptr;
 	struct kbus_message_binding *next;
 
-	/* We don't want anyone writing to the list whilst we do this */
 	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
 		/*
 		 * We are only interested in a replier binding to the name.
@@ -1476,9 +1259,8 @@ static int kbus_find_replier(struct kbus_dev *dev,
 		    strncmp(name, ptr->name, name_len))
 			continue;
 
-		kbus_maybe_dbg(dev, "  %u '%.*s' has replier %u\n",
-			       dev->index, ptr->name_len, ptr->name,
-			       ptr->bound_to_id);
+		kbus_maybe_dbg(dev, "  '%.*s' has replier %u\n",
+			       ptr->name_len, ptr->name, ptr->bound_to_id);
 		*bound_to = ptr->bound_to;
 		return 1;
 	}
@@ -1643,10 +1425,9 @@ static int kbus_remember_binding(struct kbus_dev *dev,
 		 */
 		if (retval == 1) {
 			kbus_maybe_dbg(dev,
-				       "%u/%u CANNOT BIND '%.*s' as "
+				       "%u CANNOT BIND '%.*s' as "
 				       "replier, already bound\n",
-				       dev->index, priv->id,
-				       name_len, name);
+				       priv->id, name_len, name);
 			return -EADDRINUSE;
 		}
 	}
@@ -1660,21 +1441,6 @@ static int kbus_remember_binding(struct kbus_dev *dev,
 	new->is_replier = replier;
 	new->name_len = name_len;
 	new->name = name;
-
-	if (replier && dev->report_replier_binds) {
-		/*
-		 * We've been asked to announce when a Replier binds.
-		 * If we can't tell all the Listeners who care, we want
-		 * to give up, rather than tell some of them, and then
-		 * bind anyway.
-		 */
-		retval = kbus_push_synthetic_bind_message(priv, true,
-							  name_len, name);
-		if (retval != 0) {	/* Hopefully, just -EBUSY */
-			kfree(new);
-			return retval;
-		}
-	}
 
 	list_add(&new->list, &dev->bound_message_list);
 	return 0;
@@ -1703,9 +1469,8 @@ static struct kbus_message_binding
 		if (strncmp(name, ptr->name, name_len))
 			continue;
 
-		kbus_maybe_dbg(priv->dev, "  %u/%u Found %c '%.*s'\n",
-			       dev->index, priv->id,
-			       (ptr->is_replier ? 'R' : 'L'),
+		kbus_maybe_dbg(priv->dev, "  %u Found %c '%.*s'\n",
+			       priv->id, (ptr->is_replier ? 'R' : 'L'),
 			       ptr->name_len, ptr->name);
 		return ptr;
 	}
@@ -1727,8 +1492,7 @@ static void kbus_forget_matching_messages(struct kbus_private_data *priv,
 	struct kbus_message_queue_item *next;
 
 	kbus_maybe_dbg(priv->dev,
-		       "  %u/%u Forgetting matching messages\n",
-		       priv->dev->index, priv->id);
+		       "  %u Forgetting matching messages\n", priv->id);
 
 	list_for_each_entry_safe(ptr, next, queue, list) {
 		struct kbus_msg *msg = ptr->msg;
@@ -1760,9 +1524,7 @@ static void kbus_forget_matching_messages(struct kbus_private_data *priv,
 					    KBUS_MSG_NAME_REPLIER_UNBOUND);
 		}
 
-		/* Remove it from the list */
 		list_del(&ptr->list);
-		/* And forget all about it... */
 		kbus_free_message(ptr->msg);
 
 		priv->message_count--;
@@ -1773,8 +1535,8 @@ static void kbus_forget_matching_messages(struct kbus_private_data *priv,
 	}
 
 	kbus_maybe_dbg(priv->dev,
-		       "  %u/%u Leaving %d message%s in queue\n",
-		       priv->dev->index, priv->id, priv->message_count,
+		       "  %u Leaving %d message%s in queue\n",
+		       priv->id, priv->message_count,
 		       priv->message_count == 1 ? "" : "s");
 }
 
@@ -1792,49 +1554,20 @@ static int kbus_forget_binding(struct kbus_dev *dev,
 	binding = kbus_find_binding(dev, priv, replier, name_len, name);
 	if (binding == NULL) {
 		kbus_maybe_dbg(priv->dev,
-			       "  %u/%u Could not find/unbind "
+			       "  %u Could not find/unbind "
 			       "%u %c '%.*s'\n",
-			       dev->index, priv->id, priv->id,
+			       priv->id, priv->id,
 			       (replier ? 'R' : 'L'), name_len, name);
 		return -EINVAL;
 	}
 
-	if (replier && dev->report_replier_binds) {
-
-		/*
-		 * We want to send a message indicating that we've unbound
-		 * the Replier for this message.
-		 *
-		 * If we can't tell all the Listeners who're listening for this
-		 * message, we want to give up, rather then tell some of them,
-		 * and then unbind anyway.
-		 */
-		int retval = kbus_push_synthetic_bind_message(priv, false,
-							      name_len, name);
-		if (retval != 0)	/* Hopefully, just -EBUSY */
-			return retval;
-		/*
-		 * Note that if we were ourselves listening for replier bind
-		 * events, then we will ourselves get the message announcing
-		 * we're about to unbind.
-		 */
-	}
-
-	kbus_maybe_dbg(priv->dev, "  %u/%u Unbound %u %c '%.*s'\n",
-		       dev->index, priv->id,
-		       binding->bound_to_id,
+	kbus_maybe_dbg(priv->dev, "  %u Unbound %u %c '%.*s'\n",
+		       priv->id, binding->bound_to_id,
 		       (binding->is_replier ? 'R' : 'L'),
 		       binding->name_len, binding->name);
 
 	/* And forget any messages we now shouldn't receive */
 	kbus_forget_matching_messages(priv, binding);
-
-	/*
-	 * Maybe including any set-aside Replier Unbind Events...
-	 */
-	if (!strncmp(KBUS_MSG_NAME_REPLIER_BIND_EVENT, binding->name,
-		     binding->name_len))
-		kbus_forget_unbound_unsent_unbind_msgs(priv, binding);
 
 	/*
 	 * We carefully don't try to do anything about requests that
@@ -1852,427 +1585,6 @@ static int kbus_forget_binding(struct kbus_dev *dev,
 }
 
 /*
- * Add a (copy of a) message to the "unsent Replier Unbind Event" list
- *
- * 'priv' is who we are trying to send to, 'msg' is the message we were
- * trying to send.
- *
- * Returns 0 if all went well, a negative value if it did not.
- */
-static int kbus_remember_unsent_unbind_event(struct kbus_dev *dev,
-					     struct kbus_private_data *priv,
-					     struct kbus_msg *msg,
-					     struct kbus_message_binding
-					     *binding)
-{
-	struct kbus_unsent_message_item *new;
-	struct kbus_msg *new_msg = NULL;
-
-	kbus_maybe_dbg(priv->dev,
-		       "  %u Remembering unsent unbind event "
-		       "%u '%.*s' to %u\n",
-		       dev->index, dev->unsent_unbind_msg_count, msg->name_len,
-		       msg->name_ref->name, priv->id);
-
-	new = kmalloc(sizeof(*new), GFP_KERNEL);
-	if (!new)
-		return -ENOMEM;
-
-	new_msg = kbus_copy_message(dev, msg);
-	if (!new_msg) {
-		kfree(new);
-		return -EFAULT;
-	}
-
-	new->send_to = priv;
-	new->send_to_id = priv->id;	/* Useful shorthand? */
-	new->msg = new_msg;
-	new->binding = binding;
-
-	/*
-	 * The order should be the same as a normal message queue,
-	 * so add to the end...
-	 */
-	list_add_tail(&new->list, &dev->unsent_unbind_msg_list);
-	dev->unsent_unbind_msg_count++;
-	return 0;
-}
-
-/*
- * Return true if this listener already has a "gone tragic" message.
- *
- * Look at the end of the unsent Replier Unbind Event message list, to see
- * if the given listener already has a "gone tragic" message (since if it
- * does, we will not want to add another).
- */
-static int kbus_listener_already_got_tragic_msg(struct kbus_dev *dev,
-						struct kbus_private_data
-						*listener)
-{
-	struct kbus_unsent_message_item *ptr;
-	struct kbus_unsent_message_item *next;
-
-	kbus_maybe_dbg(dev,
-		       "  %u Checking for 'gone tragic' event for %u\n",
-		       dev->index, listener->id);
-
-	list_for_each_entry_safe_reverse(ptr, next,
-					 &dev->unsent_unbind_msg_list, list) {
-
-		if (kbus_message_name_matches(
-					ptr->msg->name_ref->name,
-					ptr->msg->name_len,
-					KBUS_MSG_NAME_REPLIER_BIND_EVENT))
-			/*
-			 * If we get a Replier Bind Event, then we're past all
-			 * the "tragic world" messages
-			 */
-			break;
-		if (ptr->send_to_id == listener->id) {
-			kbus_maybe_dbg(dev, "  %u Found\n", dev->index);
-			return true;
-		}
-	}
-
-	kbus_maybe_dbg(dev, "  %u Not found\n", dev->index);
-	return false;
-}
-
-/*
- * Report a Replier Bind Event for unbinding from the given message name,
- * in such a way that we do not lose the message even if we can't send it
- * right away.
- */
-static void kbus_safe_report_unbinding(struct kbus_private_data *priv,
-				       u32 name_len, char *name)
-{
-	/* 1. Generate a new unbinding event message
-	 * 2. Try sending it to everyone who cares
-	 * 3. If that failed, then find out who *does* care
-	 * 4. Is there room for that many messages on the set-aside list?
-	 * 5. If there is, add (a copy of) the message for each
-	 * 6. If there is not, set the "tragic" flag, and add (a copy of)
-	 *    the "world gone tragic" message for each
-	 * 7. If we've added something to the set-aside list, then set
-	 *    the "maybe got something on the set-aside list" flag for
-	 *    each recipient. */
-
-	struct kbus_msg *msg;
-	struct kbus_message_binding **listeners = NULL;
-	struct kbus_message_binding *replier = NULL;
-	int retval = 0;
-	int num_listeners;
-	int ii;
-
-	kbus_maybe_dbg(priv->dev,
-		       "  %u/%u Safe report unbinding of '%.*s'\n",
-		       priv->dev->index, priv->id, name_len, name);
-
-	/* Generate the message we'd *like* to send */
-	msg = kbus_new_synthetic_bind_message(priv, false, name_len, name);
-	if (msg == NULL)
-		return;	/* There is nothing sensible to do here */
-
-	/* If we're lucky, we can just send it */
-	retval = kbus_write_to_recipients(priv, priv->dev, msg);
-	if (retval != -EBUSY)
-		goto done_sending;
-
-	/*
-	 * So at least one of the people we were trying to send to was not able
-	 * to take the message, presumably because their message queue is full.
-	 * Thus we need to put aside one copy of the message for each
-	 * recipient, to be delivered when it *can* be received.
-	 *
-	 * So before we do anything else, we need to know who those recipients
-	 * are.
-	 */
-
-	kbus_maybe_dbg(priv->dev,
-		       "  %u/%u Need to add messages to set-aside list\n",
-		       priv->dev->index, priv->id);
-
-	/*
-	 * We're expecting some listeners, but no replier.
-	 * Since this is a duplicate of what we did in kbus_write_to_recipients,
-	 * and since our ksock is locked whilst we're working, we can assume
-	 * that we should get the same result. For the sake of completeness,
-	 * check the error return anyway, but I'm not going to worry about
-	 * whether we suddenly have a replier popping up unexpectedly...
-	 */
-	num_listeners = kbus_find_listeners(priv->dev, &listeners, &replier,
-					    msg->name_len, msg->name_ref->name);
-	if (num_listeners < 0) {
-		kbus_maybe_dbg(priv->dev,
-			       "  Error %d finding listeners\n",
-			       num_listeners);
-		retval = num_listeners;
-		goto done_sending;
-	}
-
-	if (priv->dev->unsent_unbind_is_tragic ||
-	    (num_listeners + priv->dev->unsent_unbind_msg_count >
-	     CONFIG_KBUS_MAX_UNSENT_UNBIND_MESSAGES)) {
-		struct kbus_msg_id in_reply_to = { 0, 0 };	/* no-one */
-		/*
-		 * Either the list had already gone tragic, or we've
-		 * filled it up with "normal" unbind event messages
-		 */
-		priv->dev->unsent_unbind_is_tragic = true;
-
-		/* In which case we need a different message */
-		kbus_free_message(msg);
-		msg = kbus_build_kbus_message(priv->dev,
-					      KBUS_MSG_NAME_UNBIND_EVENTS_LOST,
-					      0, 0, in_reply_to);
-		if (msg == NULL)
-			goto done_sending;
-
-		for (ii = 0; ii < num_listeners; ii++) {
-			/*
-			 * We only want to add a "gone tragic" message if the
-			 * recipient does not already have such a message
-			 * stacked...
-			 */
-			if (kbus_listener_already_got_tragic_msg(priv->dev,
-						 listeners[ii]->bound_to))
-				continue;
-			retval = kbus_remember_unsent_unbind_event(priv->dev,
-					   listeners[ii]->bound_to,
-					   msg, listeners[ii]);
-			/* And remember that we've got something on the
-			 * set-aside list */
-			listeners[ii]->bound_to->maybe_got_unsent_unbind_msgs =
-			    true;
-			if (retval)
-				break;	/* No good choice here */
-		}
-	} else {
-		/* There's room to add these messages as-is */
-		for (ii = 0; ii < num_listeners; ii++) {
-			retval = kbus_remember_unsent_unbind_event(priv->dev,
-					   listeners[ii]->bound_to,
-					   msg, listeners[ii]);
-			/* And remember that we've got something on the
-			 * set-aside list */
-			listeners[ii]->bound_to->maybe_got_unsent_unbind_msgs =
-			    true;
-			if (retval)
-				break;	/* No good choice here */
-		}
-	}
-
-done_sending:
-	kfree(listeners);
-	/* Don't forget to free our copy of the message */
-	if (msg)
-		kbus_free_message(msg);
-	/* We aren't returning any status code. Oh well. */
-}
-
-/*
- * Return how many messages we have in the unsent Replier Unbind Event list.
- */
-static u32 kbus_count_unsent_unbind_msgs(struct kbus_private_data *priv)
-{
-	struct kbus_dev *dev = priv->dev;
-
-	struct kbus_unsent_message_item *ptr;
-	struct kbus_unsent_message_item *next;
-
-	u32 count = 0;
-
-	kbus_maybe_dbg(dev, "%u/%u Counting unsent unbind messages\n",
-		       dev->index, priv->id);
-
-	list_for_each_entry_safe(ptr, next, &dev->unsent_unbind_msg_list,
-				 list) {
-		if (ptr->send_to_id == priv->id)
-			count++;
-	}
-	return count;
-}
-
-/*
- * Maybe move an unsent Replier Unbind Event message to the main message list.
- *
- * Check if we have an unsent event on the set-aside list. If we do, move the
- * first one across to our normal message queue.
- *
- * Returns 0 if all goes well, or a negative value if something went wrong.
- */
-static int kbus_maybe_move_unsent_unbind_msg(struct kbus_private_data *priv)
-{
-	struct kbus_dev *dev = priv->dev;
-
-	struct kbus_unsent_message_item *ptr;
-	struct kbus_unsent_message_item *next;
-
-	kbus_maybe_dbg(dev,
-		       "%u/%u Looking for an unsent unbind message\n",
-		       dev->index, priv->id);
-
-	list_for_each_entry_safe(ptr, next, &dev->unsent_unbind_msg_list,
-				 list) {
-		int retval;
-
-		if (ptr->send_to_id != priv->id)
-			continue;
-
-		kbus_maybe_report_message(priv->dev, ptr->msg);
-		/*
-		 * Move the message into our normal message queue.
-		 *
-		 * We *must* use kbus_push_message() to do this, as
-		 * we wish to keep our promise that this shall be the
-		 * only way of adding a message to the queue.
-		 */
-		retval = kbus_push_message(priv, ptr->msg, ptr->binding, false);
-		if (retval)
-			return retval;	/* What else can we do? */
-
-		/* Remove it from the list */
-		list_del(&ptr->list);
-		/* Mustn't forget to free *our* copy of the message */
-		kbus_free_message(ptr->msg);
-		kfree(ptr);
-		dev->unsent_unbind_msg_count--;
-		goto check_tragic;
-	}
-
-	/*
-	 * Since we didn't find anything, we can safely unset the flag that
-	 * says there might be something to find...
-	 */
-	priv->maybe_got_unsent_unbind_msgs = false;
-
-check_tragic:
-	/*
-	 * And if we've succeeded in emptying the list, we can unset the
-	 * "gone tragic" flag for it, too, if it was set.
-	 */
-	if (list_empty(&dev->unsent_unbind_msg_list))
-		dev->unsent_unbind_is_tragic = false;
-	return 0;
-}
-
-/*
- * Forget any outstanding unsent Replier Unbind Event messages for this binding.
- *
- * Called from kbus_release.
- */
-static void kbus_forget_unbound_unsent_unbind_msgs(
-					struct kbus_private_data *priv,
-					struct kbus_message_binding *binding)
-{
-	struct kbus_dev *dev = priv->dev;
-
-	struct kbus_unsent_message_item *ptr;
-	struct kbus_unsent_message_item *next;
-
-	u32 count = 0;
-
-	kbus_maybe_dbg(dev,
-		       " %u/%u Forgetting unsent unbind messages for "
-		       "this binding\n",
-		       dev->index, priv->id);
-
-	list_for_each_entry_safe(ptr, next, &dev->unsent_unbind_msg_list,
-			list) {
-		if (ptr->binding == binding) {
-			/* Remove it from the list */
-			list_del(&ptr->list);
-			/* And forget all about it... */
-			kbus_free_message(ptr->msg);
-			kfree(ptr);
-			dev->unsent_unbind_msg_count--;
-			count++;
-		}
-	}
-	kbus_maybe_dbg(dev, "%u/%u Forgot %u unsent unbind messages\n",
-		       dev->index, priv->id, count);
-	/*
-	 * And if we've succeeded in emptying the list, we can unset the
-	 * "gone tragic" flag for it, too, if it was set.
-	 */
-	if (list_empty(&dev->unsent_unbind_msg_list))
-		dev->unsent_unbind_is_tragic = false;
-}
-
-/*
- * Forget any outstanding unsent Replier Unbind Event messages for this Replier.
- *
- * Called from kbus_release.
- */
-static void kbus_forget_my_unsent_unbind_msgs(struct kbus_private_data *priv)
-{
-	struct kbus_dev *dev = priv->dev;
-
-	struct kbus_unsent_message_item *ptr;
-	struct kbus_unsent_message_item *next;
-
-	u32 count = 0;
-
-	kbus_maybe_dbg(dev,
-		       "%u/%u Forgetting my unsent unbind messages\n",
-		       dev->index, priv->id);
-
-	list_for_each_entry_safe(ptr, next, &dev->unsent_unbind_msg_list,
-			list) {
-		if (ptr->send_to_id == priv->id) {
-			/* Remove it from the list */
-			list_del(&ptr->list);
-			/* And forget all about it... */
-			kbus_free_message(ptr->msg);
-			kfree(ptr);
-			dev->unsent_unbind_msg_count--;
-			count++;
-		}
-	}
-	kbus_maybe_dbg(dev, "%u/%u Forgot %u unsent unbind messages\n",
-		       dev->index, priv->id, count);
-	/*
-	 * And if we've succeeded in emptying the list, we can unset the
-	 * "gone tragic" flag for it, too, if it was set.
-	 */
-	if (list_empty(&dev->unsent_unbind_msg_list))
-		dev->unsent_unbind_is_tragic = false;
-}
-
-/*
- * Forget any outstanding unsent Replier Unbind Event messages.
- *
- * Assumed to be called because the device is closing, and thus doesn't lock,
- * or worry about lost messages.
- */
-static void kbus_forget_unsent_unbind_msgs(struct kbus_dev *dev)
-{
-	struct kbus_unsent_message_item *ptr;
-	struct kbus_unsent_message_item *next;
-
-	kbus_maybe_dbg(dev,
-		       "  %u Forgetting unsent unbind event messages\n",
-		       dev->index);
-
-	list_for_each_entry_safe(ptr, next, &dev->unsent_unbind_msg_list,
-			list) {
-
-		if (!kbus_message_name_matches(
-					    ptr->msg->name_ref->name,
-					    ptr->msg->name_len,
-					    KBUS_MSG_NAME_REPLIER_BIND_EVENT))
-			kbus_maybe_report_message(dev, ptr->msg);
-
-		/* Remove it from the list */
-		list_del(&ptr->list);
-		/* And forget all about it... */
-		kbus_free_message(ptr->msg);
-		kfree(ptr);
-		dev->unsent_unbind_msg_count--;
-	}
-}
-
-/*
  * Remove all bindings for a particular listener.
  *
  * Called from kbus_release, which will itself handle removing messages
@@ -2286,8 +1598,7 @@ static void kbus_forget_my_bindings(struct kbus_private_data *priv)
 	struct kbus_message_binding *ptr;
 	struct kbus_message_binding *next;
 
-	kbus_maybe_dbg(dev, "%u/%u Forgetting my bindings\n",
-		       dev->index, priv->id);
+	kbus_maybe_dbg(dev, "%u Forgetting my bindings\n", priv->id);
 
 	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
 		if (bound_to_id != ptr->bound_to_id)
@@ -2296,10 +1607,6 @@ static void kbus_forget_my_bindings(struct kbus_private_data *priv)
 		kbus_maybe_dbg(dev, "  Unbound %u %c '%.*s'\n",
 			       ptr->bound_to_id, (ptr->is_replier ? 'R' : 'L'),
 			       ptr->name_len, ptr->name);
-
-		if (ptr->is_replier && dev->report_replier_binds)
-			kbus_safe_report_unbinding(priv, ptr->name_len,
-							 ptr->name);
 
 		list_del(&ptr->list);
 		kfree(ptr->name);
@@ -2319,7 +1626,7 @@ static void kbus_forget_all_bindings(struct kbus_dev *dev)
 	struct kbus_message_binding *ptr;
 	struct kbus_message_binding *next;
 
-	kbus_maybe_dbg(dev, "%u Forgetting bindings\n", dev->index);
+	kbus_maybe_dbg(dev, "Forgetting bindings\n");
 
 	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
 
@@ -2328,7 +1635,6 @@ static void kbus_forget_all_bindings(struct kbus_dev *dev)
 			       (ptr->is_replier ? 'R' : 'L'),
 			       ptr->name_len, ptr->name);
 
-		/* And we don't want anyone reading for this */
 		list_del(&ptr->list);
 		kfree(ptr->name);
 		kfree(ptr);
@@ -2363,13 +1669,11 @@ static struct kbus_private_data *kbus_find_open_ksock(struct kbus_dev *dev,
 
 	list_for_each_entry_safe(ptr, next, &dev->open_ksock_list, list) {
 		if (id == ptr->id) {
-			kbus_maybe_dbg(dev, "  %u Found open Ksock %u\n",
-				       dev->index, id);
+			kbus_maybe_dbg(dev, "  Found open Ksock %u\n", id);
 			return ptr;
 		}
 	}
-	kbus_maybe_dbg(dev, "  %u Could not find open Ksock %u\n",
-		       dev->index, id);
+	kbus_maybe_dbg(dev, "  Could not find open Ksock %u\n", id);
 	return NULL;
 }
 
@@ -2383,21 +1687,18 @@ static int kbus_forget_open_ksock(struct kbus_dev *dev, u32 id)
 	struct kbus_private_data *ptr;
 	struct kbus_private_data *next;
 
-	/* We don't want anyone writing to the list whilst we do this */
 	list_for_each_entry_safe(ptr, next, &dev->open_ksock_list, list) {
 		if (id != ptr->id)
 			continue;
 
-		kbus_maybe_dbg(dev, "  %u Forgetting open Ksock %u\n",
-			       dev->index, id);
+		kbus_maybe_dbg(dev, "  Forgetting open Ksock %u\n", id);
 
 		/* So remove it from our list */
 		list_del(&ptr->list);
 		/* But *we* mustn't free the actual datastructure! */
 		return 0;
 	}
-	kbus_maybe_dbg(dev, "  %u Could not forget open Ksock %u\n",
-		       dev->index, id);
+	kbus_maybe_dbg(dev, "  Could not forget open Ksock %u\n", id);
 
 	return -EINVAL;
 }
@@ -2414,8 +1715,7 @@ static void kbus_forget_all_open_ksocks(struct kbus_dev *dev)
 
 	list_for_each_entry_safe(ptr, next, &dev->open_ksock_list, list) {
 
-		kbus_maybe_dbg(dev, "  %u Forgetting open Ksock %u\n",
-			       dev->index, ptr->id);
+		kbus_maybe_dbg(dev, "  Forgetting open Ksock %u\n", ptr->id);
 
 		/* So remove it from our list */
 		list_del(&ptr->list);
@@ -2485,7 +1785,7 @@ static int kbus_open(struct inode *inode, struct file *filp)
 
 	mutex_unlock(&dev->mux);
 
-	kbus_maybe_dbg(dev, "%u/%u OPEN\n", dev->index, priv->id);
+	kbus_maybe_dbg(dev, "%u OPEN\n", priv->id);
 
 	return 0;
 }
@@ -2499,7 +1799,7 @@ static int kbus_release(struct inode *inode __always_unused, struct file *filp)
 	if (mutex_lock_interruptible(&dev->mux))
 		return -ERESTARTSYS;
 
-	kbus_maybe_dbg(dev, "%u/%u RELEASE\n", dev->index, priv->id);
+	kbus_maybe_dbg(dev, "%u RELEASE\n", priv->id);
 
 	kbus_empty_read_msg(priv);
 	kbus_empty_write_msg(priv);
@@ -2508,8 +1808,6 @@ static int kbus_release(struct inode *inode __always_unused, struct file *filp)
 
 	kbus_empty_message_queue(priv);
 	kbus_forget_my_bindings(priv);
-	if (priv->maybe_got_unsent_unbind_msgs)
-		kbus_forget_my_unsent_unbind_msgs(priv);
 	kbus_empty_replies_unsent(priv);
 	retval2 = kbus_forget_open_ksock(dev, priv->id);
 	kfree(priv);
@@ -2572,9 +1870,9 @@ static int kbus_queue_is_full(struct kbus_private_data *priv,
 		already_accounted_for--;
 
 	kbus_maybe_dbg(priv->dev,
-		       "  %u/%u Message queue: count %d + "
+		       "  %u Message queue: count %d + "
 		       "outstanding %d %s= %d, max %d\n",
-		       priv->dev->index, priv->id, priv->message_count,
+		       priv->id, priv->message_count,
 		       priv->outstanding_requests.count,
 		       (is_reply ? "-1 " : ""), already_accounted_for,
 		       priv->max_messages);
@@ -3137,8 +2435,8 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 	if (mutex_lock_interruptible(&dev->mux))
 		return -EAGAIN;
 
-	kbus_maybe_dbg(priv->dev, "%u/%u WRITE count %u, pos %d\n",
-		       dev->index, priv->id, (unsigned)count, (int)*f_pos);
+	kbus_maybe_dbg(priv->dev, "%u WRITE count %u, pos %d\n",
+				   priv->id, (unsigned)count, (int)*f_pos);
 
 	/*
 	 * If we've already started to try sending a message, we don't
@@ -3169,8 +2467,8 @@ static ssize_t kbus_write(struct file *filp, const char __user *buf,
 	}
 
 done:
-	kbus_maybe_dbg(priv->dev, "%u/%u WRITE ends with retval %d\n",
-		       dev->index, priv->id, (int)retval);
+	kbus_maybe_dbg(priv->dev, "%u WRITE ends with retval %d\n",
+		       priv->id, (int)retval);
 
 	if (retval)
 		kbus_empty_write_msg(priv);
@@ -3194,8 +2492,8 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 	if (mutex_lock_interruptible(&dev->mux))
 		return -EAGAIN;	/* Just try again later */
 
-	kbus_maybe_dbg(priv->dev, "%u/%u READ count %u, pos %d\n",
-		       dev->index, priv->id, (unsigned)count, (int)*f_pos);
+	kbus_maybe_dbg(priv->dev, "%u READ count %u, pos %d\n",
+		       priv->id, (unsigned)count, (int)*f_pos);
 
 	if (this->msg == NULL) {
 		/* No message to read at the moment */
@@ -3229,8 +2527,8 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 						 dp->parts[this->ref_data_index]
 							 + this->pos, len)) {
 					dev_err(priv->dev->dev,
-					       "error reading from dev %u/%u\n",
-					       dev->index, priv->id);
+					       "error reading from %u\n",
+					       priv->id);
 					retval = -EFAULT;
 					goto done;
 				}
@@ -3256,8 +2554,8 @@ static ssize_t kbus_read(struct file *filp, char __user *buf, size_t count,
 						 this->parts[which] + this->pos,
 						 len)) {
 					dev_err(priv->dev->dev,
-					       "error reading from dev %u/%u\n",
-					       dev->index, priv->id);
+					       "error reading from %u\n",
+					       priv->id);
 					retval = -EFAULT;
 					goto done;
 				}
@@ -3326,16 +2624,7 @@ static int kbus_bind(struct kbus_private_data *priv,
 		goto done;
 	}
 
-	if (bind->is_replier && !strcmp(name,
-					KBUS_MSG_NAME_REPLIER_BIND_EVENT)) {
-		kbus_maybe_dbg(priv->dev, "cannot bind %s as a Replier\n",
-			       KBUS_MSG_NAME_REPLIER_BIND_EVENT);
-		retval = -EBADMSG;
-		goto done;
-	}
-
-	kbus_maybe_dbg(priv->dev, "%u/%u BIND %c '%.*s'\n",
-		       priv->dev->index, priv->id,
+	kbus_maybe_dbg(priv->dev, "%u BIND %c '%.*s'\n", priv->id,
 		       (bind->is_replier ? 'R' : 'L'), bind->name_len, name);
 
 	retval = kbus_remember_binding(dev, priv,
@@ -3356,7 +2645,6 @@ static int kbus_unbind(struct kbus_private_data *priv,
 	int retval = 0;
 	struct kbus_bind_request *bind;
 	char *name = NULL;
-	u32 old_message_count = priv->message_count;
 
 	bind = kmalloc(sizeof(*bind), GFP_KERNEL);
 	if (!bind)
@@ -3393,42 +2681,11 @@ static int kbus_unbind(struct kbus_private_data *priv,
 		goto done;
 	}
 
-	kbus_maybe_dbg(priv->dev, "%u/%u UNBIND %c '%.*s'\n",
-		       priv->dev->index, priv->id,
+	kbus_maybe_dbg(priv->dev, "%u UNBIND %c '%.*s'\n", priv->id,
 		       (bind->is_replier ? 'R' : 'L'), bind->name_len, name);
 
 	retval = kbus_forget_binding(dev, priv,
 				     bind->is_replier, bind->name_len, name);
-
-	/*
-	 * If we're unbinding from $.KBUS.ReplierBindEvent, and there
-	 * are (or may be) any such kept for us on the unread Replier
-	 * Unbind Event list, then we need to remove them as well...
-	 *
-	 * NOTE that the following only checks for exact matchs to
-	 * $.KBUS.ReplierBindEvent, which should be sufficient...
-	 */
-	if (priv->maybe_got_unsent_unbind_msgs &&
-	    !strcmp(name, KBUS_MSG_NAME_REPLIER_BIND_EVENT))
-		kbus_forget_my_unsent_unbind_msgs(priv);
-
-	/*
-	 * If that removed any messages from the message queue, then we have
-	 * room to consider moving a message across from the unread Replier
-	 * Unbind Event list
-	 */
-	if (priv->message_count < old_message_count &&
-	    priv->maybe_got_unsent_unbind_msgs) {
-		int rv = kbus_maybe_move_unsent_unbind_msg(priv);
-		/* If this fails, we're probably stumped */
-		if (rv)
-			/* The best we can do is grumble gently. We still
-			 * want to return retval, not rv.
-			 */
-			dev_err(priv->dev->dev,
-			       "Failed to move unsent messages on "
-			       "unbind (error %d)\n", -rv);
-	}
 
 done:
 	kfree(name);
@@ -3471,8 +2728,8 @@ static int kbus_replier(struct kbus_private_data *priv __maybe_unused,
 	}
 	name[query->name_len] = 0;
 
-	kbus_maybe_dbg(priv->dev, "%u/%u REPLIER for '%.*s'\n",
-		       priv->dev->index, priv->id, query->name_len, name);
+	kbus_maybe_dbg(priv->dev, "%u REPLIER for '%.*s'\n",
+		       priv->id, query->name_len, name);
 
 	retval = kbus_find_replier(dev, &replier, query->name_len, name);
 	if (retval < 0)
@@ -3510,8 +2767,7 @@ static int kbus_nextmsg(struct kbus_private_data *priv,
 	struct kbus_read_msg *this = &(priv->read);
 	struct kbus_message_header *user_msg;
 
-	kbus_maybe_dbg(priv->dev, "%u/%u NEXTMSG\n", priv->dev->index,
-		       priv->id);
+	kbus_maybe_dbg(priv->dev, "%u NEXTMSG\n", priv->id);
 
 	/* If we were partway through a message, lose it */
 	if (this->msg) {
@@ -3596,21 +2852,6 @@ static int kbus_nextmsg(struct kbus_private_data *priv,
 			return retval;
 	}
 
-	/*
-	 * If we (maybe) have any unread Replier Unbind Event messages,
-	 * we now have room to copy one across to the message list
-	 */
-	kbus_maybe_dbg(priv->dev,
-		       "  ++ maybe_got_unsent_unbind_msgs %d\n",
-		       priv->maybe_got_unsent_unbind_msgs);
-
-	if (priv->maybe_got_unsent_unbind_msgs) {
-		retval = kbus_maybe_move_unsent_unbind_msg(priv);
-		/* If this fails, we're probably stumped */
-		if (retval)
-			return retval;
-	}
-
 	retval = __put_user(KBUS_ENTIRE_MSG_LEN(msg->name_len, msg->data_len),
 			    (u32 __user *) arg);
 	if (retval)
@@ -3687,9 +2928,9 @@ static int kbus_alloc_ref_data(struct kbus_private_data *priv __maybe_unused,
 	last_page_len = data_len - (num_parts - 1) * KBUS_PART_LEN;
 
 	kbus_maybe_dbg(priv->dev,
-		       "%u/%u Allocate ref data: part=%lu, "
+		       "%u Allocate ref data: part=%lu, "
 		       "threshold=%lu, data_len %u -> num_parts %d\n",
-		       priv->dev->index, priv->id, KBUS_PART_LEN,
+		       priv->id, KBUS_PART_LEN,
 		       KBUS_PAGE_THRESHOLD, data_len, num_parts);
 
 	parts = kmalloc(sizeof(*parts) * num_parts, GFP_KERNEL);
@@ -3889,8 +3130,7 @@ static int kbus_send(struct kbus_private_data *priv,
 	ssize_t retval = 0;
 	struct kbus_msg *msg = priv->write.msg;
 
-	kbus_maybe_dbg(priv->dev, "%u/%u SEND\n", priv->dev->index,
-		       priv->id);
+	kbus_maybe_dbg(priv->dev, "%u SEND\n", priv->id);
 
 	if (priv->write.msg == NULL)
 		return -ENOMSG;
@@ -3963,9 +3203,9 @@ static int kbus_send(struct kbus_private_data *priv,
 	 */
 	if ((msg->flags & KBUS_BIT_WANT_A_REPLY) &&
 	    kbus_queue_is_full(priv, "sender", false)) {
-		dev_err(priv->dev->dev, "%u/%u Unable to send Request becausei"
+		dev_err(priv->dev->dev, "%u Unable to send Request becausei"
 			" no room for a Reply in sender's message queue\n",
-			priv->dev->index, priv->id);
+			priv->id);
 		retval = -ENOLCK;
 		goto done;
 	}
@@ -4024,9 +3264,8 @@ static int kbus_maxmsgs(struct kbus_private_data *priv,
 	if (retval)
 		return retval;
 
-	kbus_maybe_dbg(priv->dev, "%u/%u MAXMSGS requests %u (was %u)\n",
-		       priv->dev->index, priv->id,
-		       requested_max, priv->max_messages);
+	kbus_maybe_dbg(priv->dev, "%u MAXMSGS requests %u (was %u)\n",
+		       priv->id, requested_max, priv->max_messages);
 
 	/* A value of 0 is just a query for what the current length is */
 	if (requested_max > 0)
@@ -4040,14 +3279,7 @@ static int kbus_nummsgs(struct kbus_private_data *priv,
 {
 	u32 count = priv->message_count;
 
-	if (priv->maybe_got_unsent_unbind_msgs) {
-		kbus_maybe_dbg(dev, "%u/%u NUMMSGS 'main' count %u\n",
-			       dev->index, priv->id, count);
-		count += kbus_count_unsent_unbind_msgs(priv);
-	}
-
-	kbus_maybe_dbg(dev, "%u/%u NUMMSGS %u\n",
-		       dev->index, priv->id, count);
+	kbus_maybe_dbg(dev, "%u NUMMSGS %u\n", priv->id, count);
 
 	return __put_user(count, (u32 __user *) arg);
 }
@@ -4063,8 +3295,8 @@ static int kbus_onlyonce(struct kbus_private_data *priv,
 	if (retval)
 		return retval;
 
-	kbus_maybe_dbg(priv->dev, "%u/%u ONLYONCE requests %u (was %d)\n",
-		       priv->dev->index, priv->id, only_once, old_value);
+	kbus_maybe_dbg(priv->dev, "%u ONLYONCE requests %u (was %d)\n",
+		       priv->id, only_once, old_value);
 
 	switch (only_once) {
 	case 0:
@@ -4101,8 +3333,8 @@ static int kbus_set_verbosity(struct kbus_private_data *priv,
 	 */
 #ifdef DEBUG
 	dev_dbg(priv->dev->dev,
-		"%u/%u VERBOSE requests %u (was %d)\n",
-		priv->dev->index, priv->id, verbose, old_value);
+		"%u VERBOSE requests %u (was %d)\n",
+		priv->id, verbose, old_value);
 #endif
 
 	switch (verbose) {
@@ -4111,84 +3343,6 @@ static int kbus_set_verbosity(struct kbus_private_data *priv,
 		break;
 	case 1:
 		priv->dev->verbose = true;
-		break;
-	case 0xFFFFFFFF:
-		break;
-	default:
-		return -EINVAL;
-	}
-
-	return __put_user(old_value, (u32 __user *) arg);
-}
-
-/* Report all existing replier bindings to the requester */
-static int kbus_report_existing_binds(struct kbus_private_data *priv,
-				      struct kbus_dev *dev)
-{
-	struct kbus_message_binding *ptr;
-	struct kbus_message_binding *next;
-
-	list_for_each_entry_safe(ptr, next, &dev->bound_message_list, list) {
-		struct kbus_msg *new_msg;
-		int retval;
-
-		kbus_maybe_dbg(priv->dev, "  %u/%u Report %c '%.*s'\n",
-		       dev->index, priv->id, (ptr->is_replier ? 'R' : 'L'),
-		       ptr->name_len, ptr->name);
-
-		if (!ptr->is_replier)
-			continue;
-
-		new_msg = kbus_new_synthetic_bind_message(ptr->bound_to, true,
-						  ptr->name_len, ptr->name);
-		if (new_msg == NULL)
-			return -ENOMEM;
-
-		/*
-		 * It is perhaps a bit inefficient to check this per binding,
-		 * but it saves us doing two passes through the list.
-		 */
-		if (kbus_queue_is_full(priv, "limpet", false)) {
-			/* Giving up is probably the best we can do */
-			kbus_free_message(new_msg);
-			return -EBUSY;
-		}
-
-		retval = kbus_push_message(priv, new_msg, NULL, false);
-
-		kbus_free_message(new_msg);
-		if (retval)
-			return retval;
-	}
-	return 0;
-}
-
-static int kbus_set_report_binds(struct kbus_private_data *priv,
-				 struct kbus_dev *dev, unsigned long arg)
-{
-	int retval = 0;
-	u32 report_replier_binds;
-	int old_value = priv->dev->report_replier_binds;
-
-	retval = __get_user(report_replier_binds, (u32 __user *) arg);
-	if (retval)
-		return retval;
-
-	kbus_maybe_dbg(priv->dev,
-		       "%u/%u REPORTREPLIERBINDS requests %u (was %d)\n",
-		       priv->dev->index, priv->id, report_replier_binds,
-		       old_value);
-
-	switch (report_replier_binds) {
-	case 0:
-		priv->dev->report_replier_binds = false;
-		break;
-	case 1:
-		priv->dev->report_replier_binds = true;
-		/* And report the current state of bindings... */
-		retval = kbus_report_existing_binds(priv, dev);
-		if (retval)
-			return retval;
 		break;
 	case 0xFFFFFFFF:
 		break;
@@ -4233,8 +3387,7 @@ static long kbus_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 	case KBUS_IOC_RESET:
 		/* This is currently a no-op, but may be useful later */
-		kbus_maybe_dbg(priv->dev, "%u/%u RESET\n", dev->index,
-			       id);
+		kbus_maybe_dbg(priv->dev, "%u RESET\n", id);
 		break;
 
 	case KBUS_IOC_BIND:
@@ -4257,8 +3410,7 @@ static long kbus_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		/*
 		 * What is the "Ksock id" for this file descriptor
 		 */
-		kbus_maybe_dbg(priv->dev, "%u/%u KSOCKID %u\n",
-			       dev->index, id, id);
+		kbus_maybe_dbg(priv->dev, "%u KSOCKID %u\n", id, id);
 		retval = __put_user(id, (u32 __user *) arg);
 		break;
 
@@ -4292,8 +3444,8 @@ static long kbus_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		/* How many bytes are left to read in the current message? */
 		{
 			u32 left = kbus_lenleft(priv);
-			kbus_maybe_dbg(priv->dev, "%u/%u LENLEFT %u\n",
-				       dev->index, id, left);
+			kbus_maybe_dbg(priv->dev, "%u LENLEFT %u\n",
+				       id, left);
 			retval = __put_user(left, (u32 __user *) arg);
 		}
 		break;
@@ -4311,8 +3463,7 @@ static long kbus_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 	case KBUS_IOC_DISCARD:
 		/* Throw away the message we're currently writing. */
-		kbus_maybe_dbg(priv->dev, "%u/%u DISCARD\n", dev->index,
-			       id);
+		kbus_maybe_dbg(priv->dev, "%u DISCARD\n", id);
 		kbus_discard(priv);
 		break;
 
@@ -4322,8 +3473,7 @@ static long kbus_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		 * file descriptor? Before any messages have been written to
 		 * this file descriptor, this ioctl will return {0,0).
 		 */
-		kbus_maybe_dbg(priv->dev, "%u/%u LASTSENT %u:%u\n",
-			       dev->index, id,
+		kbus_maybe_dbg(priv->dev, "%u LASTSENT %u:%u\n", id,
 			       priv->last_msg_id_sent.network_id,
 			       priv->last_msg_id_sent.serial_num);
 		if (copy_to_user((void __user *)arg, &priv->last_msg_id_sent,
@@ -4354,8 +3504,8 @@ static long kbus_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 	case KBUS_IOC_UNREPLIEDTO:
 		/* How many Requests (to us) do we still owe Replies to? */
-		kbus_maybe_dbg(priv->dev, "%u/%u UNREPLIEDTO %d\n",
-			       dev->index, id, priv->num_replies_unsent);
+		kbus_maybe_dbg(priv->dev, "%u UNREPLIEDTO %d\n",
+			       id, priv->num_replies_unsent);
 		retval = __put_user(priv->num_replies_unsent,
 				(u32 __user *) arg);
 		break;
@@ -4380,34 +3530,6 @@ static long kbus_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		 * return: 0 means OK, otherwise not OK
 		 */
 		retval = kbus_set_verbosity(priv, arg);
-		break;
-
-	case KBUS_IOC_NEWDEVICE:
-		/*
-		 * Request a new device
-		 *
-		 * arg out: the new device number
-		 * return: 0 means OK, otherwise not OK.
-		 */
-		kbus_maybe_dbg(priv->dev, "%u/%u NEWDEVICE %d\n",
-			       dev->index, id, kbus_num_devices);
-		retval = kbus_setup_new_device(kbus_num_devices);
-		if (retval > 0) {
-			kbus_num_devices++;
-			retval = __put_user(kbus_num_devices - 1,
-				       (u32 __user *) arg);
-		}
-		break;
-
-	case KBUS_IOC_REPORTREPLIERBINDS:
-		/*
-		 * Should we report Replier bind/unbind events?
-		 *
-		 * arg in: 0 (for no), 1 (for yes), 0xFFFFFFFF (for query)
-		 * arg out: the previous value, before we were called
-		 * return: 0 means OK, otherwise not OK
-		 */
-		retval = kbus_set_report_binds(priv, dev, arg);
 		break;
 
 	default:
@@ -4481,7 +3603,7 @@ static unsigned int kbus_poll(struct file *filp, poll_table * wait)
 
 	mutex_lock(&dev->mux);
 
-	kbus_maybe_dbg(priv->dev, "%u/%u POLL\n", dev->index, priv->id);
+	kbus_maybe_dbg(priv->dev, "%u POLL\n", priv->id);
 
 	/*
 	 * Did I wake up because there's a message available to be read?
@@ -4544,7 +3666,6 @@ static void kbus_setup_cdev(struct kbus_dev *dev, int devno)
 	 */
 	INIT_LIST_HEAD(&dev->bound_message_list);
 	INIT_LIST_HEAD(&dev->open_ksock_list);
-	INIT_LIST_HEAD(&dev->unsent_unbind_msg_list);
 
 	init_waitqueue_head(&dev->write_wait);
 
@@ -4562,11 +3683,10 @@ static void kbus_setup_cdev(struct kbus_dev *dev, int devno)
 
 static void kbus_teardown_cdev(struct kbus_dev *dev)
 {
-	cdev_del(&dev->cdev);
-
 	kbus_forget_all_bindings(dev);
 	kbus_forget_all_open_ksocks(dev);
-	kbus_forget_unsent_unbind_msgs(dev);
+
+	cdev_del(&dev->cdev);
 }
 
 
@@ -4620,10 +3740,10 @@ static int __init kbus_init(void)
 	int ii;
 	dev_t devno = 0;
 
+#ifdef DEBUG
 	pr_notice("Initialising KBUS module (%d device%s)\n",
 		  kbus_num_devices, kbus_num_devices == 1 ? "" : "s");
-	/* This allows hackers to see rmmod/insmod transitions.
-	 * Not to be enabled by default! */
+#endif
 
 	if (kbus_num_devices < KBUS_MIN_NUM_DEVICES ||
 	    kbus_num_devices > KBUS_MAX_NUM_DEVICES) {
@@ -4700,17 +3820,9 @@ static void __exit kbus_exit(void)
 	int ii;
 	dev_t devno = MKDEV(kbus_major, kbus_minor);
 
+#ifdef DEBUG
 	pr_notice("Standing down kbus module\n");
-
-	/*
-	 * If I'm destroying the class, do I actually need to destroy the
-	 * individual device therein first? Best safe...
-	 */
-	for (ii = 0; ii < kbus_num_devices; ii++) {
-		dev_t this_devno = MKDEV(kbus_major, kbus_minor + ii);
-		device_destroy(kbus_class_p, this_devno);
-	}
-	class_destroy(kbus_class_p);
+#endif
 
 	for (ii = 0; ii < kbus_num_devices; ii++) {
 		kbus_teardown_cdev(kbus_devices[ii]);
@@ -4718,12 +3830,22 @@ static void __exit kbus_exit(void)
 	}
 	unregister_chrdev_region(devno, kbus_num_devices);
 
+	/*
+	 * If I'm destroying the class, do I actually need to destroy the
+	 * individual device therein? Best safe...
+	 */
+	for (ii = 0; ii < kbus_num_devices; ii++) {
+		dev_t this_devno = MKDEV(kbus_major, kbus_minor + ii);
+		device_destroy(kbus_class_p, this_devno);
+	}
+	class_destroy(kbus_class_p);
+
 	kbus_remove_reporting();
 }
 
 module_param(kbus_num_devices, int, S_IRUGO);
 MODULE_PARM_DESC(kbus_num_devices,
-		"Number of KBUS device nodes to initially create");
+		"Number of KBUS device nodes to create initially");
 module_init(kbus_init);
 module_exit(kbus_exit);
 

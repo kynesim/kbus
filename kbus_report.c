@@ -117,12 +117,9 @@ static int kbus_stats_seq_show(struct seq_file *s, void *v __always_unused)
 			return -ERESTARTSYS;
 
 		seq_printf(s,
-			 "dev %2u: next ksock %u next msg %u "
-			 "unsent unbindings %u%s\n",
+			 "dev %2u: next ksock %u next msg %u\n",
 			 dev->index, dev->next_ksock_id,
-			 dev->next_msg_serial_num,
-			 dev->unsent_unbind_msg_count,
-			 (dev->unsent_unbind_is_tragic ? "(gone tragic)" : ""));
+			 dev->next_msg_serial_num);
 
 		list_for_each_entry_safe(ptr, next,
 					 &dev->open_ksock_list, list) {
