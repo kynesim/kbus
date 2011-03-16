@@ -611,8 +611,13 @@ struct kbus_message_queue_item {
 
 /* Manage the files used to report KBUS internal state */
 /* From kbus_internal.c */
+#ifndef CONFIG_PROC_FS
+void kbus_setup_reporting(void) {}
+void kbus_remove_reporting(void) {}
+#else
 extern void kbus_setup_reporting(void);
 extern void kbus_remove_reporting(void);
+#endif
 /* From kbus.c itself */
 extern void kbus_get_device_data(int *num_devices,
 				 struct kbus_dev ***devices);
