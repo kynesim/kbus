@@ -37,7 +37,8 @@ ifeq ($(CONFIG_KBUS_DEBUG),y)
 endif
 
 	obj-m  = kbus.o
-    kbus-y = kbus_main.o kbus_report.o
+	kbus-y := kbus_main.o
+	kbus-$(CONFIG_PROC_FS) += kbus_report.o
 else
 	# We are being invoked by make directly
 	# We need to ask the kernel build system to do its
@@ -55,6 +56,7 @@ endif
 # When building outwith the kernel, we don't have CONFIG_KBUS_DEBUG
 # to tell us if we want verbosity available - we'll pretend it was set
 	CFLAGS_kbus_main.o		= -DDEBUG
+	CFLAGS_kbus_report.o		= -DDEBUG
 # Also, we want our own version of linux/kbus_defns.h
 	CFLAGS_kbus_main.o	+= -I$(PWD)
 	CFLAGS_kbus_report.o	+= -I$(PWD)
