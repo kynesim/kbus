@@ -70,7 +70,7 @@ static char *static_zero_padding = "\0\0\0\0\0\0\0\0";
 static u32 static_end_guard = KBUS_MSG_END_GUARD;
 
 /* Our actual devices, 0 through kbus_num_devices-1 */
-static struct kbus_dev **kbus_devices = NULL;
+static struct kbus_dev **kbus_devices;
 
 static struct class *kbus_class_p;
 
@@ -838,7 +838,6 @@ static void kbus_empty_write_msg(struct kbus_private_data *priv)
  * May also return negative values if the message is mis-named or malformed,
  * at least at the moment.
  */
-
 static int kbus_push_message(struct kbus_private_data *priv,
 			     struct kbus_msg *msg,
 			     struct kbus_message_binding *binding,
