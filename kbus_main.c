@@ -66,7 +66,7 @@ static int kbus_major;	/* 0 => We'll go for dynamic allocation */
 static int kbus_minor;	/* 0 => We're happy to start with device 0 */
 
 /* Our actual devices, 0 through kbus_num_devices-1 */
-static struct kbus_dev **kbus_devices = NULL;
+static struct kbus_dev **kbus_devices;
 
 static struct class *kbus_class_p;
 
