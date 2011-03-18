@@ -70,7 +70,7 @@ static char *static_zero_padding = "\0\0\0\0\0\0\0\0";
 static u32 static_end_guard = KBUS_MSG_END_GUARD;
 
 /* Our actual devices, 0 through kbus_num_devices-1 */
-static struct kbus_dev **kbus_devices = NULL;
+static struct kbus_dev **kbus_devices;
 
 static struct class *kbus_class_p;
 
