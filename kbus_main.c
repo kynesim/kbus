@@ -838,7 +838,6 @@ static void kbus_empty_write_msg(struct kbus_private_data *priv)
  * May also return negative values if the message is mis-named or malformed,
  * at least at the moment.
  */
-
 static int kbus_push_message(struct kbus_private_data *priv,
 			     struct kbus_msg *msg,
 			     struct kbus_message_binding *binding,
