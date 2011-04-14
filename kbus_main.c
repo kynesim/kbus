@@ -324,7 +324,7 @@ static int kbus_remember_msg_id(struct kbus_private_data *priv,
 
 	kbus_maybe_dbg(priv->dev, "  %u Remembering outstanding"
 		       " request %u:%u (count->%d)\n",
-		       priv->id, id->network_id, id->serial_num, mem->count + 1);
+		       priv->id, id->network_id, id->serial_num, mem->count+1);
 
 	/* First, try for an empty slot we can re-use */
 	for (ii = 0; ii < mem->size; ii++) {
