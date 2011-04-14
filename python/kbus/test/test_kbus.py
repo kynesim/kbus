@@ -81,12 +81,12 @@ POINTER_SIZE = ctypes.sizeof(ctypes.c_char_p)
 
 # It's hackery because we're assuming that C structures will necessarily
 # be padded out to the size of the pointer field...
-if POINTER_SIZE == 8:
+if POINTER_SIZE == 4:
     IS_32_BIT = True
-elif POINTER_SIZE == 16:
+elif POINTER_SIZE == 8:
     IS_32_BIT = False
 else:
-    raise Exception('Pointer size is %d, not 32 or 64'%POINTER_SIZE)
+    raise Exception('Pointer size is %d, not 4 or 8'%POINTER_SIZE)
 
 def setup_module():
     # This path assumes that we are running the tests in the ``kbus/python``
@@ -778,24 +778,89 @@ class TestKernelModule:
         finally:
             assert f.close() is None
 
-    def test_data_not_too_long(self):
-        """Test for messages not being too long, however we send/write them.
+    def test_managing_max_message_length(self):
+        """Test we can manipulate the maximum message length near its limits
         """
-        f = Ksock(0, 'rw')
-        assert f != None
-        try:
-            f.bind('$.Fred')
-            # There's no limit on the size of a "pointy" message
-            # (which is what we generate by default)
-            m = Message('$.Fred', data='12345678'*1000)
-            f.send_msg(m)
+        with Ksock(0, 'rw') as f:
+            name = '$.Fred'
+            f.bind(name)
 
-            # Nor is there (now) a limit on "entire" messages
-            d = m.to_bytes()
-            f.write_data(d)
-            f.send()
-        finally:
-            assert f.close() is None
+            abs_limit = f.set_max_message_size(1)
+
+            # This is a rather awkward way of doing this, but generate a
+            # "pointy" message of the maximum size
+            data = 'x'*(abs_limit - MSG_HEADER_LEN - len(name))
+            data_len = len(data)
+            print 'Data %d'%data_len
+
+            m_big = Message(name, data=data)
+            while m_big.total_length() > abs_limit:
+                data_len -= 1
+                print 'Message length %d, so data <= %d'%(m_big.total_length(), data_len)
+                m_big = Message(name, data=data[:data_len])
+
+            # And one of 100 bytes
+            data_len = 100 - MSG_HEADER_LEN - len(name)
+            print 'Data %d'%data_len
+
+            m_100 = Message(name, data=data[:data_len])
+            while m_100.total_length() > 100:
+                data_len -= 1
+                print 'Message length %d, so data <= %d'%(m_100.total_length(), data_len)
+                m_100 = Message(name, data=data[:data_len])
+            # Leaving data_len set for the m_100 message
+
+            orig_max = None
+            try:
+                orig_max = f.max_message_size()
+
+                this_length = m_big.total_length()
+
+                # So we should be able to request to be allowed to send messages
+                # of that length
+                retval = f.set_max_message_size(this_length)
+                assert retval == this_length
+
+                # But not any greater
+                check_IOError(errno.EINVAL, f.set_max_message_size, this_length+1)
+
+                # Or less than 100
+                check_IOError(errno.EINVAL, f.set_max_message_size, 99)
+
+                # And it shouldn't matter if it is "pointy" or "entire"
+                f.send_msg(m_big)
+
+                d = m_big.to_bytes()
+                f.write_data(d)
+                f.send()
+
+                # One byte more...
+                m = Message(name, data=data+'!')
+                check_IOError(errno.EMSGSIZE, f.send_msg, m)
+
+                d = m.to_bytes()
+                check_IOError(errno.EMSGSIZE, f.write_data, d)
+
+                # A maximum of 100 is OK
+                retval = f.set_max_message_size(100)
+                assert retval == 100
+
+                f.send_msg(m_100)
+
+                d = m_100.to_bytes()
+                f.write_data(d)
+                f.send()
+
+                # One byte more...
+                m = Message(name, data=data[:data_len+1])
+                check_IOError(errno.EMSGSIZE, f.send_msg, m)
+
+                d = m.to_bytes()
+                check_IOError(errno.EMSGSIZE, f.write_data, d)
+
+            finally:
+                if orig_max is not None:
+                    f.set_max_message_size(orig_max)
 
     def test_cant_write_to_wildcard(self):
         """It's not possible to send a message with a wildcard name.
@@ -2531,14 +2596,25 @@ class TestKernelModule:
 
                 listener.bind('$.Fred')
 
-                for ii in range(100):
-                    data = 'x'*cycler.next()
+                orig_max = None
+                try:
+                    orig_max = sender.max_message_size()
 
-                    msg = Announcement('$.Fred', data=data)
-                    sender.send_msg(msg)
+                    for ii in range(100):
+                        data = 'x'*cycler.next()
 
-                    ann = listener.read_next_msg()
-                    assert msg.equivalent(ann)
+                        msg = Announcement('$.Fred', data=data)
+                        # Make sure we're allowed to send messages of that length
+                        sender.set_max_message_size(msg.total_length())
+                        sender.send_msg(msg)
+
+                        ann = listener.read_next_msg()
+                        assert msg.equivalent(ann)
+
+                finally:
+                    # Don't forget to set the world back again
+                    if orig_max is not None:
+                        sender.set_max_message_size(orig_max)
 
     def test_quite_large_message(self):
         """Test sending quite a large message
@@ -2551,49 +2627,20 @@ class TestKernelModule:
                 data = 'x' * (64*1024 + 27)
 
                 msg = Announcement('$.Fred', data=data)
-                sender.send_msg(msg)
+
+                orig_max = None
+                try:
+                    # Make sure we're allowed to send messages of that length
+                    orig_max = listener.max_message_size()
+                    listener.set_max_message_size(msg.total_length())
+                    sender.send_msg(msg)
+                finally:
+                    # Don't forget to set the world back again
+                    if orig_max is not None:
+                        listener.set_max_message_size(orig_max)
 
                 ann = listener.read_next_msg()
                 assert msg.equivalent(ann)
-
-    def test_entire_messages_not_limited_to_2048(self):
-        """Check that entire messages no longer have a maximum size of 2048
-        """
-        with Ksock(0, 'rw') as sender:
-            with Ksock(0, 'rw') as listener:
-
-                listener.bind('$.Fred')
-
-                # The maximum size of an entire "entire" message used to be 2048 bytes
-                MAX_SIZE = 2048
-                max_data_len = MAX_SIZE - 84
-
-                data = 'x' * (max_data_len -1)
-                msg = Announcement('$.Fred', data=data)
-                msg_string = msg.to_bytes()
-                print 'Message length is',len(msg_string)
-                sender.write_data(msg_string)
-                sender.send()
-
-                ann = listener.read_next_msg()
-                assert msg.equivalent(ann)
-
-                data = 'x' * max_data_len
-                msg = Announcement('$.Fred', data=data)
-                msg_string = msg.to_bytes()
-                print 'Message length is',len(msg_string)
-                sender.write_data(msg_string)
-                sender.send()
-
-                ann = listener.read_next_msg()
-                assert msg.equivalent(ann)
-
-                data = 'x' * (max_data_len +1)
-                msg = Announcement('$.Fred', data=data)
-                msg_string = msg.to_bytes()
-                print 'Message length is',len(msg_string)
-                sender.write_data(msg_string)
-                sender.send()
 
     def test_many_listeners_biggish_data(self):
         """Test that queuing a largish message to many listeners doesn't crash
@@ -2609,7 +2656,20 @@ class TestKernelModule:
                 listeners.append(l)
 
             a = Announcement('$.Fred', 'x'*4099)        # just over one page
-            a_id = sender.send_msg(a)
+
+            orig_max = None
+            try:
+                # Make sure we're allowed to send messages of that length
+                orig_max = sender.max_message_size()
+                sender.set_max_message_size(a.total_length())
+
+                a_id = sender.send_msg(a)
+
+            finally:
+                # Don't forget to set the world back again
+                if orig_max is not None:
+                    sender.set_max_message_size(orig_max)
+
 
             # Reading back would be slow, for so many, so just close them
             for l in listeners:

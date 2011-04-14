@@ -7,60 +7,35 @@ import errno
 from kbus import *
 from kbus.test.test_kbus import check_IOError
 
-from kbus.messages import _struct_from_string
-from kbus.messages import _MessageHeaderStruct
-
 os.system('sudo insmod ../kbus/kbus.ko')
 time.sleep(0.5)
 
 
 try:
 
-        with Ksock(0) as f0:
-            #f0.kernel_module_verbose()
-            with Ksock(0) as f1:
-                f1.bind('$.Fred')
+        with Ksock(0, 'rw') as sender:
+            with Ksock(0, 'rw') as listener:
 
-                m = Message('$.Fred', '\x11\x22\x33\x44',
-                            id=MessageId(3,5))
-                m.msg.extra = 99
-                print m
+                listener.bind('$.Fred')
 
-                # We can do it all in one go (the convenient way)
-                f0.send_msg(m)
-                r = f1.read_next_msg()
-                assert r.equivalent(m)
-                assert f1.next_msg() == 0
+                data = 'x' * (64*1024 + 27)
 
-                # We can do it in two parts, but writing the whole message
-                f0.write_msg(m)
-                # Nothing sent yet
-                assert f1.next_msg() == 0
-                f0.send()
-                r = f1.read_next_msg()
-                assert r.equivalent(m)
-                assert f1.next_msg() == 0
+                msg = Announcement('$.Fred', data=data)
 
-                # Or we can write our messsage out in convenient pieces
-                # Note that (unlike reading) because of the magic of 'flush',
-                # we can expect to be writing single bytes to our file
-                # descriptor -- maximally inefficient!
+                orig_max = None
+                try:
+                    listener.kernel_module_verbose(True)
+                    # Make sure we're allowed to send messages of that length
+                    orig_max = listener.max_message_size()
+                    listener.set_max_message_size(msg.total_length())
+                    sender.send_msg(msg)
+                finally:
+                    # Don't forget to set the world back again
+                    if orig_max is not None:
+                        listener.set_max_message_size(orig_max)
 
-                data = m.to_string()
-                print 'Length',len(data)
-                for ch in data:
-                    f0.write_data(ch)        # which also flushes
-                f0.send()
-                r = f1.read_next_msg()
-                assert r.equivalent(m)
-                assert f1.next_msg() == 0
-
-                # Since writing and sending are distinct, we can, of course,
-                # decide *not* to send a message we've written
-                f0.write_msg(m)
-                f0.discard()
-                check_IOError(errno.ENOMSG, f0.send)
-                assert f1.next_msg() == 0
+                ann = listener.read_next_msg()
+                assert msg.equivalent(ann)
 
 
 finally:

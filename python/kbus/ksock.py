@@ -132,6 +132,7 @@ class Ksock(object):
     IOC_VERBOSE     = _IOWR(IOC_MAGIC, 15, ctypes.sizeof(ctypes.c_char_p))
     IOC_NEWDEVICE   = _IOR(IOC_MAGIC,  16, ctypes.sizeof(ctypes.c_char_p))
     IOC_REPORTREPLIERBINDS = _IOWR(IOC_MAGIC, 17, ctypes.sizeof(ctypes.c_char_p))
+    IOC_MAXMSGSIZE  = _IOWR(IOC_MAGIC, 18, ctypes.sizeof(ctypes.c_char_p))
 
     def __init__(self, which=0, mode='rw'):
         if mode not in ('r', 'rw'):
@@ -425,6 +426,32 @@ class Ksock(object):
             val = 0
         id = array.array('I', [val])
         fcntl.ioctl(self.fd, Ksock.IOC_REPORTREPLIERBINDS, id, True)
+        return id[0]
+
+    def max_message_size(self):
+        """Return the maximum message size that can be written to this KBUS device.
+        """
+        id = array.array('I', [0])
+        fcntl.ioctl(self.fd, Ksock.IOC_MAXMSGSIZE, id, True)
+        return id[0]
+
+    def set_max_message_size(self, count):
+        """Set the maximum message size that can be written to this KBUS device.
+
+        A `count` of 0 does not actually change the value - this may thus be
+        used to query the Ksock for the current value of the maximum.
+
+        A 'count' of 1 also does not change the value, instead, it returns
+        the absolute maximum size that the value may be set to.
+
+	The method :meth:`max_message_size` method is provided as a possibly
+        simpler to use alternative for a call of 'count' 0.
+
+        Returns the maximum size of message that may be written to this KBUS
+        device, or a query result as described above.
+        """
+        id = array.array('I', [count])
+        fcntl.ioctl(self.fd, Ksock.IOC_MAXMSGSIZE, id, True)
         return id[0]
 
     def write_msg(self, message):
