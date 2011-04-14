@@ -615,6 +615,8 @@ static int kbus_check_message_written(struct kbus_dev *dev,
 	struct kbus_message_header *user_msg =
 	    (struct kbus_message_header *)&this->user_msg;
 
+	int	msg_size;
+
 	if (this == NULL) {
 		dev_err(dev->dev, "pid %u [%s]"
 		       " Tried to check NULL message\n",
@@ -682,6 +684,15 @@ static int kbus_check_message_written(struct kbus_dev *dev,
 		       "ALL_OR_FAIL set\n",
 		       current->pid, current->comm);
 		return -EINVAL;
+	}
+
+	msg_size = KBUS_ENTIRE_MSG_LEN(user_msg->name_len, user_msg->data_len);
+        if (msg_size > dev->max_message_size) {
+		dev_err(dev->dev, "pid %u [%s]"
+			"Message size is %d, more than the maximum %d\n",
+			current->pid, current->comm,
+			msg_size, dev->max_message_size);
+		return -EMSGSIZE;
 	}
 	return 0;
 }
@@ -4150,6 +4161,39 @@ static int kbus_set_report_binds(struct kbus_private_data *priv,
 	return __put_user(old_value, (u32 __user *) arg);
 }
 
+static int kbus_maxmsgsize(struct kbus_private_data *priv,
+			   unsigned long arg)
+{
+	int retval = 0;
+	u32 requested_max;
+
+	retval = __get_user(requested_max, (u32 __user *) arg);
+	if (retval)
+		return retval;
+
+	kbus_maybe_dbg(priv->dev, "%u MAXMSGSIZE requests %u (was %u)\n",
+		       priv->id, requested_max, priv->dev->max_message_size);
+
+	dev_dbg(priv->dev->dev, "    abs max %d, def max %d\n",
+		CONFIG_KBUS_ABS_MAX_MESSAGE_SIZE,
+		CONFIG_KBUS_DEF_MAX_MESSAGE_SIZE);
+
+	/* A value of 0 is a query for the current length */
+	/* A value of 1 is a query for the absolute maximum */
+	if (requested_max == 0)
+		return __put_user(priv->dev->max_message_size,
+				  (u32 __user *) arg);
+	else if (requested_max == 1)
+		return __put_user(CONFIG_KBUS_ABS_MAX_MESSAGE_SIZE,
+				  (u32 __user *) arg);
+	else if (requested_max < 100 ||
+		 requested_max > CONFIG_KBUS_ABS_MAX_MESSAGE_SIZE)
+		return -EINVAL;
+
+	priv->dev->max_message_size = requested_max;
+	return __put_user(priv->dev->max_message_size, (u32 __user *) arg);
+}
+
 static long kbus_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	int err = 0;
@@ -4357,6 +4401,18 @@ static long kbus_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		retval = kbus_set_report_binds(priv, dev, arg);
 		break;
 
+	case KBUS_IOC_MAXMSGSIZE:
+		/*
+		 * Set (and/or query) maximum message size
+		 *
+		 * arg in: 0 or 1 (for query of current maximum or absolute maximum)
+		 * or maximum size wanted
+		 * arg out: maximum size allowed
+		 * return: 0 means OK, otherwise not OK
+		 */
+		retval = kbus_maxmsgsize(priv, arg);
+		break;
+
 	default:
 		/* *Should* be redundant, if we got our range checks right */
 		retval = -ENOTTY;
@@ -4545,6 +4601,7 @@ static int kbus_setup_new_device(int which)
 	new->index = which;
 
 	new->verbose = KBUS_DEFAULT_VERBOSE_SETTING;
+	new->max_message_size = CONFIG_KBUS_DEF_MAX_MESSAGE_SIZE;
 
 	new->dev = device_create(kbus_class_p, NULL,
 				 this_devno, NULL, "kbus%d", which);

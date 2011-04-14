@@ -61,6 +61,11 @@ endif
 	CFLAGS_kbus_main.o	+= -I$(PWD)
 	CFLAGS_kbus_report.o	+= -I$(PWD)
 
+# Building outside the kernel, we may want to specify the absolute maximum
+# size of a KBUS message to be larger than the default of 1024...
+# Set it to something fairly large.
+	CFLAGS_kbus_main.o	+= -DCONFIG_KBUS_ABS_MAX_MESSAGE_SIZE=409600
+
 
 ifeq ($(TEST), y)
 	# Extra flags for checking stuff

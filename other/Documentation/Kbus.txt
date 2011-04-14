@@ -1058,6 +1058,18 @@ header file (``kbus_defns.h``). They are:
                 Both Python and C bindings provide a useful function to
                 extract the ``is_bind``, ``binder`` and ``name`` values from
                 the data.
+:MAXMSGSIZE:    Set the maximum size of a KBUS message for this KBUS device,
+                and return the value that is set. This is the size of the
+                largest message that may be written to a KBUS Ksock. Trying
+                to write a longer message will result in an -EMSGSIZE error.
+                An attempt to set this value of 0 will just return the current
+                maximum size. Otherwise, the size requested may not be less
+                than 100, or more than the kernel configuration value
+                KBUS_ABS_MAX_MESSAGE_SIZE.  The default maximum size is set by
+                the kernel configuration value KBUS_DEF_MAX_MESSAGE_SIZE, and
+                is typically 1024.  The size being tested is that returned by
+                the KBUS_ENTIRE_MESSAGE_LEN macro - i.e., the size of an
+                equivalent "entire" message.
 
 /proc/kbus/bindings
 -------------------
@@ -1158,7 +1170,8 @@ as values inside the IOError exception.
 :EINVAL:        Something went wrong (generic error).
 :EMSGSIZE:      On attempting to write a message: Data was written after
                 the end of the message (i.e., after the final end guard
-                of the message).
+                of the message), or an attempt was made to write a message
+                that is too long (see the MAXMSGSIZE ioctl).
 :ENAMETOOLONG:  On attempting to bind, unbind or send a message: The message
                 name is too long.
 :ENOENT:        On attempting to open a Ksock: There is no such device
