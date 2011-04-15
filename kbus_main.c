@@ -687,7 +687,7 @@ static int kbus_check_message_written(struct kbus_dev *dev,
 	}
 
 	msg_size = KBUS_ENTIRE_MSG_LEN(user_msg->name_len, user_msg->data_len);
-        if (msg_size > dev->max_message_size) {
+	if (msg_size > dev->max_message_size) {
 		dev_err(dev->dev, "pid %u [%s]"
 			"Message size is %d, more than the maximum %d\n",
 			current->pid, current->comm,
@@ -4405,8 +4405,8 @@ static long kbus_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		/*
 		 * Set (and/or query) maximum message size
 		 *
-		 * arg in: 0 or 1 (for query of current maximum or absolute maximum)
-		 * or maximum size wanted
+		 * arg in: 0 or 1 (for query of current maximum or absolute
+		 * maximu) or maximum size wanted
 		 * arg out: maximum size allowed
 		 * return: 0 means OK, otherwise not OK
 		 */
