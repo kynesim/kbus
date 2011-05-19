@@ -92,10 +92,14 @@ pattern = r"""\
      \s* / \* .* \n             # start of header comment
     (\s*   \* .* \n)*           # 0 or more comment lines
      \s*   \* /  \n             # end of header comment
-     \s* extern
-        [\n\s\*\w]*             # crudely allow for type info
+     \s* extern \s+
+        (?P<type>               # crudely allow for type info
+          #(\w+ \s+) |                  # e.g., "fred "
+          (\w+ \s+ \** \s*) |           # e.g., "fred *"
+          (\w+ \s+ \w+ \s+ \** \s*)     # e.g., "struct fred " or "struct fred *"
+        )
         (?P<name>
-            [\n\s]+ \w+         # name of function
+            \w+                 # name of function
         )
      \(  ([^)]|\n)* \)          # crudely match arguments
 )                               # end of header group
