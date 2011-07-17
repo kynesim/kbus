@@ -18,7 +18,9 @@ OBJS=$(SRCS:%.c=$(O)/obj/%.o)
 
 SO_FLAGS=-shared -Wl,-soname,$(LIB_NAME) 
 
-CFLAGS := -fPIC -DPIC -I$(JAVA_HOME)/include -I../java/include -I$(O)/include \
+# Sun's JDK requires an extra $(JAVA_HOME)/include/linux - rrw 2011-07-17
+CFLAGS := -fPIC -DPIC -I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/linux \
+         -I../java/include -I$(O)/include \
 	 -I../../libkbus/ -I../../ -Wall -Werror 
 
 
