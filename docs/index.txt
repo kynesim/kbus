@@ -16,14 +16,14 @@ Contents:
    :maxdepth: 2
 
    simple_intro
-   goldfish
    specification
-   limpet
    kbus-python-messages
    kbus-python-ksocks
-   kbus-python-limpets
    kbus-c-bindings
    utilities
+   goldfish
+   limpet
+   kbus-python-limpets
    docs.readme
 
 Indices and tables
