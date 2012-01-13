@@ -48,6 +48,12 @@ endif
 	KREL_DIR = modules/$(shell uname -r)
 
 
+# Building outside the kernel, we may want to specify the absolute maximum
+# size of a KBUS message to be larger than the default of 1024...
+# Set it to something fairly large.
+	#CFLAGS_kbus.o	+= '-DCONFIG_KBUS_ABS_MAX_MESSAGE_SIZE=409600'
+	EXTRA_CFLAGS	+= '-DCONFIG_KBUS_ABS_MAX_MESSAGE_SIZE=409600'
+
 # For kbus global builds - build everything here, then move the target
 # out of the way and clean up. Turns out that the Kernel makefile
 # really doesn't like building object files in non-source directories,

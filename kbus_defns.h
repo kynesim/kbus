@@ -655,9 +655,21 @@ struct kbus_replier_bind_event_data {
  * of the specified values)
  */
 #define KBUS_IOC_REPORTREPLIERBINDS  _IOWR(KBUS_IOC_MAGIC, 17, char *)
+/*
+ * MAXMSGSIZE - set the maximum size of a KBUS message for this KBUS device.
+ * This may not be set to less than 100, or more than
+ * CONFIG_KBUS_ABS_MAX_MESSAGE_SIZE.
+ * arg (in): __u32, the requested maximum message size, or 0 to just
+ *           request what the current limit is, 1 to request the absolute
+ *           maximum size.
+ * arg (out): __u32, the maximum essage size after this call has
+ *            succeeded
+ * retval: 0 for success, negative for failure
+ */
+#define KBUS_IOC_MAXMSGSIZE _IOWR(KBUS_IOC_MAGIC, 18, char *)
 
 /* If adding another IOCTL, remember to increment the next number! */
-#define KBUS_IOC_MAXNR	17
+#define KBUS_IOC_MAXNR	18
 
 #if !__KERNEL__ && defined(__cplusplus)
 }

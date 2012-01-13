@@ -104,6 +104,14 @@
 #define CONFIG_KBUS_DEF_NUM_DEVICES	1
 #endif
 
+#ifndef CONFIG_KBUS_ABS_MAX_MESSAGE_SIZE
+#define CONFIG_KBUS_ABS_MAX_MESSAGE_SIZE 1024
+#endif
+
+#ifndef CONFIG_KBUS_DEF_MAX_MESSAGE_SIZE
+#define CONFIG_KBUS_DEF_MAX_MESSAGE_SIZE 1024
+#endif
+
 /* Debugging setup */
 
 #ifndef CONFIG_KBUS
@@ -749,6 +757,9 @@ struct kbus_dev {
 	struct list_head unsent_unbind_msg_list;
 	uint32_t unsent_unbind_msg_count;
 	int unsent_unbind_is_tragic;
+
+	/* The maximum message size that may be written to this device */
+	uint32_t max_message_size;
 };
 
 /*
