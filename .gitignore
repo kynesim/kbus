@@ -1,7 +1,20 @@
-syntax: glob
+# Editor backup files
+*~
+*.swp
+*.swo
+*.bak
+
+# Build artefacts
+*.cmd
+*.ko
+*.o
+*.rules
+kbus.mod.c
+modules.order
+Module.symvers
+.tmp_versions
 
 *.a
-*.o
 *.so
 *.class
 *.jar
