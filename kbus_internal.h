@@ -1,13 +1,12 @@
-/* Kbus kernel module - internal definitions
+/* KBUS kernel module - internal definitions
  *
  * This is a character device driver, providing the messaging support
- * for kbus.
+ * for KBUS.
  *
  * This header contains the definitions used internally by kbus.c.
- * At the moment nothing else is expected to include this file, but
- * that may change later.
+ * At the moment nothing else is expected to include this file.
  *
- * kbus clients should include (at least) kbus_defns.h.
+ * KBUS clients should include (at least) kbus_defns.h.
  */
 
 /*
@@ -51,28 +50,11 @@
 #ifndef _kbus_internal
 #define _kbus_internal
 
-#include <linux/init.h>
-#include <linux/module.h>
-
-#include <linux/fs.h>
-#include <linux/device.h>	/* device classes (for hotplugging), &c */
-#include <linux/cdev.h>		/* registering character devices */
-#include <linux/list.h>
-#include <linux/ctype.h>	/* for isalnum */
-#include <linux/poll.h>
-#include <linux/slab.h>		/* for kmalloc, etc. */
-#include <linux/sched.h>	/* for current->pid */
-#include <linux/uaccess.h>	/* copy_*_user() functions */
-#include <asm/page.h>		/* PAGE_SIZE */
-
-#include "kbus_defns.h"
-
 /*
  * KBUS can support multiple devices, as /dev/kbus<N>. These all have
  * the same major device number, and map to differing minor device
- * numbers. It may or may not be a surprise that <N> just happens to be
- * the minor device number as well (but don't use that  information for
- * anything).
+ * numbers. <N> will also be the minor device number, but don't rely
+ * on that for anything.
  *
  * When KBUS starts up, it will always setup a single device (/dev/kbus0),
  * but it can be asked to setup more - for instance:
@@ -112,81 +94,34 @@
 #define CONFIG_KBUS_DEF_MAX_MESSAGE_SIZE 1024
 #endif
 
-/* Debugging setup */
-
-#ifndef CONFIG_KBUS
-	/* ... then we're not building in-tree,
-	 * so none of our CONFIG_* are set.
-	 * Default sensibly. */
-#define CONFIG_KBUS_DEBUG
-#endif
-
-#ifdef CONFIG_KBUS_DEBUG
-#define KBUS_DEBUG_ENABLED 1
-#define kbus_maybe_dbg(dev, format, args...) do { \
-	if (dev->verbose) \
-		(void) printk(KERN_DEBUG format, ## args); \
-} while (0)
-#else
-#define KBUS_DEBUG_ENABLED 0
-#define kbus_maybe_dbg(dev, format, args...) ((void)0)/* no-op */
-#endif
-
-/* Extra debug options. These are unlikely to be of use to non-kbus-hackers
- * so are not exposed as config. */
-
-#define kbus_conditional_dbg(cond, dev, format, args...) do { \
-	if (cond) \
-		kbus_maybe_dbg(dev, format, ##args); \
-} while (0)
-
-#ifndef KBUS_DEBUG_READ
-#define KBUS_DEBUG_READ 0
-#endif
-
-#define kbus_maybe_dbg_read(dev, format, args...) \
-	kbus_conditional_dbg(KBUS_DEBUG_READ, dev, format, ##args)
-
-#ifndef KBUS_DEBUG_REFCOUNT
-#define KBUS_DEBUG_REFCOUNT 0
-#endif
-
-/* can't quite reuse the same macro for refcount as it's called
- * in functions which don't have a dev */
-#define kbus_maybe_dbg_refcount(format, args...) do { \
-	(void) printk(KERN_DEBUG format, ## args); \
-} while (0)
-
 /*
- * And even more debug for the rewrite of kbus_write() to support
- * "entire" messages of any length. I suspect that this can go away
- * when we've got more examples of the code working in real use.
+ * Our initial array sizes could arguably be made configurable
+ * for tuning, if we discover this is useful
  */
-#ifndef KBUS_DEBUG_WRITE
-#define KBUS_DEBUG_WRITE 0
-#endif
-
-#define kbus_maybe_dbg_write(dev, format, args...) \
-	kbus_conditional_dbg(KBUS_DEBUG_WRITE, dev, format, ##args)
-
-/* Add a visual distinguisher to printk output to highlight the
- * insmod/rmmod cycles of a long test run?
- * This symbol should not be set to 1 unless you are running kbus
- * tests, as it pollutes the printk output. */
-#ifndef KBUS_DEBUG_SHOW_TRANSITIONS
-#define KBUS_DEBUG_SHOW_TRANSITIONS 0
-#endif
-
-/* Should we default to verbose? */
-#ifdef CONFIG_KBUS_DEBUG_DEFAULT_VERBOSE
-#define KBUS_DEBUG_DEFAULT_SETTING true
-#else
-#define KBUS_DEBUG_DEFAULT_SETTING false
-#endif
-
-/* Initial array sizes, could be made configurable for tuning? */
 #define KBUS_INIT_MSG_ID_MEMSIZE	16
 #define KBUS_INIT_LISTENER_ARRAY_SIZE	8
+
+/*
+ * Setting CONFIG_KBUS_DEBUG will cause the Makefile
+ * to define DEBUG for us
+ */
+#ifdef DEBUG
+#define kbus_maybe_dbg(kbus_dev, format, args...) do { \
+	if ((kbus_dev)->verbose) \
+		(void) dev_dbg((kbus_dev)->dev, format, ## args); \
+} while (0)
+#else
+#define kbus_maybe_dbg(kbus_dev, format, args...) ((void)0)
+#endif
+
+/*
+ * This is really only directly useful if CONFIG_KBUS_DEBUG is on
+ */
+#ifdef CONFIG_KBUS_DEBUG_DEFAULT_VERBOSE
+#define KBUS_DEFAULT_VERBOSE_SETTING true
+#else
+#define KBUS_DEFAULT_VERBOSE_SETTING false
+#endif
 
 /* ========================================================================= */
 
@@ -194,9 +129,9 @@
 struct kbus_message_binding {
 	struct list_head list;
 	struct kbus_private_data *bound_to;	/* who we're bound to */
-	uint32_t bound_to_id;	/* but the id is often useful */
-	uint32_t is_replier;	/* bound as a replier */
-	uint32_t name_len;
+	u32 bound_to_id;	/* but the id is often useful */
+	u32 is_replier;		/* bound as a replier */
+	u32 name_len;
 	char *name;		/* the message name */
 };
 
@@ -210,9 +145,9 @@ struct kbus_message_binding {
  * there are, it seems sensible to bundle this up in its own datastructure.
  */
 struct kbus_msg_id_mem {
-	uint32_t count;		/* Number of entries in use */
-	uint32_t size;		/* Actual size of the array */
-	uint32_t max_count;	/* Max 'count' we've had */
+	u32 count;	/* Number of entries in use */
+	u32 size;	/* Actual size of the array */
+	u32 max_count;	/* Max 'count' we've had */
 	/*
 	 * An array is probably the worst way to store a list of message ids,
 	 * but it's *very simple*, and should work OK for a smallish number of
@@ -227,9 +162,9 @@ struct kbus_msg_id_mem {
 struct kbus_unreplied_item {
 	struct list_head list;
 	struct kbus_msg_id id;	/* the request's id */
-	uint32_t from;		/* the sender's id */
+	u32 from;		/* the sender's id */
 	struct kbus_name_ptr *name_ref;	/* and its name... */
-	uint32_t name_len;
+	u32 name_len;
 };
 
 /*
@@ -387,14 +322,14 @@ struct kbus_name_ptr {
 struct kbus_msg {
 	struct kbus_msg_id id;	/* Unique to this message */
 	struct kbus_msg_id in_reply_to;	/* Which message this is a reply to */
-	uint32_t to;		/* 0 (empty) or a replier id */
-	uint32_t from;		/* 0 (KBUS) or the sender's id */
+	u32 to;		/* 0 (empty) or a replier id */
+	u32 from;	/* 0 (KBUS) or the sender's id */
 	struct kbus_orig_from orig_from;	/* Cross-network linkage */
 	struct kbus_orig_from final_to;	/* Cross-network linkage */
-	uint32_t extra;		/* ignored field - future proofing */
-	uint32_t flags;		/* Message type/flags */
-	uint32_t name_len;	/* Message name's length, in bytes */
-	uint32_t data_len;	/* Message length, also in bytes */
+	u32 extra;	/* ignored field - future proofing */
+	u32 flags;	/* Message type/flags */
+	u32 name_len;	/* Message name's length, in bytes */
+	u32 data_len;	/* Message length, also in bytes */
 	struct kbus_name_ptr *name_ref;
 	struct kbus_data_ptr *data_ref;
 };
@@ -412,13 +347,13 @@ struct kbus_read_msg {
 	char *parts[KBUS_NUM_PARTS];
 	unsigned lengths[KBUS_NUM_PARTS];
 	int which;		/* The current item */
-	uint32_t pos;		/* How far they've read in it */
+	u32 pos;		/* How far they've read in it */
 	/*
 	 * If the current item is KBUS_PART_DATA then we 'ref_data_index' is
 	 * which part of the data we're in, and 'pos' is how far we are through
 	 * that particular item.
 	 */
-	uint32_t ref_data_index;
+	u32 ref_data_index;
 };
 
 /*
@@ -474,16 +409,16 @@ struct kbus_write_msg {
 	struct kbus_entire_message user_msg;	/* from user space */
 	struct kbus_msg *msg;	/* our version of it */
 
-	uint32_t is_finished;
-	uint32_t pointers_are_local;
-	uint32_t guard;		/* Whichever guard we're reading */
+	u32 is_finished;
+	u32 pointers_are_local;
+	u32 guard;		/* Whichever guard we're reading */
 	char *user_name_ptr;	/* User space name */
 	void *user_data_ptr;	/* User space data */
 	enum kbus_msg_parts which;
-	uint32_t pos;
+	u32 pos;
 	struct kbus_name_ptr *ref_name;
 	struct kbus_data_ptr *ref_data;
-	uint32_t ref_data_index;
+	u32 ref_data_index;
 };
 
 /*
@@ -495,7 +430,7 @@ struct kbus_write_msg {
 struct kbus_unsent_message_item {
 	struct list_head list;
 	struct kbus_private_data *send_to;	/* who we want to send it to */
-	uint32_t send_to_id;	/* but the id is often useful */
+	u32 send_to_id;	/* but the id is often useful */
 	struct kbus_msg *msg;	/* the message itself */
 	struct kbus_message_binding *binding;	/* and why we remembered it */
 };
@@ -531,10 +466,10 @@ struct kbus_unsent_message_item {
 struct kbus_private_data {
 	struct list_head list;
 	struct kbus_dev *dev;	/* Which device we are on */
-	uint32_t id;		/* Our own id */
+	u32 id;		/* Our own id */
 	struct kbus_msg_id last_msg_id_sent;	/* As it says - see above */
-	uint32_t message_count;	/* How many messages for us */
-	uint32_t max_messages;	/* How many messages allowed */
+	u32 message_count;	/* How many messages for us */
+	u32 max_messages;	/* How many messages allowed */
 	struct list_head message_queue;	/* Messages for us */
 
 	/*
@@ -594,8 +529,8 @@ struct kbus_private_data {
 	 * should be sufficient protection.
 	 */
 	struct list_head replies_unsent;
-	uint32_t num_replies_unsent;
-	uint32_t max_replies_unsent;
+	u32 num_replies_unsent;
+	u32 max_replies_unsent;
 
 	/*
 	 * Managing which messages a replier may reply to
@@ -680,8 +615,9 @@ struct kbus_private_data {
 /* Information belonging to each /dev/kbus<N> device */
 struct kbus_dev {
 	struct cdev cdev;	/* Character device data */
+	struct device *dev;	/* Our very selves */
 
-	uint32_t index;		/* Which /dev/kbus<n> device we are */
+	u32 index;		/* Which /dev/kbus<n> device we are */
 
 	/*
 	 * The Big Lock
@@ -714,20 +650,20 @@ struct kbus_dev {
 	 * when binding messages to listeners, but is also needed when we
 	 * want to reply. We reserve the id 0 as a special value ("none").
 	 */
-	uint32_t next_ksock_id;
+	u32 next_ksock_id;
 
 	/*
 	 * Every message sent has a unique id (again, unique per device).
 	 */
-	uint32_t next_msg_serial_num;
+	u32 next_msg_serial_num;
 
 	/* Are we wanting debugging messages? */
-	uint32_t verbose;
+	u32 verbose;
 
 	/*
 	 * Are we wanting to send a synthetic message for each Replier
 	 * bind/unbind? */
-	uint32_t report_replier_binds;
+	u32 report_replier_binds;
 
 	/*
 	 * If Replier (un)bind events have been requested, then when
@@ -755,11 +691,11 @@ struct kbus_dev {
 	 * the list has been emptied.
 	 */
 	struct list_head unsent_unbind_msg_list;
-	uint32_t unsent_unbind_msg_count;
+	u32 unsent_unbind_msg_count;
 	int unsent_unbind_is_tragic;
 
 	/* The maximum message size that may be written to this device */
-	uint32_t max_message_size;
+	u32 max_message_size;
 };
 
 /*
@@ -780,5 +716,19 @@ struct kbus_message_queue_item {
 /* The sizes of the parts in our reference counted data */
 #define KBUS_PART_LEN		PAGE_SIZE
 #define KBUS_PAGE_THRESHOLD	(PAGE_SIZE >> 1)
+
+/* Manage the files used to report KBUS internal state */
+/* From kbus_internal.c */
+#ifndef CONFIG_PROC_FS
+void kbus_setup_reporting(void) {}
+void kbus_remove_reporting(void) {}
+#else
+extern void kbus_setup_reporting(void);
+extern void kbus_remove_reporting(void);
+#endif
+/* From kbus.c itself */
+extern void kbus_get_device_data(int *num_devices,
+				 struct kbus_dev ***devices);
+extern u32 kbus_lenleft(struct kbus_private_data *priv);
 
 #endif /* _kbus_internal */

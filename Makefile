@@ -31,7 +31,14 @@ RULES_NAME = 45-kbus.rules
 ifneq ($(KERNELRELEASE),)
 	# We are being invoked from inside a kernel build
 	# so can just ask it to build us
-	obj-m = kbus.o
+
+ifeq ($(CONFIG_KBUS_DEBUG),y)
+	ccflags-y += -DDEBUG
+endif
+
+	obj-m  = kbus.o
+	kbus-y := kbus_main.o
+	kbus-$(CONFIG_PROC_FS) += kbus_report.o
 else
 	# We are being invoked by make directly
 	# We need to ask the kernel build system to do its
@@ -45,14 +52,34 @@ ifeq ($(strip $(KERNELDIR)),)
 endif
 
 	PWD = $(shell pwd)
-	KREL_DIR = modules/$(shell uname -r)
 
+# When building outwith the kernel, we don't have CONFIG_KBUS_DEBUG
+# to tell us if we want verbosity available - we'll pretend it was set
+	CFLAGS_kbus_main.o		= -DDEBUG
+	CFLAGS_kbus_report.o		= -DDEBUG
+# Also, we want our own version of linux/kbus_defns.h
+	CFLAGS_kbus_main.o	+= -I$(PWD)
+	CFLAGS_kbus_report.o	+= -I$(PWD)
 
 # Building outside the kernel, we may want to specify the absolute maximum
 # size of a KBUS message to be larger than the default of 1024...
 # Set it to something fairly large.
-	#CFLAGS_kbus.o	+= '-DCONFIG_KBUS_ABS_MAX_MESSAGE_SIZE=409600'
-	EXTRA_CFLAGS	+= '-DCONFIG_KBUS_ABS_MAX_MESSAGE_SIZE=409600'
+	CFLAGS_kbus_main.o	+= -DCONFIG_KBUS_ABS_MAX_MESSAGE_SIZE=409600
+
+
+ifeq ($(TEST), y)
+	# Extra flags for checking stuff
+	TEST_FLAGS = -W
+	export C=1
+	export CF="-D__CHECK_ENDIAN__"
+	#
+	CFLAGS_kbus_main.o	+= $(TEST_FLAGS)
+	CFLAGS_kbus_report.o	+= $(TEST_FLAGS)
+endif
+
+
+export CFLAGS_kbus_main.o
+export CFLAGS_kbus_report.o
 
 # For kbus global builds - build everything here, then move the target
 # out of the way and clean up. Turns out that the Kernel makefile
@@ -66,18 +93,21 @@ endif
 
 # We use 'O= ' deliberately, because kernel make, which creates the .ko
 # does not like to build object files in non-source directories.
-kbus.ko : kbus.c kbus_defns.h kbus_internal.h
-	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= V=$(VERBOSE) \
-		EXTRA_CFLAGS="$(EXTRA_CFLAGS)" \
-		modules
-	
+kbus.ko :
+	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= modules
+
+# To see preprocessor expansions
+kbus.i:
+	$(MAKE) -C $(KERNELDIR) M=$(PWD) kbus.i
+
 # The mechanism is a bit hacky (!) - first we make sure we've got a local
 # copy of the file we want, then we copy it into place
 #
 # Just to make life more fun, in Ubuntu 9.10, the file has to be in
 # /lib/udev/rules.d - putting it in the previous location doesn't seem
-# to do anything (at least on a fresh install of 9.10). It *does*, however
-# appear to be enough to link one to the other...
+# to do anything (at least on a fresh install of 9.10). On the other hand,
+# Ubuntu 10.10 will accept the file in either location, but claims to
+# ignore (soft) links in /lib/udev/rules.d.
 
 # On Ubuntu, if we want ordinary users (in the admin group) to be able to
 # read/write '/dev/kbus<n>' then we need to have a rules file to say so.

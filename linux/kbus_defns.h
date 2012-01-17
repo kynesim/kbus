@@ -70,8 +70,8 @@ extern "C" {
  * The message id {0,0} is special and reserved (for use by KBUS).
  */
 struct kbus_msg_id {
-	uint32_t network_id;
-	uint32_t serial_num;
+	__u32 network_id;
+	__u32 serial_num;
 };
 
 /*
@@ -93,21 +93,21 @@ struct kbus_msg_id {
  * more information.
  */
 struct kbus_orig_from {
-	uint32_t network_id;
-	uint32_t local_id;
+	__u32 network_id;
+	__u32 local_id;
 };
 
 /* When the user asks to bind a message name to an interface, they use: */
 struct kbus_bind_request {
-	uint32_t is_replier;	/* are we a replier? */
-	uint32_t name_len;
+	__u32 is_replier;	/* are we a replier? */
+	__u32 name_len;
 	char *name;
 };
 
 /* When the user requests the id of the replier to a message, they use: */
 struct kbus_bind_query {
-	uint32_t return_id;
-	uint32_t name_len;
+	__u32 return_id;
+	__u32 name_len;
 	char *name;
 };
 
@@ -226,20 +226,20 @@ struct kbus_message_header {
 	 *   See the note for 'name' above.
 	 *
 	 */
-	uint32_t start_guard;
+	__u32 start_guard;
 	struct kbus_msg_id id;	/* Unique to this message */
 	struct kbus_msg_id in_reply_to;	/* Which message this is a reply to */
-	uint32_t to;		/* 0 (empty) or a replier id */
-	uint32_t from;		/* 0 (KBUS) or the sender's id */
-	struct kbus_orig_from orig_from;	/* Cross-network linkage */
+	__u32 to;		/* 0 (empty) or a replier id */
+	__u32 from;		/* 0 (KBUS) or the sender's id */
+	struct kbus_orig_from orig_from;/* Cross-network linkage */
 	struct kbus_orig_from final_to;	/* Cross-network linkage */
-	uint32_t extra;		/* ignored field - future proofing */
-	uint32_t flags;		/* Message type/flags */
-	uint32_t name_len;	/* Message name's length, in bytes */
-	uint32_t data_len;	/* Message length, also in bytes */
+	__u32 extra;	/* ignored field - future proofing */
+	__u32 flags;	/* Message type/flags */
+	__u32 name_len;	/* Message name's length, in bytes */
+	__u32 data_len;	/* Message length, also in bytes */
 	char *name;
 	void *data;
-	uint32_t end_guard;
+	__u32 end_guard;
 };
 
 #define KBUS_MSG_START_GUARD	0x7375624B
@@ -258,7 +258,7 @@ struct kbus_message_header {
  */
 struct kbus_entire_message {
 	struct kbus_message_header header;
-	uint32_t rest[];
+	__u32 rest[];
 };
 
 /*
@@ -336,7 +336,7 @@ static inline void *kbus_msg_data_ptr(const struct kbus_message_header
 		return hdr->data;
 	} else {
 		struct kbus_entire_message *entire;
-		uint32_t data_idx;
+		__u32 data_idx;
 
 		entire = (struct kbus_entire_message *)hdr;
 		data_idx = KBUS_ENTIRE_MSG_DATA_INDEX(hdr->name_len);
@@ -347,13 +347,13 @@ static inline void *kbus_msg_data_ptr(const struct kbus_message_header
 /*
  * Find a pointer to the message's (second/final) end guard.
  */
-static inline uint32_t *kbus_msg_end_ptr(struct kbus_entire_message
+static inline __u32 *kbus_msg_end_ptr(struct kbus_entire_message
 					 *entire)
 {
-	uint32_t end_guard_idx =
+	__u32 end_guard_idx =
 		KBUS_ENTIRE_MSG_END_GUARD_INDEX(entire->header.name_len,
 						entire->header.data_len);
-	return (uint32_t *) &entire->rest[end_guard_idx];
+	return (__u32 *) &entire->rest[end_guard_idx];
 }
 
 /*
@@ -441,10 +441,10 @@ static inline uint32_t *kbus_msg_end_ptr(struct kbus_entire_message
  * of the datastructure.
  */
 struct kbus_replier_bind_event_data {
-	uint32_t is_bind;	/* 1=bind, 0=unbind */
-	uint32_t binder;	/* Ksock id of binder */
-	uint32_t name_len;	/* Length of name */
-	uint32_t rest[];	/* Message name */
+	__u32 is_bind;	/* 1=bind, 0=unbind */
+	__u32 binder;	/* Ksock id of binder */
+	__u32 name_len;	/* Length of name */
+	__u32 rest[];	/* Message name */
 };
 
 #if !__KERNEL__
@@ -532,7 +532,7 @@ struct kbus_replier_bind_event_data {
  * The network_id for the current Ksock is, by definition, 0, so we don't need
  * to return it.
  *
- * arg (out): uint32_t, indicating this Ksock's local_id
+ * arg (out): __u32, indicating this Ksock's local_id
  * retval: 0 for success, negative for failure
  */
 #define KBUS_IOC_KSOCKID   _IOR(KBUS_IOC_MAGIC,  4, char *)
@@ -549,14 +549,14 @@ struct kbus_replier_bind_event_data {
 #define KBUS_IOC_REPLIER  _IOWR(KBUS_IOC_MAGIC,  5, char *)
 /*
  * NEXTMSG - pop the next message from the read queue
- * arg (out): uint32_t, number of bytes in the next message, 0 if there is no
+ * arg (out): __u32, number of bytes in the next message, 0 if there is no
  *            next message
  * retval: 0 for success, negative for failure
  */
 #define KBUS_IOC_NEXTMSG   _IOR(KBUS_IOC_MAGIC,  6, char *)
 /*
  * LENLEFT - determine how many bytes are left to read of the current message
- * arg (out): uint32_t, number of bytes left, 0 if there is no current read
+ * arg (out): __u32, number of bytes left, 0 if there is no current read
  *            message
  * retval: 1 if there was a message, 0 if there wasn't, negative for failure
  */
@@ -581,23 +581,23 @@ struct kbus_replier_bind_event_data {
 #define KBUS_IOC_LASTSENT  _IOR(KBUS_IOC_MAGIC, 10, char *)
 /*
  * MAXMSGS - set the maximum number of messages on a Ksock read queue
- * arg (in): uint32_t, the requested length of the read queue, or 0 to just
+ * arg (in): __u32, the requested length of the read queue, or 0 to just
  *           request how many there are
- * arg (out): uint32_t, the length of the read queue after this call has
+ * arg (out): __u32, the length of the read queue after this call has
  *            succeeded
  * retval: 0 for success, negative for failure
  */
 #define KBUS_IOC_MAXMSGS  _IOWR(KBUS_IOC_MAGIC, 11, char *)
 /*
  * NUMMSGS - determine how many messages are in the read queue for this Ksock
- * arg (out): uint32_t, the number of messages in the read queue.
+ * arg (out): __u32, the number of messages in the read queue.
  * retval: 0 for success, negative for failure
  */
 #define KBUS_IOC_NUMMSGS   _IOR(KBUS_IOC_MAGIC, 12, char *)
 /*
  * UNREPLIEDTO - determine the number of requests (marked "WANT_YOU_TO_REPLY")
  * which we still need to reply to.
- * arg(out): uint32_t, said number
+ * arg(out): __u32, said number
  * retval: 0 for success, negative for failure
  */
 #define KBUS_IOC_UNREPLIEDTO _IOR(KBUS_IOC_MAGIC, 13, char *)
@@ -609,9 +609,9 @@ struct kbus_replier_bind_event_data {
  * case it will always get the message as Replier, if appropriate), or if it is
  * registered as multiple Listeners for the message.
  *
- * arg(in): uint32_t, 1 to change to "only once", 0 to change to the default,
+ * arg(in): __u32, 1 to change to "only once", 0 to change to the default,
  * 0xFFFFFFFF to just return the current/previous state.
- * arg(out): uint32_t, the previous state.
+ * arg(out): __u32, the previous state.
  * retval: 0 for success, negative for failure (-EINVAL if arg in was not one
  * of the specified values)
  */
@@ -623,9 +623,9 @@ struct kbus_replier_bind_event_data {
  * only effective if the kernel module has been built with the VERBOSE_DEBUGGING
  * flag set.
  *
- * arg(in): uint32_t, 1 to change to "verbose", 0 to change to "quiet",
+ * arg(in): __u32, 1 to change to "verbose", 0 to change to "quiet",
  * 0xFFFFFFFF to just return the current/previous state.
- * arg(out): uint32_t, the previous state.
+ * arg(out): __u32, the previous state.
  * retval: 0 for success, negative for failure (-EINVAL if arg in was not one
  * of the specified values)
  */
@@ -636,7 +636,7 @@ struct kbus_replier_bind_event_data {
  *
  * The next device number (up to a maximum of 255) will be allocated.
  *
- * arg(out): uint32_t, the new device number (<n>)
+ * arg(out): __u32, the new device number (<n>)
  * retval: 0 for success, negative for failure
  */
 #define KBUS_IOC_NEWDEVICE _IOR(KBUS_IOC_MAGIC, 16, char *)
@@ -648,9 +648,9 @@ struct kbus_replier_bind_event_data {
  * If this flag is set, then when someone binds or unbinds to a message name as
  * a Replier, KBUS will send out a synthetic Announcement of this fact.
  *
- * arg(in): uint32_t, 1 to change to "report", 0 to change to "do not report",
+ * arg(in): __u32, 1 to change to "report", 0 to change to "do not report",
  * 0xFFFFFFFF to just return the current/previous state.
- * arg(out): uint32_t, the previous state.
+ * arg(out): __u32, the previous state.
  * retval: 0 for success, negative for failure (-EINVAL if arg in was not one
  * of the specified values)
  */

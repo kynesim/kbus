@@ -1,3 +1,10 @@
+# Editor backup files
+*~
+*.swp
+*.swo
+*.bak
+
+# Build artefacts
 *.cmd
 *.ko
 *.o
