@@ -1,0 +1,41 @@
+.. Kbus documentation master file, created by
+   sphinx-quickstart on Wed Apr 29 11:14:58 2009.
+   ...and amended shortly thereafter
+
+Welcome to the KBus documentation
+=================================
+
+KBUS is a lightweight messaging system for Linux, particularly
+aimed at embedded platforms. Message passing is managed by a kernel module, via
+reading/writing ``/dev/kbus0`` style devices. Python bindings are provided, as
+is a C library.
+
+Contents:
+
+.. toctree::
+   :maxdepth: 2
+
+   simple_intro
+   specification
+   kbus-python-messages
+   kbus-python-ksocks
+   kbus-c-bindings
+   utilities
+   goldfish
+   limpet
+   kbus-python-limpets
+   docs.readme
+
+Indices and tables
+==================
+
+* :ref:`genindex`
+* :ref:`modindex`
+* :ref:`search`
+
+.. note:: This documentation is kept as reStructuredText documents, managed
+          with Sphinx_. The HTML files in the Google code repository are
+          provided for convenience, and may not always be absolutely
+          up-to-date with head-of-tree.
+
+.. _Sphinx: http://sphinx.pocoo.org/

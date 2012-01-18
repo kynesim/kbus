@@ -1,0 +1,60 @@
+Utilities
+=========
+
+In the KBUS source tree, there is a ``utils`` directory, which contains a
+variety of useful tools.
+
+errno.py
+--------
+``errno.py`` takes an ``errno`` integer or name and prints out both the
+"normal" meaning of that error number, and also (if there is one) the KBUS use
+of it. For instance::
+
+    $ errno.py 1
+    Error 1 (0x1) is EPERM: Operation not permitted
+    $
+    $ errno.py EPIPE
+    EPIPE is error 32 (0x20): Broken pipe
+
+    KBUS:
+    On attempting to send 'to' a specific replier, the replier with that id
+    is no longer bound to the given message's name.
+
+kmsg
+----
+This is a simple standalone tool for sending messages to KBUS, for testing
+purposes. Run it with no arguments (or with ``-help``) to get help.
+
+It can send an announcement, send a message and wait for a reply, or bind as
+listener/replier and report messages as they are received.
+
+Example usage::
+
+    $ ./kmsg send $.Fred s Hellow
+    Msg data:
+    48 65 6c 6c 6f 77 
+    > Sending $.Fred [want_reply? 0]
+    <Announcement '$.Fred' data=Hellow>
+    > Sent message 0:1 .. 
+
+runlimpet and runlimpet.py
+--------------------------
+These are C and Python versions of the same utility, to run a Limpet. Their
+command lines are the same - run with no arguments, or with ``-help``, to get
+help.
+
+Example usage - on one machine (the "server" - the host name is not actually
+used on the server)::
+
+    $ ./runlimpet -server -id 1 -kbus 2  ignored_host:1234
+    C Limpet: Server via TCP/IP, address 'ignored_host' port 1234 for KBUS 2, using network id 1, listening for '$.*'
+
+
+and on the "client", 10.29.27.95::
+
+    $ ./runlimpet.py -client -id 2 -kbus 1  10.29.27.95:1234
+    Python Limpet: Client via ('10.29.27.95', 1234) for KBUS 1, using network id 2
+    Connected to "localhost:1234" as client
+
+(by design, it should not matter whether you use the C or Python Limpet, as
+they should behave identically).

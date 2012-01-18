@@ -1,0 +1,64 @@
+KBUS Python bindings for Messages
+=================================
+
+.. automodule:: kbus
+
+   .. inheritance-diagram:: Announcement Request Reply Status
+
+   Message
+   ~~~~~~~
+   .. autoclass:: Message
+      :members:
+      :show-inheritance:
+      :undoc-members:
+
+   Announcement
+   ~~~~~~~~~~~~
+   .. autoclass:: Announcement
+      :members:
+      :show-inheritance:
+      :undoc-members:
+
+   Request and stateful_request
+   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   .. autoclass:: Request
+      :members:
+      :show-inheritance:
+      :undoc-members:
+
+   .. autofunction:: stateful_request
+
+   Reply and reply_to
+   ~~~~~~~~~~~~~~~~~~
+   .. autoclass:: Reply
+      :members:
+      :show-inheritance:
+      :undoc-members:
+
+   .. autofunction:: reply_to
+
+   MessageId
+   ~~~~~~~~~
+   .. autoclass:: MessageId
+      :members:
+      :show-inheritance:
+      :undoc-members:
+
+   Status
+   ~~~~~~
+   .. autoclass:: Status
+      :members:
+      :show-inheritance:
+      :undoc-members:
+
+   OrigFrom
+   ~~~~~~~~
+   .. autoclass:: OrigFrom
+      :members:
+      :show-inheritance:
+      :undoc-members:
+
+
+   split_replier_bind_event_data
+   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   .. autofunction:: split_replier_bind_event_data

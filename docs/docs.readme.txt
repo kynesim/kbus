@@ -1,0 +1,76 @@
+=================================
+The KBUS documentation and sphinx
+=================================
+
+Pre-built documentation
+-----------------------
+For your comfort and convenience, a pre-built version of the KBus
+documentation is available at:
+
+    http://html.kbus.googlecode.com/hg/docs/html/index.html
+
+or within the Mercurial ``html`` repository at:
+
+    ``html/docs/html/index.html``
+
+Building the documentation
+--------------------------
+The KBus documentation is built using Sphinx_.
+
+.. note:: The documentation needs (at least) version 0.6 of Sphinx. 
+	Recent versions of
+	Ubuntu provide this in the ``python-sphinx`` package; on older
+	versions you should use ``easy_install`` as described on the
+	Sphinx website.
+
+
+You also need graphviz (which provides ``dot``).
+
+.. _Sphinx: http://sphinx.pocoo.org/
+
+With luck, the HTML in the ``web`` repository will be up-to-date, and
+you won't need to (re)build the documentation. However, if you should need to
+(for instance, because you've updated it),
+just use the Makefile::
+
+    make html
+
+Note that the ``html`` repository includes ``default`` as a
+*subrepository*; this means that if you've made changes to the doc source
+anywhere else, you have to update the subrepository before you build in
+``html``, probably with a line like this::
+
+    hg -R kbus pull <repo>
+    hg -R kbus update
+
+KBUS developers can push rebuilt docs back to Mercurial in the usual way;
+beware that the ``inheritance`` graphic is rebuilt every time and require 
+``hg add`` (and, ideally, the old ones removed).
+
+
+The Python bindings
+-------------------
+Read the ``kbus-python-*.txt`` files to see how individual classes and
+functions within kbus.py are documented. Obviously, if you add, remove or
+rename such, you may need to alter these files -- please do so appropriately.
+
+Mime type magic
+---------------
+In order for the documentation in the Google Code Mercurial repository to be
+useable as documentation, the HTML, CSS and JavaScript files in the docs/html
+directory tree need to have the correct mime types. Mercurial is clever
+enough to be able to cope with this, though Subversion needed extra help.
+
+Mercurial gotchas
+-----------------
+Sphinx believes that the contents of ``docs`` are transitory - i.e., that it
+is free to delete them if it wishes. In particular, ``make clean`` will delete
+all of the contents of ``docs``.
+
+Meanwhile, we've committed ``docs/html`` and its contents to Mercurial.
+
+This used to be a problem under Subversion, but is no longer since moving
+to Mercurial. If you accidentally ``make clean`` the docs away, you can
+use ``hg checkout`` to retrieve them.
+With luck the dependency tracking in the ``make`` process will cope.
+

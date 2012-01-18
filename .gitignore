@@ -5,6 +5,7 @@
 *.bak
 
 # Build artefacts
+# - from kernel building
 *.cmd
 *.ko
 *.o
@@ -13,3 +14,14 @@ kbus.mod.c
 modules.order
 Module.symvers
 .tmp_versions
+
+# - from userspace
+*.a
+*.so
+*.class
+*.jar
+*.pyc
+jkbus/java/include/com_kynesim_kbus_KMessage.h
+jkbus/java/include/com_kynesim_kbus_Ksock.h
+utils/kmsg
+utils/runlimpet
