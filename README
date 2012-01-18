@@ -1,5 +1,4 @@
-This is the main repository for the kbus messaging system.
+The main KBUS repository.
 
-The kernel module in `kbus' is a subrepository.
-
-Visit http://code.google.com/p/kbus/ for more information.
+This is the userspace and kernel repositories reunited, in preparation for
+changing the KBUS Google Code project from Mercurial to Git.
