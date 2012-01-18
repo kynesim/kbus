@@ -34,7 +34,7 @@
 extern "C" {
 #endif
 
-#include <kbus/kbus_defns.h>
+#include "linux/kbus_defns.h"
 
 #include <fcntl.h>
 #include <unistd.h>

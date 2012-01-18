@@ -11,7 +11,7 @@ CC=gcc
 endif
 
 # Note we assume a traditional Linux style environment in our flags
-CFLAGS+=-I..
+CFLAGS+=-I.. -I../kbus
 LDFLAGS+=-L$(LIBKBUSDIR) -static
 LIBS=-lkbus
 

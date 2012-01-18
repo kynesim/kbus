@@ -15,7 +15,7 @@ all:
 	$(MAKE) -C $(MUDDLE_SRC)/jkbus
 
 install:
-	-mkdir -p $(MUDDLE_OBJ_INCLUDE)/kbus
+	-mkdir -p $(MUDDLE_OBJ_INCLUDE)/kbus/linux
 	-mkdir -p $(MUDDLE_OBJ_LIB)
 	-mkdir -p $(MUDDLE_OBJ)/classes
 	-mkdir -p $(MUDDLE_INSTALL)/lib
@@ -43,7 +43,7 @@ install:
 	install -m 0755 $(MUDDLE_OBJ_OBJ)/cppkbus/libcppkbus.so $(MUDDLE_OBJ_LIB)/libcppkbus.so
 	install -m 0755 $(MUDDLE_OBJ_OBJ)/cppkbus/libcppkbus.a $(MUDDLE_OBJ_LIB)/libcppkbus.a
 
-	install -m 0755 $(MUDDLE_SRC)//kbus/kbus_defns.h $(MUDDLE_OBJ_INCLUDE)/kbus/kbus_defns.h
+	install -m 0755 $(MUDDLE_SRC)/kbus/linux/kbus_defns.h $(MUDDLE_OBJ_INCLUDE)/kbus/linux/kbus_defns.h
 	install -m 0755 $(MUDDLE_SRC)/libkbus/kbus.h $(MUDDLE_OBJ_INCLUDE)/kbus/kbus.h
 	install -m 0755 $(MUDDLE_SRC)/cppkbus/cppkbus.h $(MUDDLE_OBJ_INCLUDE)/kbus/cppkbus.h
 	install -m 0755 $(MUDDLE_SRC)/libkbus/limpet.h $(MUDDLE_OBJ_INCLUDE)/kbus/limpet.h

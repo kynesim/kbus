@@ -38,7 +38,7 @@ endif
 WARNING_FLAGS=-Wall -Werror
 DEBUG_FLAGS=
 LD_SHARED_FLAGS+=-shared
-INCLUDE_FLAGS=-I ..
+INCLUDE_FLAGS=-I .. -I ../kbus
 CFLAGS+=-fPIC -g
 
 ifeq ($(O),)

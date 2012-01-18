@@ -49,6 +49,7 @@
 extern "C" {
 #endif
 
+#include <linux/types.h>
 #if __KERNEL__
 #include <linux/kernel.h>
 #include <linux/ioctl.h>

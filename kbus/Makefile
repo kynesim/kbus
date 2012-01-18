@@ -131,8 +131,8 @@ rules: $(RULES_NAME)
 # wants to install the header file, but fails to build the kernel module,
 # and we're feeling friendly.
 install:
-	-mkdir -p $(DESTDIR)/include/kbus
-	install -m 0644 kbus_defns.h $(DESTDIR)/include/kbus/kbus_defns.h
+	-mkdir -p $(DESTDIR)/include/kbus/linux
+	install -m 0644 kbus_defns.h $(DESTDIR)/include/kbus/linux/kbus_defns.h
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= modules_install
 
 # Only remove "modules" if we're doing a bigger clean, as there might

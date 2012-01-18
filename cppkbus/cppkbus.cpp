@@ -36,7 +36,7 @@
 #include <string.h>
 
 #include "cppkbus.h"
-#include "kbus_defns.h"
+#include "linux/kbus_defns.h"
 
 namespace cppkbus
 {
