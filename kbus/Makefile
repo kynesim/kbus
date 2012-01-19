@@ -93,8 +93,12 @@ endif
 
 # We use 'O= ' deliberately, because kernel make, which creates the .ko
 # does not like to build object files in non-source directories.
-kbus.ko :
+kbus.ko:
+ifeq ($(CROSS_COMPILE),)
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= modules
+else
+	$(MAKE) -C $(KERNELDIR) M=$(PWD) O= ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) modules
+endif
 
 # To see preprocessor expansions
 kbus.i:
