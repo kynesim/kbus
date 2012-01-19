@@ -310,7 +310,7 @@ namespace cppkbus
     }
 
     // TODO: Do we need the operator= method? I think not...
-    Message::Message& Message::operator=(const Message& other)
+    Message& Message::operator=(const Message& other)
     {
 
         std::cout << "** ASGN " << std::hex << &other << " from " << std::hex << this << std::endl;
@@ -788,7 +788,7 @@ namespace cppkbus
 
     // Device =================================================================
 
-    Device::Device& Device::operator=(const Device& other)
+    Device& Device::operator=(const Device& other)
     {
         if (mFd >= 0)
         {
