@@ -1,19 +1,16 @@
 #! /bin/bash
 #
 # insert kbus and make sure everyone is allowed to access it.
-#
-# We'll use sudo for this - either you're root and all is good, or you're
-#  not and it'll ask you for your password once.
 
 case "$1" in
     start)
         if [ ! -e /dev/kbus0 ]; then
             echo -n "Inserting KBus module .. "
-            sudo insmod $RAW_DIR/lib/modules/kbus/kbus.ko
+            insmod $RAW_DIR/lib/modules/kbus/kbus.ko
             echo "Done"
         fi
         echo -n "Setting permissions .. "
-        sudo chmod 666 /dev/kbus0
+        chmod 666 /dev/kbus0
         echo "Done."
         ;;
     stop)
