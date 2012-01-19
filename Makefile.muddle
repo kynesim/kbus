@@ -1,5 +1,18 @@
-# Muddle makefile for kbus.
-
+# A Muddle makefile for KBUS
+#
+# It's quite likely that you will want to change this for a particular
+# muddle build tree.
+#
+# We expect the normal MUDDLE environment variables, but building the KBUS
+# kernel module also requires the following:
+#
+# * MUDDLE_CROSS_COMPILE	- the prefix for gcc, etc. - only needed if cross-compiling
+# * MUDDLE_ARCHNAME			- e.g., "arm" - only needed if cross-compiling
+# * MUDDLE_KERNEL_LABEL		- the muddle label for the package containing the
+# 							  kernel, which we assume has built itself into
+# 							  its obj/<name>/<role>/obj/ directory
+# * MUDDLE_MODULE_SUBDIR	- the subdirectory in /lib/modules where we should install
+# 							  the KBUS kernel module
 
 O=$(MUDDLE_OBJ_OBJ)
 export O
@@ -7,58 +20,108 @@ export O
 DESTDIR=$(MUDDLE_INSTALL)
 export DESTDIR
 
-all:
-	$(MAKE) -C $(MUDDLE_OBJ_OBJ)/kbus
-	$(MAKE) -C $(MUDDLE_SRC)/libkbus
-	$(MAKE) -C $(MUDDLE_SRC)/cppkbus
-	$(MAKE) -C $(MUDDLE_SRC)/utils
-	$(MAKE) -C $(MUDDLE_SRC)/jkbus
+CROSS_COMPILE=
 
-install:
-	-mkdir -p $(MUDDLE_OBJ_INCLUDE)/kbus/linux
-	-mkdir -p $(MUDDLE_OBJ_LIB)
-	-mkdir -p $(MUDDLE_OBJ)/classes
-	-mkdir -p $(MUDDLE_INSTALL)/lib
-	-mkdir -p $(MUDDLE_INSTALL)/classes
-	-mkdir -p $(MUDDLE_INSTALL)/lib/jvm
-	-mkdir -p $(MUDDLE_INSTALL)/lib/modules/kbus
-	-mkdir -p $(MUDDLE_INSTALL)/bin
+# Most people don't want to build the Java library
+.PHONY: all
+all: kernel libkbus cppkbus utils
 
-	-mkdir -p $(MUDDLE_INSTALL)/etc/rc.d
-	install -m 0755 $(MUDDLE_SRC)/init.d/kbus $(MUDDLE_INSTALL)/etc/rc.d/S05kbus
-
-	install -m 0755 $(MUDDLE_OBJ_OBJ)/utils/kmsg $(MUDDLE_INSTALL)/bin/kmsg
-	install -m 0755 $(MUDDLE_OBJ_OBJ)/utils/runlimpet $(MUDDLE_INSTALL)/bin/runlimpet
-
-	install -m 0755 $(MUDDLE_OBJ_OBJ)/kbus/kbus.ko $(MUDDLE_INSTALL)/lib/modules/kbus/kbus.ko
-	install -m 0755 $(MUDDLE_OBJ_OBJ)/lib/libjkbus.so $(MUDDLE_INSTALL)/lib/jvm/libjkbus.so
-	install -m 0755 $(MUDDLE_OBJ_OBJ)/libkbus/libkbus.so $(MUDDLE_INSTALL)/lib/libkbus.so
-	install -m 0755 $(MUDDLE_OBJ_OBJ)/cppkbus/libcppkbus.so $(MUDDLE_INSTALL)/lib/libcppkbus.so
-	install -m 0755 $(MUDDLE_OBJ_OBJ)/Kbus-0.1.jar $(MUDDLE_INSTALL)/classes/kbus-0.1.jar
-	install -m 0755 $(MUDDLE_OBJ_OBJ)/Kbus-0.1.jar $(MUDDLE_OBJ)/classes/kbus-0.1.jar
-
-	install -m 0755 $(MUDDLE_OBJ_OBJ)/libkbus/libkbus.so $(MUDDLE_OBJ_LIB)/libkbus.so
-	install -m 0755 $(MUDDLE_OBJ_OBJ)/libkbus/libkbus.a $(MUDDLE_OBJ_LIB)/libkbus.a
-
-	install -m 0755 $(MUDDLE_OBJ_OBJ)/cppkbus/libcppkbus.so $(MUDDLE_OBJ_LIB)/libcppkbus.so
-	install -m 0755 $(MUDDLE_OBJ_OBJ)/cppkbus/libcppkbus.a $(MUDDLE_OBJ_LIB)/libcppkbus.a
-
-	install -m 0755 $(MUDDLE_SRC)/kbus/linux/kbus_defns.h $(MUDDLE_OBJ_INCLUDE)/kbus/linux/kbus_defns.h
-	install -m 0755 $(MUDDLE_SRC)/libkbus/kbus.h $(MUDDLE_OBJ_INCLUDE)/kbus/kbus.h
-	install -m 0755 $(MUDDLE_SRC)/cppkbus/cppkbus.h $(MUDDLE_OBJ_INCLUDE)/kbus/cppkbus.h
-	install -m 0755 $(MUDDLE_SRC)/libkbus/limpet.h $(MUDDLE_OBJ_INCLUDE)/kbus/limpet.h
-
-
+.PHONY: config
 config:
 	-mkdir -p $(MUDDLE_OBJ_OBJ)
-	-mkdir -p $(MUDDLE_OBJ_OBJ)/module
+	# The kernel likes to build modules in their source directories, so we copy
+	# the kernel module directory
 	$(MUDDLE) copywithout $(MUDDLE_SRC)/kbus $(MUDDLE_OBJ_OBJ)/kbus
 
+# Building our kernel module needs more information
+KERNELDIR=$(shell $(MUDDLE) query objdir $(MUDDLE_KERNEL_LABEL))/obj
+export KERNELDIR
+
+CROSS_COMPILE=$(MUDDLE_CROSS_COMPILE)
+export CROSS_COMPILE
+ARCH=$(MUDDLE_ARCHNAME)
+export ARCH
+
+.PHONY: kernel
+kernel:
+	$(MAKE) -C $(MUDDLE_OBJ_OBJ)/kbus
+
+.PHONY: libkbus
+libkbus:
+	$(MAKE) -C $(MUDDLE_SRC)/libkbus
+
+.PHONY: cppkbus
+cppkbus:
+	$(MAKE) -C $(MUDDLE_SRC)/cppkbus
+
+.PHONY: jkbus
+jkbus: libkbus
+	$(MAKE) -C $(MUDDLE_SRC)/jkbus
+
+.PHONY: utils
+utils: libkbus
+	$(MAKE) -C $(MUDDLE_SRC)/utils
+
+.PHONY: install
+install:
+	# General prerequisites
+	-mkdir -p $(MUDDLE_OBJ_INCLUDE)/kbus
+	-mkdir -p $(MUDDLE_OBJ_LIB)
+	-mkdir -p $(MUDDLE_INSTALL)/lib
+	install -m 0755 $(MUDDLE_SRC)/kbus/kbus_defns.h $(MUDDLE_OBJ_INCLUDE)/kbus/kbus_defns.h
+	#
+	# Kernel module
+	if [ -e $(MUDDLE_OBJ_OBJ)/kbus/kbus.ko ]; then \
+		mkdir -p $(MUDDLE_INSTALL)/etc/rc.d; \
+		mkdir -p $(MUDDLE_INSTALL)/lib/modules/$(MUDDLE_MODULE_SUBDIR); \
+		install -m 0755 $(MUDDLE_SRC)/init.d/kbus      $(MUDDLE_INSTALL)/etc/rc.d/S05kbus; \
+		install -m 0755 $(MUDDLE_OBJ_OBJ)/kbus/kbus.ko $(MUDDLE_INSTALL)/lib/modules/$(MUDDLE_MODULE_SUBDIR)/kbus.ko; \
+	fi
+	#
+	# libkbus
+	if [ -e $(MUDDLE_OBJ_OBJ)/libkbus/libkbus.so ]; then \
+		install -m 0755 $(MUDDLE_SRC)/libkbus/kbus.h   $(MUDDLE_OBJ_INCLUDE)/kbus/kbus.h; \
+		install -m 0755 $(MUDDLE_SRC)/libkbus/limpet.h $(MUDDLE_OBJ_INCLUDE)/kbus/limpet.h; \
+		install -m 0755 $(MUDDLE_OBJ_OBJ)/libkbus/libkbus.a  $(MUDDLE_OBJ_LIB)/libkbus.a; \
+		install -m 0755 $(MUDDLE_OBJ_OBJ)/libkbus/libkbus.so $(MUDDLE_OBJ_LIB)/libkbus.so; \
+		install -m 0755 $(MUDDLE_OBJ_OBJ)/libkbus/libkbus.so $(MUDDLE_INSTALL)/lib/libkbus.so; \
+	fi
+	#
+	# cppkbus
+	if [ -e $(MUDDLE_OBJ_OBJ)/cppkbus/libcppkbus.so ]; then \
+		install -m 0755 $(MUDDLE_SRC)/cppkbus/cppkbus.h $(MUDDLE_OBJ_INCLUDE)/kbus/cppkbus.h; \
+		install -m 0755 $(MUDDLE_OBJ_OBJ)/cppkbus/libcppkbus.so $(MUDDLE_OBJ_LIB)/libcppkbus.so; \
+		install -m 0755 $(MUDDLE_OBJ_OBJ)/cppkbus/libcppkbus.a  $(MUDDLE_OBJ_LIB)/libcppkbus.a; \
+		install -m 0755 $(MUDDLE_OBJ_OBJ)/cppkbus/libcppkbus.so $(MUDDLE_INSTALL)/lib/libcppkbus.so; \
+	fi
+	#
+	# jkbus
+	if [ -e $(MUDDLE_OBJ_OBJ)/Kbus-0.1.jar ]; then \
+		mkdir -p $(MUDDLE_OBJ)/classes; \
+		mkdir -p $(MUDDLE_INSTALL)/classes; \
+		install -m 0755 $(MUDDLE_OBJ_OBJ)/Kbus-0.1.jar $(MUDDLE_OBJ)/classes/kbus-0.1.jar; \
+		install -m 0755 $(MUDDLE_OBJ_OBJ)/Kbus-0.1.jar $(MUDDLE_INSTALL)/classes/kbus-0.1.jar; \
+	fi
+	if [ -e $(MUDDLE_OBJ_OBJ)/lib/libjkbus.so ]; then \
+		-mkdir -p $(MUDDLE_INSTALL)/lib/jvm; \
+		install -m 0755 $(MUDDLE_OBJ_OBJ)/lib/libjkbus.so $(MUDDLE_INSTALL)/lib/jvm/libjkbus.so; \
+	fi
+	#
+	# utils
+	if [ -e $(MUDDLE_OBJ_OBJ)/utils/kmsg ]; then \
+		mkdir -p $(MUDDLE_INSTALL)/bin; \
+		install -m 0755 $(MUDDLE_OBJ_OBJ)/utils/kmsg $(MUDDLE_INSTALL)/bin/kmsg; \
+	fi
+	if [ -e $(MUDDLE_OBJ_OBJ)/utils/runlimpet ]; then \
+		mkdir -p $(MUDDLE_INSTALL)/bin; \
+		install -m 0755 $(MUDDLE_OBJ_OBJ)/utils/runlimpet $(MUDDLE_INSTALL)/bin/runlimpet; \
+	fi
+
+.PHONY: clean
 clean:
 	$(MAKE) -C $(MUDDLE_SRC) clean
 
+.PHONY: distclean
 distclean:
 	rm -rf $(MUDDLE_OBJ)
 
-
-# End file.
