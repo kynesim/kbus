@@ -1,0 +1,10 @@
+ifeq ($(CONFIG_KBUS_DEBUG),y)
+	CFLAGS_kbus_main.o	= -DDEBUG
+	CFLAGS_kbus_report.o	= -DDEBUG
+endif
+
+obj-$(CONFIG_KBUS) += kbus.o
+
+kbus-y := kbus_main.o
+kbus-$(CONFIG_PROC_FS) += kbus_report.o
+
