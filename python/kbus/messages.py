@@ -921,7 +921,7 @@ class Message(object):
       See also the Reply class, and especially the `reply_to` function, which
       makes constructing replies simpler.
     - `flags` can be used to set the flags for the message. If all that is
-      wanted is to set the :const:`.WANT_A_REPLY` flag, it is
+      wanted is to set the :const:`Message.WANT_A_REPLY` flag, it is
       simpler to use the :class:`Request` class to construct the message.
     - `id` may be used to set the message id, although unless the `network_id`
       field is
@@ -2127,11 +2127,11 @@ def reply_to(original, data=None, flags=0):
 
     1. The message we're constructing a reply to must be a message that wants
        a reply. Specifically, this means that it must have the
-       :const:`WANT_A_REPLY` flag set, and also the :const:`WANT_YOU_TO_REPLY`
-       flag. This last is because
-       anyone listening to a Request will "see" the :const:`WANT_A_REPLY` flag,
+       :const:`Message.WANT_A_REPLY` flag set, and also the :const:`Message.WANT_YOU_TO_REPLY`
+       flag. This last is because anyone listening to a Request will "see" the
+       :const:`Message.WANT_A_REPLY` flag,
        but only the (single) replier will receive the message with 
-       :const:`WANT_YOU_TO_REPLY` set.
+       :const:`Message.WANT_YOU_TO_REPLY` set.
     2. A reply message is a reply because it has the `in_reply_to` field set.
        This indicates the message id of the original message, the one we're
        replying to.
@@ -2188,7 +2188,7 @@ def stateful_request(earlier_msg, name, data=None, from_=None,
        copied to the new Request.
 
 	    Remember, a Stateful Request is a message with the
-	    :const:`WANT_A_REPLY`
+	    :const:`Message.WANT_A_REPLY`
             flag set (a Request), and whose `to` field is set (which is to a
             specific Replier).
 
