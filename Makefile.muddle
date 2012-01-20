@@ -6,13 +6,28 @@
 # We expect the normal MUDDLE environment variables, but building the KBUS
 # kernel module also requires the following:
 #
-# * MUDDLE_CROSS_COMPILE	- the prefix for gcc, etc. - only needed if cross-compiling
-# * MUDDLE_ARCHNAME			- e.g., "arm" - only needed if cross-compiling
+# * KBUS_TARGETS			- the targets to be built, as a space separated
+# 							  sequence. For instance, "libkbus cppkbus".
+# 							  This has a sensible default - see the Makefile
+# 							  code below.
+#
+# If the "kernel" target is being built, then we need some information about
+# the Linux kernel location in the build tree:
+#
 # * MUDDLE_KERNEL_LABEL		- the muddle label for the package containing the
 # 							  kernel, which we assume has built itself into
-# 							  its obj/<name>/<role>/obj/ directory
-# * MUDDLE_MODULE_SUBDIR	- the subdirectory in /lib/modules where we should install
-# 							  the KBUS kernel module
+# 							  its obj/<name>/<role>/obj/ directory.
+# 							  For instance, "package:kernel{linuxbase}/built".
+# * MUDDLE_MODULE_SUBDIR	- the subdirectory in /lib/modules where we should
+#							  install the KBUS kernel module.
+#							  Typically set to the project name/mnemonic.
+#
+# If we're cross compiling, then the following are needed:
+#
+# * MUDDLE_CROSS_COMPILE	- the prefix for gcc, etc.
+# 							  For instance, "arm-none-linux-gnueabi-"
+# * MUDDLE_ARCHNAME			- the architecture the kernel is built for.
+# 							  For instance, "arm"
 
 O=$(MUDDLE_OBJ_OBJ)
 export O
@@ -23,8 +38,12 @@ export DESTDIR
 CROSS_COMPILE=
 
 # Most people don't want to build the Java library
+ifeq ($(KBUS_TARGETS),)
+KBUS_TARGETS=kernel libkbus cppkbus utils
+endif
+
 .PHONY: all
-all: kernel libkbus cppkbus utils
+all: $(KBUS_TARGETS)
 
 .PHONY: config
 config:
