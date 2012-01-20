@@ -2,16 +2,10 @@
 KBUS -- Lightweight kernel-mediated messaging
 =============================================
 
-.. note:: Earlier versions of KBUS (release tags 0.1 and 0.2) used a shorter
-   message header, and had a start guard of 'kbus' (and corresponding end
-   guard). The current version of KBUS has a start guard of 'Kbus' (and
-   corresponding end guard), so it is not possible to accidentally intermix
-   incompatible messages.
-
 .. contents::
 
-Intention
-=========
+Summary
+=======
 KBUS provides lightweight kernel-mediated messaging for Linux.
 
 * "lightweight" means that there is no intent to provide complex or
@@ -21,15 +15,48 @@ KBUS provides lightweight kernel-mediated messaging for Linux.
 * "kernel-mediated" means that the actual business of message passing and
   message synchronisation is handled by a kernel module.
 
-* "for Linux" means what it says - the initial code is for the Linux kernel.
+* "for Linux" means what it says, since the Linux kernel is required.
 
 Initial use is expected to be in embedded systems.
 
 There is (at least initially) no intent to aim for a "fast" system - this is
 not aimed at real-time systems.
 
-Although the initial implementation is kernel-mediated, there is a mechanism
-("Limpets") for commnicating KBUS messages between machnes.
+Although the implementation is kernel-mediated, there is a mechanism
+("Limpets") for commnicating KBUS messages between buses and/or systems.
+
+Intentions
+==========
+KBUS is intended:
+
+* To be simple to use and simple to understand.
+* To have a small codebase, written in C.
+* To provide predictable message delivery.
+* To give deterministic message ordering.
+* To guarantee a reply to every request.
+
+It needs to be simple to use and understand because the expected users are
+typically busy with other matters, and do not have time to spend learning
+a complex messaging system.
+
+It needs to have a small codebase, written in C, because embedded systems
+often lack resources, and may not have enough space for C++ libraries, or
+messaging systems supporting more complex protocol stacks.
+
+Our own experience on embedded systems of various sizes indicates that
+the last three points are especially important.
+
+Predictable message delivery means the user can know whether they can tell in
+what circumstances messages will or will not be received.
+
+Deterministic message ordering means that all recipients of a given set of
+messages will receive them in the same order as all other recpients (and this
+will be the order in which the messages were sent). This is important when
+several part of (for instance) an audio/video stack are interoperating.
+
+Guaranteeing that a request will always result in a reply means that the user
+will be told if the intended replier has (for instance) crashed. This again
+allows for simpler use of the system.
 
 The basics
 ==========
@@ -197,7 +224,7 @@ The message header
   zero byte (as is normal for C - in the Python binding a normal Python string
   can be used, and the this will be done for you). Byte ordering is according
   to that of the platform.
- 
+
   In an "entire" message (see `Message implementation`_ below) the name shall
   be padded out to a multiple of 4 bytes. Neither the terminating zero byte
   nor the padding are included in the name length.  Padding should be with
@@ -442,7 +469,7 @@ When creating a new announcement message, it has:
         :in reply to:  unset (it's not a reply)
         :to:           unset (all announcements are broadcast to any listeners)
         :from:         unset (KBUS will set it)
-        :flags:        typically unset, see `Message flags`_ 
+        :flags:        typically unset, see `Message flags`_
         :message name: as appropriate
         :message data: as appropriate
 
@@ -513,7 +540,7 @@ When creating a new reply message, it has:
         :in reply to:  the request message's 'message id'
         :to:           the request message's 'from' id
         :from:         unset (KBUS will set it)
-        :flags:        typically unset, see `Message flags`_ 
+        :flags:        typically unset, see `Message flags`_
         :message name: the request message's 'message name'
         :message data: as appropriate
 
@@ -541,7 +568,7 @@ A status message looks like:
         :from:         the Ksock id of the sender of the message - this will
                        be 0 if the sender is KBUS itself (which is assumed for
                        most exceptions)
-        :flags:        typically unset, see `Message flags`_ 
+        :flags:        typically unset, see `Message flags`_
         :message name: for KBUS exceptions, a message name in '$.KBUS.*'
         :message data: for KBUS exceptions, normally absent
 
@@ -765,7 +792,7 @@ messages matching their wildcard, they also need to bind as a listener for the
 same wildcarded name.
 
 For example:
-    
+
     Assume message names are of the form '$.Sensors.<Room>' or
     '$.Sensors.<Room>.<Measurement>'.
 
@@ -779,7 +806,7 @@ For example:
     the replier for the kitchen temperature.
 
     So:
-   
+
     - A message named '$.Sensors.Kitchen.Temperature' will go to replier 3.
     - A message named '$.Sensors.Kitchen' or '$.Sensors.LivingRoom' will go to
       replier 2.
@@ -1083,7 +1110,7 @@ the KBUS devices and the Ksocks open on them.
 
 An example might be::
 
-  $ cat /proc/kbus/stats 
+  $ cat /proc/kbus/stats
   dev  0: next file 5 next msg 8 unsent unbindings 0
           ksock 4 last msg 0:7 queue 1 of 100
               read byte 0 of 0, wrote byte 52 (max 60), sending
@@ -1094,7 +1121,7 @@ An example might be::
 
 or::
 
-  $ cat /proc/kbus/stats 
+  $ cat /proc/kbus/stats
   dev  0: next file 4 next msg 101 unsent unbindings 0
           ksock 3 last msg 0:0 queue 100 of 100
                 read byte 0 of 0, wrote byte 0 (max 0), not sending
@@ -1208,11 +1235,3 @@ of it. For instance::
     On attempting to send 'to' a specific replier, the replier with that id
     is no longer bound to the given message's name.
 
-
-
-.. Local Variables:
-.. tab-width: 8
-.. indent-tabs-mode: nil
-.. c-basic-offset: 2
-.. End:
-.. vim: set filetype=rst tabstop=8 shiftwidth=2 expandtab:
