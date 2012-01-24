@@ -41,8 +41,8 @@
 /* A program you can use to listen for or send kbus messages
  */
 
-#include <libkbus/kbus.h>
 #include <stdio.h>
+#include <libkbus/kbus.h>
 
 static void usage(void);
 
