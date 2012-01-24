@@ -84,10 +84,10 @@ utils: libkbus
 .PHONY: install
 install:
 	# General prerequisites
-	-mkdir -p $(MUDDLE_OBJ_INCLUDE)/kbus
+	-mkdir -p $(MUDDLE_OBJ_INCLUDE)/kbus/linux
 	-mkdir -p $(MUDDLE_OBJ_LIB)
 	-mkdir -p $(MUDDLE_INSTALL)/lib
-	install -m 0755 $(MUDDLE_SRC)/kbus/kbus_defns.h $(MUDDLE_OBJ_INCLUDE)/kbus/kbus_defns.h
+	install -m 0755 $(MUDDLE_SRC)/kbus/linux/kbus_defns.h $(MUDDLE_OBJ_INCLUDE)/kbus/linux/kbus_defns.h
 	#
 	# Kernel module
 	if [ -e $(MUDDLE_OBJ_OBJ)/kbus/kbus.ko ]; then \
