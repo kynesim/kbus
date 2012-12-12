@@ -7,35 +7,62 @@ import errno
 from kbus import *
 from kbus.test.test_kbus import check_IOError
 
-os.system('sudo insmod ../kbus/kbus.ko')
-time.sleep(0.5)
+this_dir = os.path.split(__file__)[0]
+parent_dir = os.path.split(this_dir)[0]
 
+os.system('sudo insmod %s'%os.path.join(parent_dir, 'kbus', 'kbus.ko'))
+time.sleep(0.5)
 
 try:
 
         with Ksock(0, 'rw') as sender:
-            with Ksock(0, 'rw') as listener:
+            with Ksock(0, 'rw') as receiver:
+                with Ksock(0, 'rw') as other1:
+                    with Ksock(0, 'rw') as other2:
 
-                listener.bind('$.Fred')
+                        sender.kernel_module_verbose(True)
 
-                data = 'x' * (64*1024 + 27)
+                        receiver.bind('$.Question', True)
+                        other1.bind('$.Question')
+                        other2.bind('$.Question')
 
-                msg = Announcement('$.Fred', data=data)
+                        m = Message('$.Fred')
+                        other1.send_msg(m)
 
-                orig_max = None
-                try:
-                    listener.kernel_module_verbose(True)
-                    # Make sure we're allowed to send messages of that length
-                    orig_max = listener.max_message_size()
-                    listener.set_max_message_size(msg.total_length())
-                    sender.send_msg(msg)
-                finally:
-                    # Don't forget to set the world back again
-                    if orig_max is not None:
-                        listener.set_max_message_size(orig_max)
+                        m = Message('$.Fred')
+                        other2.send_msg(m)
 
-                ann = listener.read_next_msg()
-                assert msg.equivalent(ann)
+                        # First, a sequence that works
+                        s_request = Request('$.Question', 'nice')
+                        sender.send_msg(s_request)
+
+                        r_request = receiver.read_next_msg()
+                        assert r_request.equivalent(s_request)
+
+                        r_reply = reply_to(r_request, 'nice')
+                        receiver.send_msg(r_reply)
+
+                        s_reply = sender.read_next_msg()
+                        assert s_reply.equivalent(r_reply)
+
+                        if False:
+                            # Then a naughty sequence
+                            s_request = Request('$.Question', 'still nice')
+                            s_request_id = sender.send_msg(s_request)
+
+                            r_request = receiver.read_next_msg()
+                            assert r_request.equivalent(s_request)
+
+                            r_reply = Reply('$.NotQuestion', data='naughty',
+                                            in_reply_to=r_request.id,
+                                            to=r_request.from_)
+                            r_reply_id = receiver.send_msg(r_reply)
+
+                            s_reply = sender.read_next_msg()
+                            assert s_reply.equivalent(r_reply)
+                            print s_request_id, s_request
+                            print r_reply_id, r_reply
+                            print s_reply
 
 
 finally:

@@ -844,7 +844,10 @@ static void kbus_empty_write_msg(struct kbus_private_data *priv)
  * 'binding' is a pointer to the KBUS message name binding that caused the
  * message to be added.
  *
- * 'for_replier' is true if this particular message is being pushed to the
+ * 'for_whom' indicates why this message is being sent to this Ksock
+ * - either for a listener, a replier or the original sender of a
+ *   request to which this is the reply.
+ *
  * message's replier's queue. Specifically, it's true if this is a Reply
  * to this Ksock, or a Request aimed at this Ksock (as Replier).
  *
@@ -855,17 +858,19 @@ static void kbus_empty_write_msg(struct kbus_private_data *priv)
  * at least at the moment.
  */
 static int kbus_push_message(struct kbus_private_data *priv,
-			     struct kbus_msg *msg,
-			     struct kbus_message_binding *binding,
-			     int for_replier)
+							 struct kbus_msg *msg,
+							 struct kbus_message_binding *binding,
+							 enum kbus_recipient_type for_whom)
 {
 	struct list_head *queue = &priv->message_queue;
 	struct kbus_msg *new_msg = NULL;
 	struct kbus_message_queue_item *item;
 
 	kbus_maybe_dbg(priv->dev,
-		       "  %u Pushing message onto queue (%s)\n",
-		       priv->id, for_replier ? "replier" : "listener");
+		       "  %u Pushing message onto queue (%s)\n", priv->id,
+			   for_whom==FOR_LISTENER ? "listener":
+			   for_whom==FOR_REPLIER  ? "replier" :
+			   for_whom==FOR_SENDER   ? "sender": "???");
 
 	/*
 	 * 1. Check to see if this Ksock has the "only one copy
@@ -878,9 +883,10 @@ static int kbus_push_message(struct kbus_private_data *priv,
 	 * multiple Listeners to the same message name, it will only
 	 * get it once, for this "push")
 	 *
-	 * If "for_replier" is set we necessarily push the message - see below.
+	 * If "for_whom" is not FOR_LISTENER then we must always push the
+	 * message - see below.
 	 */
-	if (priv->messages_only_once && !for_replier) {
+	if (priv->messages_only_once && for_whom == FOR_LISTENER) {
 		/*
 		 * 1. We've been asked to only send one copy of a message
 		 *    to each Ksock that should receive it.
@@ -919,17 +925,31 @@ static int kbus_push_message(struct kbus_private_data *priv,
 	}
 	kbus_maybe_report_message(priv->dev, new_msg);
 
-	if (for_replier && (KBUS_BIT_WANT_A_REPLY & msg->flags)) {
-		/*
-		 * This message wants a reply, and is for the message's
-		 * replier, so they need to be told that they are to reply to
-		 * this message
-		 */
-		new_msg->flags |= KBUS_BIT_WANT_YOU_TO_REPLY;
-		kbus_maybe_dbg(priv->dev,
-			       "  Setting WANT_YOU_TO_REPLY, "
-			       "flags %08x\n",
-			       new_msg->flags);
+	if (for_whom == FOR_REPLIER) {
+	   if (KBUS_BIT_WANT_A_REPLY & msg->flags) {
+		   /*
+			* This message wants a reply, and is for the message's
+			* replier, so they need to be told that they are to reply to
+			* this message
+			*/
+		   new_msg->flags |= KBUS_BIT_WANT_YOU_TO_REPLY;
+		   kbus_maybe_dbg(priv->dev,
+						  "  Setting WANT_YOU_TO_REPLY, "
+						  "flags %08x\n",
+						  new_msg->flags);
+	   } else {
+		   /*
+			* Our caller should always set FOR_REPLIER for a Reply,
+			* but they got *something* wrong.
+			*/
+			dev_err(priv->dev->dev,
+			       "%u Trying to send FOR_REPLIER but message flags %08x"
+				   " don't have KBUS_BIT_WANT_A_REPLY set. Message '%.*s"
+				   " in reply to %u:%u\n", priv->id, msg->flags,
+				   msg->name_len, msg->name_ref->name,
+			       msg->in_reply_to.network_id,
+			       msg->in_reply_to.serial_num);
+	   }
 	} else {
 		/*
 		 * The recipient is *not* the replier for this message,
@@ -956,10 +976,12 @@ static int kbus_push_message(struct kbus_private_data *priv,
 	priv->message_count++;
 	priv->msg_id_just_pushed = msg->id;
 
-	if (!kbus_same_message_id(&msg->in_reply_to, 0, 0)) {
+	if (!kbus_same_message_id(&msg->in_reply_to, 0, 0) &&
+		for_whom == FOR_SENDER) {
 		/*
 		 * If it's a reply (and this will include a synthetic reply,
-		 * since we're checking the "in_reply_to" field) then the
+		 * since we're checking the "in_reply_to" field) and we're
+		 * trying to deliver it to the original sender, then that
 		 * original sender has now had its request satisfied.
 		 */
 		int retval = kbus_forget_msg_id(priv, &msg->in_reply_to);
@@ -1039,7 +1061,7 @@ static void kbus_push_synthetic_message(struct kbus_dev *dev,
 	if (!new_msg)
 		return;
 
-	(void)kbus_push_message(priv, new_msg, NULL, false);
+	(void)kbus_push_message(priv, new_msg, NULL, FOR_SENDER);
 	/* ignore retval; we can't do anything useful if this goes wrong */
 
 	/* kbus_push_message takes a copy of our message */
@@ -2114,7 +2136,7 @@ static int kbus_maybe_move_unsent_unbind_msg(struct kbus_private_data *priv)
 		 * we wish to keep our promise that this shall be the
 		 * only way of adding a message to the queue.
 		 */
-		retval = kbus_push_message(priv, ptr->msg, ptr->binding, false);
+		retval = kbus_push_message(priv, ptr->msg, ptr->binding, FOR_LISTENER);
 		if (retval)
 			return retval;	/* What else can we do? */
 
@@ -2769,7 +2791,7 @@ static int kbus_write_to_recipients(struct kbus_private_data *priv,
 
 	/* If it's a reply message and we've got someone to reply to, send it */
 	if (reply_to) {
-		retval = kbus_push_message(reply_to, msg, NULL, true);
+		retval = kbus_push_message(reply_to, msg, NULL, FOR_SENDER);
 		if (retval == 0) {
 			num_sent++;
 			/*
@@ -2787,7 +2809,7 @@ static int kbus_write_to_recipients(struct kbus_private_data *priv,
 	/* If it's a request, and we've got a replier for it, send it */
 	if (replier) {
 		retval =
-		    kbus_push_message(replier->bound_to, msg, replier, true);
+		    kbus_push_message(replier->bound_to, msg, replier, FOR_REPLIER);
 		if (retval)
 			goto done_sending;
 
@@ -2808,7 +2830,7 @@ static int kbus_write_to_recipients(struct kbus_private_data *priv,
 		struct kbus_message_binding *listener = listeners[ii];
 		if (listener) {
 			retval = kbus_push_message(listener->bound_to, msg,
-						   listener, false);
+						   listener, FOR_LISTENER);
 			if (retval == 0)
 				num_sent++;
 			else
@@ -4117,7 +4139,7 @@ static int kbus_report_existing_binds(struct kbus_private_data *priv,
 			return -EBUSY;
 		}
 
-		retval = kbus_push_message(priv, new_msg, NULL, false);
+		retval = kbus_push_message(priv, new_msg, NULL, FOR_LISTENER);
 
 		kbus_free_message(new_msg);
 		if (retval)

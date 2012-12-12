@@ -223,6 +223,22 @@ enum kbus_replier_type {
 };
 
 /*
+ * What type of recipient a message is for
+ *
+ * - If the message is being given to a recipient because they bound to it as
+ *   a listener, then FOR_LISTENER.
+ * - If it is because they are being sent a Request and are the Replier for
+ *   that Request, then FOR_REPLIER.
+ * - If it is because it is a Reply, and they were the sender of the original
+ *   Request, then FOR_SENDER.
+ */
+enum kbus_recipient_type {
+	FOR_LISTENER = 0,
+	FOR_REPLIER,
+	FOR_SENDER
+};
+
+/*
  * A reference counting wrapper for message data
  *
  * If 'as_pages' is false, then the data is stored as a single kmalloc'd
