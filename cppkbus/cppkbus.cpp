@@ -30,6 +30,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <unistd.h>
 #include <poll.h>
 #include <errno.h>
 #include <stdio.h>
@@ -1149,7 +1150,7 @@ namespace cppkbus
 
     int Ksock::ReceiveMessagesOnlyOnce(const bool shouldReceiveOnce)
     {
-        uint32_t array[1] = { shouldReceiveOnce?1:0 };
+        uint32_t array[1] = { shouldReceiveOnce?1U:0 };
         int rv = ioctl(mDevice.mFd, KBUS_IOC_MSGONLYONCE, &array[0]);
         if (rv < 0)
             return -errno;
@@ -1251,7 +1252,7 @@ namespace cppkbus
 
         int rv = ioctl(mDevice.mFd, KBUS_IOC_NEXTMSG, &msgLen);
         if (rv < 0) return -errno;
-        
+
         if (!msgLen)
         {
             // There was no next message.
