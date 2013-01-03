@@ -338,7 +338,8 @@ int testKsock()
 
     Message m2;
     rv = listener.Receive(m2);
-    assert(rv == 0);
+    std::cout << "Receive got " << rv << std::endl;
+    assert(rv == 1);
     assert(m2.GetName() == m2.GetName());
     assert(m2.GetMessageId(tmpId) == 0); assert(tmpId == msgId);
     assert(!m2.IsReply());
@@ -354,7 +355,7 @@ int testKsock()
 
     m2 = Message();
     rv = listener.Receive(m2);
-    assert(rv == 0);
+    assert(rv == 1);
     assert(m2.GetName() == q1.GetName());
     assert(m2.GetMessageId(tmpId) == 0); assert(tmpId == msgId);
     assert(!m2.IsReply());
@@ -363,7 +364,7 @@ int testKsock()
 
     Message rq1;
     rv = replier.Receive(rq1);
-    assert(rv == 0);
+    assert(rv == 1);
     assert(rq1.GetName() == q1.GetName());
     assert(rq1.GetMessageId(tmpId) == 0); assert(tmpId == msgId);
     assert(!rq1.IsReply());
@@ -379,7 +380,7 @@ int testKsock()
 
     Message m3;
     rv = sender.Receive(m3);
-    assert(rv == 0);
+    assert(rv == 1);
     assert(m1.GetName() == m3.GetName());
     assert(m3.IsReply());
 
@@ -396,7 +397,7 @@ int testKsock()
 
     Message m6;
     rv = replier.Receive(m6);
-    assert(rv == 0);
+    assert(rv == 1);
     std::cout << m6 << std::endl;
     assert(m6.IsRequest());
     assert(m6.IsStatefulRequest());
