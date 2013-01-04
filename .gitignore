@@ -4,6 +4,13 @@
 *.swo
 *.bak
 
+# KDE directory view info
+.directory
+
+# Eclipse project files
+.project
+.cproject
+
 # Build artefacts
 # - from kernel building
 *.cmd
