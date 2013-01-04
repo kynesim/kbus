@@ -52,6 +52,7 @@
 #include <iostream>
 #include <sstream>
 
+#include <sys/eventfd.h>
 #include <limits.h>     // for the Errors
 #include <errno.h>      // ditto
 
@@ -702,7 +703,8 @@ namespace cppkbus
                 mDeviceNumber(other.mDeviceNumber),
                 mDeviceName(other.mDeviceName),
                 mDeviceMode(std::ios::in | std::ios::out),
-                mFd(-1) { }
+                mFd(-1),
+                mEventFd(eventfd(1, 0)) { }
 
             Device(const unsigned inDeviceNumber,
                    std::ios::openmode inMode=(std::ios::in | std::ios::out));
@@ -712,7 +714,8 @@ namespace cppkbus
                 mDeviceNumber(-1),
                 mDeviceName(inDeviceName),
                 mDeviceMode(inMode),
-                mFd(-1) { }
+                mFd(-1),
+                mEventFd(eventfd(1, 0)) { }
 
             ~Device();
 
@@ -830,6 +833,10 @@ namespace cppkbus
             // underneath/inside we may well want to repeatedly open/close the
             // actual file descriptor.
             mutable int mFd;
+
+            //! The file descriptor of the event used to signal device closure to 
+            // any threads waiting in Ksock::WaitForMessage().
+            int mEventFd;
     };
 
     /** Represents a ksock */

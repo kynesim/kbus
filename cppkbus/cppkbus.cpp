@@ -29,6 +29,7 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/eventfd.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <poll.h>
@@ -791,10 +792,13 @@ namespace cppkbus
 
     Device& Device::operator=(const Device& other)
     {
+        eventfd_write(mEventFd, 1);
+        close(mFd);
+        mFd = -1;
         if (mFd >= 0)
         {
-            close(mFd);
-            mFd = -1;
+            close(mEventFd);
+            mEventFd = -1;
         }
         mDeviceNumber = other.mDeviceNumber;
         mDeviceName = other.mDeviceName;
@@ -805,7 +809,8 @@ namespace cppkbus
     Device::Device(const unsigned inDeviceNumber, std::ios::openmode inMode) :
         mDeviceNumber(inDeviceNumber),
         mDeviceMode(inMode),
-        mFd(-1)
+        mFd(-1),
+        mEventFd(eventfd(1, 0))
     {
         std::ostringstream tmpstr;
         tmpstr << "/dev/kbus" << inDeviceNumber;
@@ -814,7 +819,9 @@ namespace cppkbus
 
     Device::~Device()
     {
+        eventfd_write(mEventFd, 1);
         if (mFd >= 0) { close(mFd); mFd = -1; }
+        if (mEventFd >= 0) { close(mEventFd); mEventFd = -1; }
     }
 
     // Returns 0 for success, -errno for error
@@ -851,6 +858,8 @@ namespace cppkbus
         else
         {
             mFd = rv;
+            eventfd_t eventFdVal;
+            eventfd_read(mEventFd, &eventFdVal);
             return 0;
         }
     }
@@ -868,6 +877,7 @@ namespace cppkbus
             return 0;
         else
         {
+            eventfd_write(mEventFd, 1);
             int rv = close(mFd);
             mFd = -1;               // regardless
             if (rv < 0)
@@ -1277,7 +1287,7 @@ namespace cppkbus
     int Ksock::WaitForMessage(unsigned int &outPollFlags,
             const unsigned int inPollFlags, const int timeout)
     {
-        struct pollfd fds[1];
+        struct pollfd fds[2];
         int rv;
 
 
@@ -1285,7 +1295,10 @@ namespace cppkbus
         fds[0].revents = 0;
         fds[0].events = ((inPollFlags & PollFlags::Receive) ? POLLIN : 0) |
             ((inPollFlags & PollFlags::Transmit) ? POLLOUT : 0);
-        rv = poll(fds, 1, timeout);
+        fds[1].fd = mDevice.mEventFd;
+        fds[1].revents = 0;
+        fds[1].events = POLLIN;
+        rv = poll(fds, 2, timeout);
         if (rv > 0)
         {
             outPollFlags =
@@ -1295,6 +1308,10 @@ namespace cppkbus
         else
         {
             outPollFlags = 0;
+        }
+        if (fds[1].revents)
+        {
+            return -EINTR;
         }
         return ((rv < 0) && errno != EINTR && errno != EAGAIN) ? -1 : rv;
     }
