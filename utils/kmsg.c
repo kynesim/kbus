@@ -401,7 +401,7 @@ static int create_kbus_message(kbus_message_t **out_hdr,
       /* Hex. This is rather harder .. */
 
       in_len = strlen(data);
-      data_len = (in_len>>1)& ~1;
+      data_len = (in_len>>1);
       msg_data = (uint8_t *)malloc(data_len);
       memset(msg_data, '\0', data_len);
 
