@@ -1,0 +1,138 @@
+==========
+Kbus State
+==========
+
+A frequent desire of Kbus users is to have some form of shared state.
+The typical use case is that one Kbus entity (A) contains some 
+state which entity B wishes to inspect. Should A or B crash and
+restart, the state should be updated appropriately and we would 
+like B to pick up changes in state as often as is convenient.
+
+There are several ways to solve this problem but none of them are
+really satisfactory - one can issue a Kbus request/reply for every
+inspection of state, but this is time consuming and error-prone
+in the case that many other messages are crossing the bus.
+
+An announcement protocol will work, but there are issues with
+notifying listeners when a process crashes and this involves quite
+a lot of boiler-plate which must be written for each bit of state.
+
+The solution
+------------
+
+We propose a centralised solution within kbus:
+
+- There is an entity called a State. A State is represented by a structure::
+
+   typedef struct state_struct
+   {
+     /* Kbus message id of the last applied update to this state */
+     kbus_message_id last_update_id;
+     ksock_id_t last_update_process;
+
+     /* Time at which that message happened */
+     struct timespec last_update_time;
+
+     /* Incremented by 1 every time the state is updated */
+     uint64_t generation;
+
+   #define STATE_PRESENT (1<<0)
+     uint32_t flags;
+
+     ssize_t  nr_state_bytes;
+     ssize_t  nr_bytes_mapped;
+     uint8_t data[];
+   };
+
+- To inspect or change a state, one subscribes to the state with a call::
+
+    mem = subscribe( Name , Nr-Bytes, Max-Update-Interval,  Read | Write | Exact );
+
+  * ``Max-Update-Interval`` represents the maximum time that can elapse
+    between a commit() and the data showing up here.
+  * ``Nr-Bytes`` is the number of bytes to map.
+  * ``Read | Write`` are permissions flags.
+  * If ``Exact`` is specified, ``Max-Update-Interval`` must be respected -
+    else, Kbus will do its best.
+
+  ``mem`` is a pointer to mapped memory for the state in this process (that
+  is, to the ``data[]`` in the state structure).
+
+The amount of memory actually shared is the max of all the ``Nr-Bytes``
+values. It is envisioned that this will typically be a page.
+
+- To change a state, call::
+
+    id = commit(state, bool return_to_newest);
+
+  If the commit could not be made for some reason and ``return_to_newest``
+  is true, we set the state back to the most recent published value.
+
+  Or call::
+  
+    id = abort(state);
+
+  to set the state back to the most recent value (note that this may not be
+  the value that was there before you started changing it).
+
+- It is envisioned that processes will use futexes to control
+  multiple access to a state, but we provide::
+
+    id = transact(state, &hdr)
+
+  which marks the start of a transaction. Updates to the state from this point
+  until a ``commit()`` or ``abort()`` are not made visible and if you
+  subsequently call ``commit(state)`` and someone else has modified the state,
+  ``commit()`` will return ABORTED.
+
+  ``transact()`` also returns the header of the state.
+
+- Function calls in this API may take up to ``Max-Update-Interval`` to
+  complete - if the socket is nonblocking, it will become read  or writable
+  when the function is complete and you can then call
+  ``state_transaction_done(id..)`` to check if your transaction is finished.
+  This is done to give the kbus module a better chance of computing a feasable
+  schedule.
+
+- Admission control is in effect on state attachment - if a valid message
+  schedule cannot be found, ``subscribe()`` will return an error code and you
+  must try again.
+
+- The way this works underneath is "as if" each process which
+  ``subscribe()``'s sends a reliable announcement (i.e. one which doesn't
+  require buffer space and therefore cannot fail) at intervals such that every
+  other subscriber receives state updates no less than its
+  ``Max-Update-Interval`` after the state is updated.
+
+  These state update messages are perfectly normal Kbus messages - they have
+  ids, sender and receiver. They are "magic" in that they require no buffer
+  space and cannot be stopped. They will, however, be delivered to any
+  watching Ksock.
+
+  The way it actually works, of course, is that each subscriber has an
+  ``mmap()``'d bit of memory. When a ``commit()`` happens, that data is copied
+  to the "master" copy of the state, which kbus holds as ``vmalloc()``'d
+  memory (but should be accounted against every process which subscribes),
+  and other subscribers are automagically updated unless they have
+  transactions in progress.
+
+  If anyone is bound normally to the state, when an update occurs, they get an
+  announcement containing the state value as data.
+
+- Transactions nest.
+
+- Things that worry me:
+
+  - Pointers and variably-sized state: there is no easy way to handle these
+    that I can think of.
+ 
+  - DoS attacks caused by people opening huge numbers of transactions
+    (per-process limit on the nesting level + total number of transactions per
+    process?)
+
+  - If we have to do this with limpets, is it in fact possible to have a sane
+    transaction schedule at all?
+
+  - Performance with large numbers of subscribers.
+
+.. vim: set tabstop=8 softtabstop=2 shiftwidth=2 expandtab:
