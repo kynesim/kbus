@@ -1,0 +1,290 @@
+====================
+KBUS state - musings
+====================
+
+Fit the first
+-------------
+Consider a KBUS user (Ksock) A which broadcasts some sort of current state, S.
+This state may change fairly rapidly, so state messages are sent often. We
+then have a recipient, B, who is interested in the value of S.
+
+We then have two consequent scenarios:
+
+1. S changes rapidly, but B doesn't want to track all the changes, it only
+   wants updates when it asks for them.
+
+   We could ask A to only send updates every N seconds, but that doesn't
+   work if B, C and D all have different ideas of the frequency they need.
+   Which might change, of course.
+
+2. A is receiving values for S rapidly, and updating S when it changes, but
+   the value of S is not changing very often. B would like to be told when S
+   changes, so that it does not receive all of the in-between messages.
+
+   We could ask A to only send updates when S changes. However, we then have
+   the case of when B starts to want values - it either has to wait for a
+   message containing S (which might a long wait), or it has to enter into
+   dialog with A to get the current value of S (which is a pain, and we'd
+   really rather handle that case through some KBUS mechanism so the user
+   doesn't have to keep reinventing it).
+
+For simple state, we can do this with a relatively limited extension to KBUS.
+
+For the moment, let's assume that we are "broadcasting" state - i.e., we have
+one person, A, updating S, and zero to many people who are interested in the
+value of S.
+
+B can then subscribe to changes in S. It can then do either/both of two
+things:
+
+1. Ask what the current state of S is.
+2. Ask to be sent a message (containing the current state of S) whenever S
+   changes.
+
+How do we tell if S has changed value? It sounds like it would be nice if KBUS
+detected that for us, but unfortunately we don't want KBUS to know anything
+about the meaning of the bytes in message data, so that won't work.
+
+  It *could* do a byte-by-byte comparison. But that would be slow, and, in
+  general, would give a wrong answer. First of all, we might have floating
+  point numbers in our state value, but regard 0.001 and 0.002 as the same
+  within tolerance. And secondly, our state might be complex, and some sets of
+  internal values might be considered equivalent (mode START and READY might
+  be identical for our purpose, even though needing to be transmitted as
+  different values).
+
+So we do have to assume that A will only send a new value of S when it has
+changed.
+
+Our requirements are thus:
+
+1. B *subscribes* to message S.
+
+   a. B wants, or does not want, to get a new message when state-of-S changes,
+      in which case it gets a message S at appropriate times.
+
+      This sounds suspiciously like binding to a special message, "update of
+      S", as a standard listener. This turns this into a (message) naming
+      problem...
+
+        *B binds to "$.STATE.OF.<S>"*
+
+        NB: I imagine we forbid wildcards in "$.STATE.OF." message names, and
+        that the binding is automatically marked as MSGONLYONCE.
+
+   b. B can ask KBUS for the current state of S, in which case it gets a
+      message S containing the current state.
+
+      This sounds supiciously like sending a Request, "give me S", to KBUS
+      itself (i.e., KBUS would be the Replier for such messages), and getting
+      back a Reply with the state in it. Again, a naming problem.
+
+        *B requests "$.STATE.OF.<S>"*
+
+   c. B wants to receive changes in S, but not more often than once per N
+      seconds.
+
+        *B binds to "$.STATE.OF.<S>" with minimal interval N*
+
+      So if A changes S 10 times every N seconds, B will only get a single
+      message every N seconds,
+
+      However, if A changes S every 10*N seconds, B will get every change in
+      S.
+
+      (If A changes S, and then changes it again 7 times separated by N/10,
+      and then doesn't change it again for 10*N, should KBUS send the first S
+      and then delay the eighth until N? How complicated should we be?)
+
+2. A *declares* that it is setting a state S.
+
+   a. A needs to be able to publish a new state of S, which KBUS will
+      remember.
+
+        *A sends "$.STATE.OF.<S>" with appropriate data*
+
+   b. Does A need to declare how big the data for S is, or can be? Being able
+      to define at least a maximum size sounds like a good idea. This would
+      presumably be done via IOCTL.
+
+   c. KBUS needs to ensure that B can't get a value for S whilst A is writing
+      it, Whilst low-level message reading and writing are "atomic" (i.e.,
+      that's the level at which KBUS locks), a user-level read/write may be
+      split into several of the low-level calls.
+
+      For the moment, we'll just assume that the internal state of S is only
+      changed when the last part of the write operation completes - i.e., it
+      is finalised when A thinks it is.
+
+What we've described so far does a simple job with some magic provoked by
+naming - this would appear to be the minimal change we can get away with
+("messages starting $.STATE.OF. are special"). It's likely not to be a good
+idea if we have a large amount of state data, though, as we're still
+transferring the data in our messages.
+
+It doesn't particularly describe what happens if we have multiple senders (A1,
+A2, ...) all sending new values for S, and it doesn't describe how we might
+cope with large data contents in S.
+
+Fit the second
+--------------
+KBUS level read and write are atomic (that's the level we lock at), but user
+level read and write may not be, as they may result in multiple calls to the
+KBUS functions.
+
+This is specifically a problem if A and A' both try to set the state of S.
+
+Thus we should probably say that, in the scheme described above, whoever
+started a write has gained control over the amendment of the state, and has it
+until their write finishes. Thus A would have control, and A' would get an
+error if it tried to write "at the same time".
+
+If A dies, mid way through, then KBUS knows this, and it would have to throw
+away the partial write from A.
+
+  (Since this is all being done by the system, I don't think we don't need an
+  abort/rollback mechanism of any greater complexity, for this purpose.)
+
+Note that this is essentially similar to what can happen already with writes -
+the user level call may, for instance, fail because there is no room in the
+intended recipient's message queue.
+
+Fit the third
+-------------
+Do we cope with A dying and A' taking over management of state S?
+
+Since KBUS identifies A via its Ksock, it does know when it is closed (whether
+because it died or some other reason), so it can know that this has happened.
+
+However, the mechanism as given above doesn't much care - as normal, anyone
+can send messages modifying S.
+
+If B asks for the state in the gap between A and A', it should just get the
+last state, as normal.
+
+Which leaves us with the important question:
+
+  * Does the internal state for S go away when both A and B have gone away?
+
+Well, as described above, KBUS knows that B cares about S, but may not have
+bothered to remember that A does. Maybe it should remember any Ksock that has
+set the state of S, and consider it an interested user - in which case we
+could allow the state of S to vanish when no A or B is left.
+
+*Or* we could have a pair of explicit calls, one to setup the internal state
+for S, and the other to declare it of no further interest:
+
+  *Declare new state S*
+
+  *Forget state S*
+
+That last would obviously have to fail if any B was still bound to the
+"$.STATE.OF.<S>" message name. Would it also fail if any A was still open?
+(probably not, since A is the most plausible person to be calling it!).
+
+Clarifying:
+
+* When B subscribes to S, we've already said it sets the equivalent of
+  MSGONLYONCE. Let's make that explicit - if B tries to subscribe to S more
+  than once, only the first has any effect. KBUS then remembers that B has an
+  interest in S.
+
+* When A declares a new state S, it also registers as interested. This is a
+  *counted* value - so if A declares again, that count is incremented.
+
+* When A forgets state S, its interest count is decremented.
+
+* If A or B closes its Ksock (for whatever reason), its interest in S becomes
+  zero.
+
+So if A, A (again), A' and B all have interest in S, and A and B die, there is
+still an interest from A', and the resources for S will not go away.
+
+We *might* also want to be able to declare a *persistent* state, P, which
+never goes away (except when KBUS itself does).
+
+Fit the fourth
+--------------
+Transactions. The use case for this becomes obvious when we want two Ksocks to
+be able to read and write "at the same time".
+
+We want to be able to do::
+
+  B starts a transaction, within which no-one else can affect S
+
+    B reads the current values of S
+
+    B thinks a bit
+
+    B writes a new value of S, presumably based on its thoughts
+
+    B does commit
+
+  <and the transaction is now over>
+
+Start transaction and commit are, presumably, yet more IOCTLs.
+
+The idea is that B wants to know that S won't have changed under its feet
+while it was thinking. So in the traditional manner, trying to start the
+transaction might fail because someone else already has one out.
+
+  Presumably it should also fail if someone is mid-read or mid-write?
+
+Similarly, doing a write of S should fail whilst the transaction is out on it.
+
+Doing a read should clearly work, but must continue to get the pre-transaction
+value until the transaction is committed.
+
+Notes:
+
+1. But B might decide not to write anything (to S) so there must be another
+   way of explicitly ending the transaction. We could call that rollback,
+   or abort, depending. Either way, its presumably yet another IOCTL.
+
+2. Transactions must be able to be nested, because otherwise it gets very hard
+   to write library code.
+
+      Is this true?
+
+2. Transactions belong to the Ksock. It's obviously not possible to nest
+   transactions on different Ksocks. KBUS can give an error if that happens.
+   
+3. Nested transactions need not involve the same state. So B can have a first
+   transaction on state S1, a nested transaction on S2, a nested in *that*
+   transaction on state S3, and so on.
+
+4. But also, nested transactions need not involve different states. So in the
+   previous example, any of S1, S2 and S3 might have been the same state.
+
+      * Is that simply incrementing a transaction count on each S?
+      * If so, does it matter in what order the transactions are ended
+        (could we even tell?)
+
+
+
+
+
+
+  
+
+Fit the Nth
+--------------
+All of this works well for small values being stored in S. If we're only
+transmitting a few bytes, then messages continue to work well as our medium.
+
+However, if we want to store large "blobs" of state, then we don't want to
+keep sending them as messages - if only because of the overhead in copying the
+message in and out of kernel space.
+
+A user could craft a mechanism using the state mechanism as described above
+and (for instance) bulklib and shared memory buffers, but it would be nice if
+we could come up with a once-and-for-all solution to save multiple invention.
+
+So, we assume that we have:
+
+* a resource name, which we shall continue to call S.
+* an area of shared memory, M, which is used to contain the data for our
+  state.
+
+
+.. vim: set filetype=rst tabstop=8 softtabstop=2 shiftwidth=2 expandtab:

@@ -135,4 +135,15 @@ values. It is envisioned that this will typically be a page.
 
   - Performance with large numbers of subscribers.
 
+-------------------------------------------------------------------
+
+Other notes:
+
+Use copy-on-write?
+
+NB: if state is mapped readonly, then we can use a direct mapping to KBUS's
+internal state.
+
+State limited to one page, for simplicity and speed.
+
 .. vim: set tabstop=8 softtabstop=2 shiftwidth=2 expandtab:
