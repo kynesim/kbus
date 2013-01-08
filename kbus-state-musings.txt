@@ -2,6 +2,8 @@
 KBUS state - musings
 ====================
 
+Starting from nothing and trying to work up to Richard's document...
+
 Fit the first
 -------------
 Consider a KBUS user (Ksock) A which broadcasts some sort of current state, S.
@@ -235,37 +237,83 @@ Similarly, doing a write of S should fail whilst the transaction is out on it.
 Doing a read should clearly work, but must continue to get the pre-transaction
 value until the transaction is committed.
 
-Notes:
+Note that B might decide not to write anything (to S) so there must be another
+way of explicitly ending the transaction. We could call that rollback, or
+abort, depending. Either way, its presumably yet another IOCTL.
 
-1. But B might decide not to write anything (to S) so there must be another
-   way of explicitly ending the transaction. We could call that rollback,
-   or abort, depending. Either way, its presumably yet another IOCTL.
+Transactions must be nestable, so that it is easier to write code using them
+(i.e., library code doesn't have to keep track of whether there is already an
+open transaction).
 
-2. Transactions must be able to be nested, because otherwise it gets very hard
-   to write library code.
+The following notes apply:
 
-      Is this true?
+1. A transaction relates to a state S, and belongs to the Ksock K that started
+   it. Once K starts a transaction on state S, no other Ksock may start a
+   transaction on state S, until such time as K ends its (outermost)
+   transaction.
 
-2. Transactions belong to the Ksock. It's obviously not possible to nest
-   transactions on different Ksocks. KBUS can give an error if that happens.
-   
-3. Nested transactions need not involve the same state. So B can have a first
-   transaction on state S1, a nested transaction on S2, a nested in *that*
-   transaction on state S3, and so on.
+2. K may start more than one transaction on the same state S. Starting such a
+   nested transaction shall be equivalent to incrementing a nested transaction
+   counter for S.
 
-4. But also, nested transactions need not involve different states. So in the
-   previous example, any of S1, S2 and S3 might have been the same state.
+3. Committing inner transactions simply decrements the nested transaction
+   counter. It is only committing the outermost transaction that actually
+   commits the change of state.
 
-      * Is that simply incrementing a transaction count on each S?
-      * If so, does it matter in what order the transactions are ended
-        (could we even tell?)
+4. If an inner transaction aborts/rolls back, then the outermost transaction
+   is also considered to have aborted/rolled back. This makes sense if we are
+   assuming that the outer most transaction depends on the success of the
+   inner transactions (which is a natural way to look at it).
+
+   So, if an inner transaction aborts, it will not be possible to commit any
+   transactions that contain it. If we're using a simple nested transaction
+   counter approach, this is also probably the simplest way to work.
+
+5. A transaction on a different state is not a nested transaction, for this
+   discussion.
+
+.. note:: The above may get tinkered with in the light of experience.
+   And test code.
+
+   Diagrams are defintely going to be needed.
+
+...erm, the following is not correct, I think...
 
 
+.. note:: Specifically, after talking with Richard, we would really like
+   transactions to be independent, so a nested transaction can be rolled back
+   (aborted) *by the user* without necessitating the ending of an outer
+   transaction.
 
 
+So, we potentially have the following mechanisms:
 
+* K starts a transaction on S. They may get back a transaction id.
 
-  
+  If someone else (not K) already has a transaction open on S, then this will
+  fail.
+
+  If K already has a transaction on S, then this is an inner transaction on S.
+
+* K commits a transaction on S. They may need to name the transaction by
+  passing in the transaction id from the transaction start.
+
+  If this is the outermost transaction on S, then:
+
+  * It is assumed that K has written a new value for S. If the commit
+    completes successfully, then the new value for S becomes the current
+    value. Anyone who has registered to be told of this may now be told.
+
+  * If the commit fails, then S is not changed.
+
+  * Either way, committing ends this transaction.
+
+  If it an inner (nested) transaction, then the commit may have no specific
+  effect except to end the inner transaction. See above.
+
+* K aborts a transaction on S. They may need to name the transaction by
+  passing in the transaction id from the transaction start.
+
 
 Fit the Nth
 --------------
