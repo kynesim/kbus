@@ -7,13 +7,36 @@ Starting from nothing and trying to work up to Richard's document...
 Hopefully this will also give some sense of an order in which to implement
 things.
 
+Our motivation
+--------------
+We have a system where user A is receiving data many times a second from an
+external source, and sending that data out via KBUS as a variety of messages.
+Essentially, it is sending one message per incoming data packet.
+
+User B is receiving those messages, and using them as a means of determining
+the state of the external source.
+
+The problem is that a *lot* of messages are being sent, because we're trying
+to store the state of the external system in a flow of live messages. Almost
+all of those messages are actually redundant, and are just loading the system
+to no useful purpose.
+
+It would be better if A only sent a message when the particular state changes,
+but then we'd have a problem when B starts (it would not know the current
+state). This also applies if B restarts, or if a new B' appears.
+
+We're also using messages from B to A to cause requests for change to be sent
+to the external source. Some of those changes are actually attempts to change
+the same sort of state that we have incoming messages for. So potentially our
+communication of state is not single directional.
+
 Fit the first
 -------------
 Consider a KBUS user (Ksock) A which broadcasts some sort of current state, S.
 This state may change fairly rapidly, so state messages are sent often. We
 then have a recipient, B, who is interested in the value of S.
 
-We then have two consequent scenarios:
+We have two consequent scenarios:
 
 1. S changes rapidly, but B doesn't want to track all the changes, it only
    wants updates when it asks for them.
@@ -147,7 +170,7 @@ error if it tried to write "at the same time".
 If A dies, mid way through, then KBUS knows this, and it would have to throw
 away the partial write from A.
 
-  (Since this is all being done by the system, I don't think we don't need an
+  (Since this is all being done by the system, I don't think we need an
   abort/rollback mechanism of any greater complexity, for this purpose.)
 
 Note that this is essentially similar to what can happen already with writes -
@@ -253,7 +276,7 @@ Also consider::
 
     B writes a new value of S, S.1
 
-    B reads S - what happens?
+    B reads S a second time - what happens?
 
     B writes a new value of S, S.2
 
@@ -261,13 +284,14 @@ Also consider::
 
   <and the transaction is now over>
 
-Does B see S.0 or S.1 on that second read?
+Does B see S.0 or S.1 on that second read? Ideally, they'd see S.1.
 
-Is that second write allowed, within the same transaction?
+Is that second write allowed, within the same transaction? Hopefully, yes.
 
 I don't think it is *required* that transaction support be part of KBUS
 itself, if there is a more efficient way of doing it in userspace (Richard
-suggests basing things around futexes).
+suggests basing things around futexes). Everyone would just have to promise
+not to cheat.
 
 Fit the fifth
 -------------
@@ -382,37 +406,188 @@ Options seem to be:
    nested transaction can be rolled back (aborted) *by the user* without
    necessitating the ending of an outer transaction.
 
+   I think I'm only going to be happy when I've got actual use-cases and some
+   implementation to play with.
+
+Fit the sixth
+-------------
+If B is trying to find out the current state of S, it may need to do it fast
+and frequently. The overhead of doing a message exchange (request current
+state, arrange to receive the reply, actually receive the reply) is a lot of
+overhead, both in programming (the request/reply handling, which may involve
+callbacks to handle the receipt of the reply) and also in work (the system
+calls, and the actual message handling, and the copying of the state data
+across the user/kernel interface). So we'd like a different solution, allowing
+B to "just look" at something - and the natural solution is some shared
+memory.
+
+Meanwhile, the data for state S may have multiple parts, and those parts may
+change at different frequencies. If S is quite large, sending or receiving
+*all* of S when only one part of it is changing is again too much overhead. So
+this is another indication that S does not belong inside the messages. Again,
+the obvious thing to use is shared memory.
+
+This all means that we don't want to use KBUS for such state, although we can
+sensibly use it for passing information *about* the state (e.g., "state S has
+changed").
+
+However, if we're going to have a shared memory data structure, then we
+definitely need some sort of transaction handling infrastructure, to make sure
+that our read and write accesses make sense. At which point, we do have a
+module or library handling the multiple versions of our state that we will
+necessarily have.
+
+So, first we need to sort out access to the state. We can continue to use a
+state *name*, S, but now our Ksock is not relevant (we're not bound tightly to
+KBUS), so instead we're using our current process as accessor - i.e., it can
+be implicit.
+
+Which means we have::
+
+  <state> = subscribe(S, permissions)
+
+where ``permissions`` is some combination of ``read`` and ``write`` flags.
+
+We then also have::
+
+  err = read(<state>, offset, length, &buffer)
+
+which reads ``length`` bytes from offset ``offset`` into ``buffer`` (which
+must be at least ``length`` bytes long). Bounds checking will be done on
+``offset`` and ```length`` with respect to the data actually available in
+``<state>``.
+
+Clearly ``read`` may fail with a RETRY error for that moment when the actual
+state is being updated (and our job is to keep that time as short as
+possible).
+
+We can also have::
+
+  err = write(<state>, offset, length, buffer)
+
+which writes ``length`` bytes from ``buffer`` to ``offset`` within
+``<state>``. Again, bounds checking will be done with respect to the data area
+in ``<state>``.
+
+.. note:: We'll see below that there is an implicit transaction around
+   ``write``.
+
+Starting a transaction needs to return a handle identifying it, so::
+
+  <transaction> = transaction(<state>)
+
+indicates that we have started a transaction on ``<state>``. While this
+transaction is ongoing, it will not be possible for another process to start a
+transaction on ``<state>``, or to write to it.
+
+Committing a transaction obviously does so with respect to that handle::
+
+  err = commit(<transaction>)
+
+as does aborting::
+
+  err = abort(<transaction>)
+
+For convenience, we want to be able to pass a ``<transaction>`` handle to
+``read`` and ``write``, as well as the ``<state>`` they were previously
+expecting.
+
+Also for convenience::
+
+  err = write(<state>, offset, length, buffer)
+
+should actually behave as if it were::
+
+  <transaction> = transaction(<state>)
+  err = write(<transaction>, offset, length, buffer)
+  if err:
+    abort(<transaction>)
+  else:
+    commit(<transaction>)
+
+This means that if you are already in a transaction, you really do want to
+pass that ``<transaction>`` to ``write()``, so that it can tell it doesn't
+need to introduce a spurious inner transaction.
+
+Whether we believe the same about ``read`` or not is a matter I'll worry about
+later.
+
+.. note:: Accessing the shared memory via opaque handles like this means that
+   the caller doesn't need to worry about how transactions actually manage
+   memory. This has the advantage that we can change the mechanism, if we
+   wish.
+
+   One obvious way to do it is for a transaction to (notionally) take a copy
+   of the state's data at its start, and use copy-on-write to maintain the
+   state as amended by the transaction. It can then simply "flip" which
+   copy of the state's data is being used at the end of the transaction.
+
+   Of course, that initial copy may itself only be made if actually necessary.
+
+.. note:: We don't want to provide any direct acccess to the internal pointers
+   to shared memory, attractive though that might seem.
+
+   Imagine if we had a function::
+
+     ptr = get_ptr(<handle>)
+
+   That ``ptr`` would be transient, particularly over calls of ``write``
+   (since we don't know what happens to the underlying data when we do a
+   write), and it would also obviously be invalid after a ``commit`` or
+   ``abort``. None of those are *enforceable* though, so it would be terribly
+   easy to end up misusing the pointer. Also, since it *is* just a pointer,
+   we've got no option for bounds checking the amount of data being accessed
+   through it.
+
+I *think* that once we've got all of that working, we can add the KBUS support
+"on top".
+
+Reviewing our initial requirements:
+
+1. B wants to be notified when S is changed.
+
+   This is done by sending a KBUS message to anyone who cares when an outer
+   level commit happens.
+   
+   Note that this means we have to be able to tell we're dealing with an outer
+   level commit.
+
+   The message name should be automatically derieved from the state name.
+
+   We should presumably be able to cause this by passing a Ksock to something
+   - possibly our initial ``subscribe``.
+
+2. B wants to determine the current state of S.
+
+   This is done by using ``read`` directly.
+
+3. B wants to receive changes in S, but not more often than once per N
+   seconds.
+
+   This does require an amendment to KBUS, to allow it to filter the
+   messages from case (1). It's a useful general case for message handling, I
+   think. We'd need a new binding mechanism::
+
+     err = kbus_ksock_bind_filter(ksock, name, max_freq)
+
+   which say says that we want to bind to message ``name`` as a listener, but
+   not receive more than one message every ``max_freq`` seconds.
+
+   This clearly belongs at the listener end of the message system, since
+   different listeners are going to have different frequencies.
 
 
+Question: Should our ``state`` allow for ``components``?
 
+We said earlier on that we might have a state that has components which are
+updated at different frequencies. Putting it another way, we may allocate an
+area of shared memory where some parts of it are written more often than
+others. It might be nice to be able to identify these as such, both for
+convenience of access, but also for convenience of messaging - i.e., having
+different messages for updating of the different components.
 
-
-
-
-
-
-
-
-
-
-Fit the Nth
---------------
-All of this works well for small values being stored in S. If we're only
-transmitting a few bytes, then messages continue to work well as our medium.
-
-However, if we want to store large "blobs" of state, then we don't want to
-keep sending them as messages - if only because of the overhead in copying the
-message in and out of kernel space.
-
-A user could craft a mechanism using the state mechanism as described above
-and (for instance) bulklib and shared memory buffers, but it would be nice if
-we could come up with a once-and-for-all solution to save multiple invention.
-
-So, we assume that we have:
-
-* a resource name, which we shall continue to call S.
-* an area of shared memory, M, which is used to contain the data for our
-  state.
+If we do this, I'm going to assert that it will only be a single level of
+division - i.e., components of the state, but not subcomponents.
 
 
 .. vim: set filetype=rst tabstop=8 softtabstop=2 shiftwidth=2 expandtab:
