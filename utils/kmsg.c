@@ -149,7 +149,8 @@ static void usage(void)
 	  "    kmsg send   <name> <fmt> <data> - Send the given message.\n"
 	  "    kmsg call   <name> <fmt> <data> - Send the given message, wait for a reply.\n"
 	  "\n"
-	  "<fmt> can be 's'tring , 'h'ex, or '-'. If '-' is specified, we take our message data from stdin.\n"
+	  "<fmt> can be 's'tring , 'z'ero-terminated string, 'h'ex, or '-'. If '-' is specified,\n"
+          "we take our message data from stdin.\n"
           "\n"
           "--bus <NN> may be used to choose the KBUS device. The default is 0.\n"
           "--dump     may be used to tell us to dump messages rather than printing a summary.\n"
@@ -393,6 +394,12 @@ static int create_kbus_message(kbus_message_t **out_hdr,
       msg_data = (uint8_t *)malloc(strlen(data));
       memcpy(msg_data, data, data_len);
     }
+  else if (fmt[0] == 'z')
+  {
+      data_len = strlen(data)+1;
+      msg_data = (uint8_t *)malloc(data_len);
+      strcpy(msg_data, data);
+  }
   else if (fmt[0] == 'h')
     {
       int i;
