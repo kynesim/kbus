@@ -36,9 +36,25 @@
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "cppkbus.h"
 #include "linux/kbus_defns.h"
+
+namespace
+{
+    int getMaxMsgSize(int fd, int which)
+    {
+        
+        uint32_t arg  = (which);
+        int rv = ioctl(fd, KBUS_IOC_MAXMSGSIZE, &arg);
+        if (rv < 0)
+            return -errno;
+        else
+            return arg;
+    }
+
+}
 
 namespace cppkbus
 {
@@ -347,7 +363,7 @@ namespace cppkbus
     }
 #endif
 
-    Message::Message(const char *inName)
+    Message::Message(const char *inName) : mName(), mData(), mPointyData(NULL)
     {
         if (inName)
             mName = std::string(inName, strlen(inName));
@@ -356,7 +372,7 @@ namespace cppkbus
 
     // Almost as simple as it gets
     Message::Message(const std::string& inName, const bool isRequest) :
-        mName(inName)
+        mName(inName), mData(), mPointyData(NULL)
     {
         SetData(NULL, 0, isRequest?MessageFlags::WantReply:0);
     }
@@ -367,7 +383,9 @@ namespace cppkbus
             const uint32_t msgFlags, const bool copyData,
             const bool isRequest) :
         mIsEntire(copyData),
-        mName(inName)
+        mName(inName),
+        mData(),
+        mPointyData(NULL)
     {
         uint32_t    actualFlags = msgFlags;
         if (isRequest)
@@ -386,7 +404,9 @@ namespace cppkbus
             const OrigFrom *origFrom, const OrigFrom *finalTo,
             const uint8_t *data, const size_t nr_bytes, const bool copyData) :
         mIsEntire(copyData),
-        mName(inName)
+        mName(inName),
+        mData(),
+        mPointyData(NULL)
     {
         // It's still simplest to use the normal way to do this
         SetData(data, nr_bytes, msgFlags);
@@ -1099,6 +1119,31 @@ namespace cppkbus
         }
     }
 
+    int Ksock::SetMaxMessageSize(const int nr_bytes)
+    {
+        // nr_bytes == 0 for current max, 1 for abs max.
+        if (nr_bytes < 2) 
+        {
+            return -EINVAL;
+        }
+        uint32_t arg = nr_bytes;
+        int rv = ioctl(mDevice.mFd, KBUS_IOC_MAXMSGSIZE, &arg);
+        if (rv < 0)
+            return -errno;
+        else
+            return 0;
+    }
+
+    int Ksock::GetMaxMessageSize() const
+    {
+        return getMaxMsgSize(mDevice.mFd, 0);
+   }
+
+    int Ksock::GetSystemMaxMessageSize() const
+    {
+        return getMaxMsgSize(mDevice.mFd, 1);
+    }
+    
     int Ksock::SetMaxUnreadMessages(const uint32_t qlen)
     {
         int rv = ioctl(mDevice.mFd, KBUS_IOC_MAXMSGS, &qlen);
@@ -1160,7 +1205,7 @@ namespace cppkbus
 
     int Ksock::ReceiveMessagesOnlyOnce(const bool shouldReceiveOnce)
     {
-        uint32_t array[1] = { shouldReceiveOnce?1U:0 };
+        uint32_t array[1] = { shouldReceiveOnce?1U:0U };
         int rv = ioctl(mDevice.mFd, KBUS_IOC_MSGONLYONCE, &array[0]);
         if (rv < 0)
             return -errno;

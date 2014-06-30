@@ -355,7 +355,7 @@ namespace cppkbus
             /*! Create an empty/unset message, suitable for 'Receive()'ing into,
              * or for copying an existing message into.
              */
-            Message() : mIsEmpty(true) { }
+            Message() : mIsEmpty(true), mName(), mData(), mPointyData(NULL) { }
 
             // In case anyone subclasses from us
             virtual ~Message() { }
@@ -915,6 +915,17 @@ namespace cppkbus
              *  this Ksock
              */
             int GetMaxUnreadMessages(uint32_t& qlen) const;
+ 
+            /** Get the local maximum message size */
+            int GetMaxMessageSize() const;
+
+            /** Get the global kbus maximum message size  - you can't set the max message
+             *  size to greater than this
+             */
+            int GetSystemMaxMessageSize() const;
+
+            /** Set the max message size */
+            int SetMaxMessageSize(const int inBytes);
 
             /**
              * Get the number of unread messages in this Ksock's read queue.

@@ -44,6 +44,8 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 
+#include <linux/version.h>
+
 #include <linux/kbus_defns.h>
 #include "kbus_internal.h"
 
@@ -126,10 +128,15 @@ static const struct file_operations kbus_proc_binding_file_ops = {
 static struct proc_dir_entry
 *kbus_create_proc_binding_file(struct proc_dir_entry *directory)
 {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
 	struct proc_dir_entry *entry =
 	    create_proc_entry("bindings", 0, directory);
 	if (entry)
 		entry->proc_fops = &kbus_proc_binding_file_ops;
+#else
+	struct proc_dir_entry *entry = proc_create("bindings", 0, directory,
+                                                   &kbus_proc_binding_file_ops);
+#endif
 	return entry;
 }
 
@@ -222,9 +229,14 @@ static const struct file_operations kbus_proc_stats_file_ops = {
 static struct proc_dir_entry
 *kbus_create_proc_stats_file(struct proc_dir_entry *directory)
 {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
 	struct proc_dir_entry *entry = create_proc_entry("stats", 0, directory);
 	if (entry)
 		entry->proc_fops = &kbus_proc_stats_file_ops;
+#else
+	struct proc_dir_entry *entry = proc_create("stats", 0, directory,
+                                                   &kbus_proc_stats_file_ops);
+#endif
 	return entry;
 }
 

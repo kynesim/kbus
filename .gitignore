@@ -32,3 +32,6 @@ jkbus/java/include/com_kynesim_kbus_KMessage.h
 jkbus/java/include/com_kynesim_kbus_Ksock.h
 utils/kmsg
 utils/runlimpet
+
+#ctags tagfile
+tags
