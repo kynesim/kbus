@@ -108,7 +108,7 @@
 #ifdef DEBUG
 #define kbus_maybe_dbg(kbus_dev, format, args...) do { \
 	if ((kbus_dev)->verbose) \
-		(void) dev_dbg((kbus_dev)->dev, format, ## args); \
+		dev_dbg((kbus_dev)->dev, format, ## args); \
 } while (0)
 #else
 #define kbus_maybe_dbg(kbus_dev, format, args...) ((void)0)
