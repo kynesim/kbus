@@ -1,4 +1,0 @@
-The main KBUS repository.
-
-This is the userspace and kernel repositories reunited, in preparation for
-changing the KBUS Google Code project from Mercurial to Git.
