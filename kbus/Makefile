@@ -65,6 +65,8 @@ endif
 # size of a KBUS message to be larger than the default of 1024...
 # Set it to something fairly large.
 	CFLAGS_kbus_main.o	+= -DCONFIG_KBUS_ABS_MAX_MESSAGE_SIZE=409600
+# Set the default max message size to the system max.
+       CFLAGS_kbus_main.o      += -DCONFIG_KBUS_DEF_MAX_MESSAGE_SIZE=409600
 
 
 ifeq ($(TEST), y)
