@@ -54,7 +54,8 @@ static int create_kbus_message(kbus_message_t **out_hdr,
 static int do_reply(const char *msg_name, int bus_number, int do_dump, int full_contents);
 static int do_listen(const char *msg_name, int bus_number, int do_dump, int full_contents);
 static int do_send(const char *msg_name, const char *fmt,
-		   const char *data, int expect_reply, int bus_number);
+		   const char *data, int expect_reply, int bus_number, 
+                   int do_dump, int full_contents);
 
 static const char *bus_device_name(int bus_number);
 
@@ -133,7 +134,7 @@ int main(int argn, char *args[])
 
       // We're expecting a reply iff the command is not 'send'
       return do_send(args[2], args[3], args[4],
-		     strcmp(cmd, "send"), bus_number);
+		     strcmp(cmd, "send"), bus_number, do_dump, full_contents);
     }
   else
     {
@@ -145,7 +146,7 @@ int main(int argn, char *args[])
 
 static void usage(void)
 {
-  fprintf(stderr, "Syntax: kmsg [--bus <NN>] [-v] [--dump] listen|reply|send|call <name> [<fmt> <data>]\n"
+  fprintf(stderr, "Syntax: kmsg [--bus <NN>] [--full] [-v] [--dump] listen|reply|send|call <name> [<fmt> <data>]\n"
 	  "\n"
 	  "    kmsg listen <name>  - Bind as Listener for <name>, print every message you receive.\n"
 	  "    kmsg reply  <name>  - Bind as Replier  for <name>, print every message you receive,\n"
@@ -159,6 +160,7 @@ static void usage(void)
           "\n"
           "--bus <NN> may be used to choose the KBUS device. The default is 0.\n"
           "--dump     may be used to tell us to dump messages rather than printing a summary.\n"
+          "--full     don't abbreviate messages.\n"
 	  "\n");
 }
 
@@ -457,7 +459,8 @@ static int create_kbus_message(kbus_message_t **out_hdr,
 }
 
 static int do_send(const char *msg_name, const char *fmt,
-		   const char *data, int expect_reply, int bus_number)
+		   const char *data, int expect_reply, int bus_number, 
+                   int do_dump, int full_contents)
 {
   int rv;
   kbus_message_t *kmsg;
@@ -486,8 +489,10 @@ static int do_send(const char *msg_name, const char *fmt,
 	 msg_name, expect_reply);
 
 
-  kbus_msg_print(stdout, kmsg); fprintf(stdout,"\n");
-  //kbus_msg_dump(kmsg, 1);
+  kbus_msg_print2(stdout, kmsg, 
+                  (!full_contents ? KBUS_MSG_PRINT_FLAGS_ABBREVIATE : 0));                          
+  fprintf(stdout, "\n");
+  if (do_dump) { kbus_msg_dump(kmsg, 1); }
   rv = kbus_ksock_send_msg(ks, kmsg, &id);
   if (rv < 0)
     {
@@ -523,8 +528,10 @@ static int do_send(const char *msg_name, const char *fmt,
 	      return 20;
 	    }
 
-          kbus_msg_print(stdout, inmsg); fprintf(stdout,"\n");
-	  //kbus_msg_dump(inmsg, 1);
+          kbus_msg_print2(stdout, inmsg, 
+                          (!full_contents ? KBUS_MSG_PRINT_FLAGS_ABBREVIATE : 0));                          
+          fprintf(stdout,"\n");
+	  if (do_dump) { kbus_msg_dump(inmsg, 1); }
 
 	  if (!kbus_msg_compare_ids(&(inmsg->in_reply_to), &id))
 	    {
