@@ -803,6 +803,22 @@ extern int kbus_msg_split_bind_event(const kbus_message_t  *msg,
 extern void kbus_msg_print(FILE                 *stream,
                            const kbus_message_t *msg);
 
+
+#define KBUS_MSG_PRINT_FLAGS_ABBREVIATE (1<<0)
+
+/*
+ * Print out a representation of a message.
+ *
+ * `stream` is the output stream to print to -- typically stdout.
+ *
+ * Does not print a newline.
+ *
+ * flags is an OR of KBUS_MSG_PRINT_FLAGS_XXX.
+ */
+extern void kbus_msg_print2(FILE                 *stream,
+                            const kbus_message_t *msg, 
+                            unsigned int flags);
+
 /*
  * Print out (on stdout) information about a message.
  *

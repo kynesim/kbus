@@ -1253,6 +1253,11 @@ extern int kbus_msg_split_bind_event(const kbus_message_t  *msg,
   return 0;
 }
 
+extern void kbus_msg_print(FILE *stream,
+                           const kbus_message_t *msg) {
+  kbus_msg_print2(stream, msg, KBUS_MSG_PRINT_FLAGS_ABBREVIATE);
+}
+
 /*
  * Print out a representation of a message.
  *
@@ -1260,8 +1265,9 @@ extern int kbus_msg_split_bind_event(const kbus_message_t  *msg,
  *
  * Does not print a newline.
  */
-extern void kbus_msg_print(FILE                 *stream,
-                           const kbus_message_t *msg)
+extern void kbus_msg_print2(FILE                 *stream,
+                            const kbus_message_t *msg,
+                            unsigned int flags)
 {
   int is_bind_event = false;
   char *name = kbus_msg_name_ptr(msg);
@@ -1329,7 +1335,10 @@ extern void kbus_msg_print(FILE                 *stream,
 
       if (bind_name) free(bind_name);
     } else {
-      int ii, minlen = msg->data_len<20?msg->data_len:20;
+      int ii, minlen =msg->data_len;
+      if (flags & KBUS_MSG_PRINT_FLAGS_ABBREVIATE) { 
+        minlen =  msg->data_len<20?msg->data_len:20;
+      }
       for (ii=0; ii<minlen; ii++) {
         char  ch = data[ii];
         if (isprint(ch))
@@ -1337,7 +1346,7 @@ extern void kbus_msg_print(FILE                 *stream,
         else
           fprintf(stream,"\\x%02x",ch);
       }
-      if (msg->data_len > 20)
+      if (minlen < msg->data_len)
         fprintf(stream,"...");
     }
   }

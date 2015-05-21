@@ -51,8 +51,8 @@ static int create_kbus_message(kbus_message_t **out_hdr,
 			       const char *msg_name, const char *fmt,
 			       const char *data, int expect_reply);
 
-static int do_reply(const char *msg_name, int bus_number, int do_dump);
-static int do_listen(const char *msg_name, int bus_number, int do_dump);
+static int do_reply(const char *msg_name, int bus_number, int do_dump, int full_contents);
+static int do_listen(const char *msg_name, int bus_number, int do_dump, int full_contents);
 static int do_send(const char *msg_name, const char *fmt,
 		   const char *data, int expect_reply, int bus_number);
 
@@ -63,6 +63,7 @@ int main(int argn, char *args[])
   int bus_number = 0;
   int verbose = 0;
   int do_dump = 0;
+  int full_contents = 0;
 
   if (argn < 2)
     {
@@ -90,6 +91,10 @@ int main(int argn, char *args[])
       ++do_dump;
       args += 1; argn -= 1;
   }
+  if (!strcmp(args[1], "--full")) {
+      ++full_contents;
+      args += 1; argn -=1;
+  }
   
 
 
@@ -105,7 +110,7 @@ int main(int argn, char *args[])
 	  return 2;
 	}
       return do_listen(args[2], bus_number, 
-                       do_dump);
+                       do_dump, full_contents);
     }
   else if (!strcmp(cmd, "reply"))
     {
@@ -115,7 +120,7 @@ int main(int argn, char *args[])
 	  usage();
 	  return 2;
 	}
-      return do_reply(args[2], bus_number, do_dump);
+       return do_reply(args[2], bus_number, do_dump, full_contents);
     }
   else if (!strcmp(cmd, "send") || !strcmp(cmd, "call"))
     {
@@ -157,7 +162,7 @@ static void usage(void)
 	  "\n");
 }
 
-static int do_listen(const char *msg_name, int bus_number, int do_dump)
+static int do_listen(const char *msg_name, int bus_number, int do_dump, int full_contents)
 {
   kbus_ksock_t the_socket;
   int rv;
@@ -209,7 +214,9 @@ static int do_listen(const char *msg_name, int bus_number, int do_dump)
       }
       else
       {
-          kbus_msg_print(stdout, msg); fprintf(stdout,"\n");
+          kbus_msg_print2(stdout, msg,
+                          (!full_contents ? KBUS_MSG_PRINT_FLAGS_ABBREVIATE : 0)); 
+          fprintf(stdout,"\n");
       }
 
       kbus_msg_delete_all(&msg);
@@ -218,7 +225,7 @@ static int do_listen(const char *msg_name, int bus_number, int do_dump)
   return 0;
 }
 
-static int do_reply(const char *msg_name, int bus_number, int do_dump)
+static int do_reply(const char *msg_name, int bus_number, int do_dump, int full_contents)
 {
   kbus_ksock_t the_socket;
   int rv;
@@ -273,7 +280,8 @@ static int do_reply(const char *msg_name, int bus_number, int do_dump)
       }
       else
       {
-          kbus_msg_print(stdout, msg); fprintf(stdout,"\n");
+          kbus_msg_print2(stdout, msg,
+                          (!full_contents ? KBUS_MSG_PRINT_FLAGS_ABBREVIATE : 0)); fprintf(stdout,"\n");
       }
       //kbus_msg_dump(msg, 1);
 
@@ -298,7 +306,9 @@ static int do_reply(const char *msg_name, int bus_number, int do_dump)
 	}
 
       reply->id = msg_id;
-      fprintf(stdout,"Sent "); kbus_msg_print(stdout, reply); fprintf(stdout,"\n");
+      fprintf(stdout,"Sent "); kbus_msg_print2(stdout, reply, 
+                                               (!full_contents ? KBUS_MSG_PRINT_FLAGS_ABBREVIATE : 0));
+      fprintf(stdout,"\n");
 
       // Remember that the reply is "using" the message name from 'msg'
       // (see the documentation for kbus_msg_create_reply_to)
