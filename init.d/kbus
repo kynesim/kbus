@@ -2,6 +2,9 @@
 #
 # insert kbus and make sure everyone is allowed to access it.
 
+MAX_WAIT_COUNT=5
+KBUS_DEVICE=/dev/kbus0
+
 case "$1" in
     start)
         if [ ! -e /dev/kbus0 ]; then
@@ -9,9 +12,22 @@ case "$1" in
             insmod $RAW_DIR/lib/modules/kbus/kbus.ko
             echo "Done"
         fi
-        echo -n "Setting permissions .. "
-        chmod 666 /dev/kbus0
-        echo "Done."
+        WAIT_COUNT=0
+        while [ ! -e $KBUS_DEVICE -a "$WAIT_COUNT" -lt "$MAX_WAIT_COUNT" ]
+        do
+            echo "Couldn't find $KBUS_DEVICE  on try $WAIT_COUNT, retrying..."
+            WAIT_COUNT=$(($WAIT_COUNT + 1))
+            sleep 1
+        done
+        if [ ! -e $KBUS_DEVICE ]
+        then
+            echo "Couldn't find $KBUS_DEVICE after $MAX_WAIT_COUNT secs, giving up."
+            exit 1
+        else
+            echo -n "Found $KBUS_DEVICE, Setting permissions .. "
+            chmod 666 /dev/kbus0
+            echo "Done."
+        fi
         ;;
     stop)
         echo  "Nothing to do on stop";
