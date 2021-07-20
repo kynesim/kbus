@@ -1,3 +1,4 @@
+#! /usr/bin/env python3
 """Python code for testing the kbus kernel module.
 
 Intended for use with (for instance) nose -- so, for instance::
@@ -2564,9 +2565,9 @@ class TestKernelModule:
             m = Message('$.Fred',data)
             assert m.data == data
 
-        check_str('1234')
-        check_str('12345678')
-        check_str('abcdefghijklmnopqrstuvwx')
+        check_str(b'1234')
+        check_str(b'12345678')
+        check_str(b'abcdefghijklmnopqrstuvwx')
 
     # =========================================================================
     # Large message (data) tests. These will take a while...

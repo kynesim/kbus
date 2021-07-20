@@ -192,8 +192,8 @@ def _same_message_struct(this, that):
         return False
 
     if this.data_len:
-        this_data = c_data_as_string(this.data, this.data_len)
-        that_data = c_data_as_string(that.data, that.data_len)
+        this_data = c_data_as_bytes(this.data, this.data_len)
+        that_data = c_data_as_bytes(that.data, that.data_len)
         return this_data == that_data
     return True
 
@@ -230,19 +230,21 @@ def _equivalent_message_struct(this, that):
         return False
 
     if this.data_len:
-        this_data = c_data_as_string(this.data, this.data_len)
-        that_data = c_data_as_string(that.data, that.data_len)
+        #this_data = ctypes.string_at(this.data, this.data_len)
+        #that_data = ctypes.string_at(that.data, that.data_len)
+        this_data = c_data_as_bytes(this.data, this.data_len)
+        that_data = c_data_as_bytes(that.data, that.data_len)
         return this_data == that_data
     return True
 
-def c_data_as_string(data, data_len):
+def c_data_as_bytes(data, data_len):
     """Return the message data as a string.
     """
     # Somewhat inefficiently, convert it to a (byte) string
-    w = []
-    for ii in range(data_len):
-        w.append(chr(data[ii]))
-    return ''.join(w)
+    #w = []
+    #for ii in range(data_len):
+    #    w.append(chr(data[ii]))
+    return bytes(data[:data_len])
 
 def hexdata(data):
     r"""Return a representation of a 'string' in printable form.
@@ -533,7 +535,7 @@ class _EntireMessageStructBaseclass(ctypes.Structure):
         else:
             name_repr = 'None'
         if self.data_len:
-            data_repr = repr(hexdata(c_data_as_string(self.rest_data,self.data_len)))
+            data_repr = repr(hexdata(ctypes.string_at(self.rest_data, self.data_len)))
         else:
             data_repr = None
         return "%s %s %s [%08x>"%(
@@ -795,15 +797,15 @@ class Message:
 
         >>> msg = Message('$.Fred', '1234')
         >>> msg
-        Message('$.Fred', data='1234')
+        Message('$.Fred', data=b'1234')
 
         >>> msg = Message('$.Fred', '12345678')
         >>> msg
-        Message('$.Fred', data='12345678')
+        Message('$.Fred', data=b'12345678')
 
-        >>> msg1 = Message('$.Fred', data='1234')
+        >>> msg1 = Message('$.Fred', data=b'1234')
         >>> msg1
-        Message('$.Fred', data='1234')
+        Message('$.Fred', data=b'1234')
 
     A :class:`Message` can be constructed from another message directly:
 
@@ -860,7 +862,7 @@ class Message:
 
         >>> msg5 = Message.from_message(msg1, to=9, in_reply_to=MessageId(0, 3))
         >>> msg5
-        Message('$.Fred', data='1234', to=9, in_reply_to=MessageId(0, 3))
+        Message('$.Fred', data=b'1234', to=9, in_reply_to=MessageId(0, 3))
 
         >>> msg5a = Message.from_message(msg1, to=9, in_reply_to=MessageId(0, 3))
         >>> msg5a == msg5
@@ -870,21 +872,21 @@ class Message:
 
         >>> msg6 = Message.from_message(msg5, to=0)
         >>> msg6
-        Message('$.Fred', data='1234', in_reply_to=MessageId(0, 3))
+        Message('$.Fred', data=b'1234', in_reply_to=MessageId(0, 3))
 
     (and the same for any of the integer fields), it is not possible to set any
     of the message id fields to None:
 
         >>> msg6 = Message.from_message(msg5, in_reply_to=None)
         >>> msg6
-        Message('$.Fred', data='1234', to=9, in_reply_to=MessageId(0, 3))
+        Message('$.Fred', data=b'1234', to=9, in_reply_to=MessageId(0, 3))
 
     If you need to do that, go via the :meth:`extract()` method:
 
         >>> (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data) = msg5.extract()
         >>> msg6 = Message(name, data, to, from_, None, None, flags, id)
         >>> msg6
-        Message('$.Fred', data='1234', to=9)
+        Message('$.Fred', data=b'1234', to=9)
 
     For convenience, the parts of a Message may be retrieved as properties:
 
@@ -901,13 +903,13 @@ class Message:
         >>> msg1.flags
         0
         >>> msg1.data
-        '1234'
+        b'1234'
 
     Message ids are objects if set:
 
         >>> msg1 = Message('$.Fred', data='1234', id=MessageId(0, 33))
         >>> msg1
-        Message('$.Fred', data='1234', id=MessageId(0, 33))
+        Message('$.Fred', data=b'1234', id=MessageId(0, 33))
         >>> msg1.id
         MessageId(0, 33)
 
@@ -923,7 +925,8 @@ class Message:
             If `arg` is a message-as-a-string, any keyword arguments will be
             ignored.
 
-    - `data` is data for the Message, either :const:`None` or a Python string.
+    - `data` is data for the Message, either :const:`None`, a Python string
+      (which will be encoded in UTF-8) or a Python bytes object.
     - `to` is the Ksock id for the destination, for use in replies or in
       stateful messaging. Normally it should be left 0.
     - `from_` is the Ksock id of the sender. Normally this should be left
@@ -1001,10 +1004,10 @@ class Message:
 
             >>> msg1 = Message('$.Fred', '12345678')
             >>> msg1
-            Message('$.Fred', data='12345678')
+            Message('$.Fred', data=b'12345678')
             >>> msg2 = Message.from_message(msg1, flags=1)
             >>> msg2
-            Message('$.Fred', data='12345678', flags=0x00000001)
+            Message('$.Fred', data=b'12345678', flags=0x00000001)
         """
         message = Message.__new__(Message,'')
         message._merge_args(msg.extract(), data, to, from_, orig_from,
@@ -1023,10 +1026,10 @@ class Message:
 
             >>> msg1 = Message('$.Fred', '12345678')
             >>> msg1
-            Message('$.Fred', data='12345678')
+            Message('$.Fred', data=b'12345678')
             >>> msg2 = Message.from_sequence(msg1.extract(), flags=1)
             >>> msg2
-            Message('$.Fred', data='12345678', flags=0x00000001)
+            Message('$.Fred', data=b'12345678', flags=0x00000001)
         """
         if len(seq) != 9:
             raise ValueError("Sequence arg to Message.from_sequence() must have"
@@ -1046,10 +1049,10 @@ class Message:
 
             >>> msg1 = Message('$.Fred', '12345678')
             >>> msg1
-            Message('$.Fred', data='12345678')
+            Message('$.Fred', data=b'12345678')
             >>> msg2 = Message.from_bytes(msg1.to_bytes())
             >>> msg2
-            Message('$.Fred', data='12345678')
+            Message('$.Fred', data=b'12345678')
         """
         message = Message.__new__(Message,'')
         message.msg = _entire_message_from_bytes(arg)
@@ -1137,7 +1140,7 @@ class Message:
         (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data) = self.extract()
         args = [repr(name)]
         if data is not None:
-            args.append('data=%s'%repr(hexdata(data)))
+            args.append('data=%s'%repr(data))
         if to:
             args.append('to=%s'%repr(to))
         if from_:
@@ -1409,13 +1412,13 @@ class Message:
     @property
     def data(self):
         """
-        Returns the payload of this KBUS message as a Python string, 
+        Returns the payload of this KBUS message as a Python bytes object,
         or None if it is not present.
         """
         if self.msg.data_len == 0:
             return None
         # To be friendly, return data as a Python (byte) string
-        return c_data_as_string(self.msg.data, self.msg.data_len)
+        return c_data_as_bytes(self.msg.data, self.msg.data_len)
 
     def extract(self):
         """Return our parts as a tuple.
@@ -1515,9 +1518,9 @@ class Announcement(Message):
 
     An Announcement can be created in a variety of ways. Perhaps most obviously:
 
-        >>> ann1 = Announcement('$.Fred', data='1234')
+        >>> ann1 = Announcement('$.Fred', data=b'1234')
         >>> ann1
-        Announcement('$.Fred', data='1234')
+        Announcement('$.Fred', data=b'1234')
 
     Since Announcement is a "plain" Message, we expect to be able to use the
     normal ways of instantiating a Message for an Announcement.
@@ -1545,7 +1548,7 @@ class Announcement(Message):
         >>> msg = Message('$.Fred', data='1234', in_reply_to=MessageId(1, 2))
         >>> ann = Announcement.from_message(msg)
         >>> ann
-        Announcement('$.Fred', data='1234')
+        Announcement('$.Fred', data=b'1234')
         >>> print(ann.in_reply_to)
         None
 
@@ -1561,10 +1564,10 @@ class Announcement(Message):
         >>> ann3 == ann1
         True
 
-    Or one can use the same thing represented as a string:
+    Or one can use the same thing represented as a byte string:
 
-        >>> ann_as_string = ann1.to_bytes()
-        >>> ann4 = Announcement.from_bytes(ann_as_string)
+        >>> ann_as_bytes = ann1.to_bytes()
+        >>> ann4 = Announcement.from_bytes(ann_as_bytes)
         >>> ann4 == ann1
         True
 
@@ -1583,7 +1586,7 @@ class Announcement(Message):
         >>> ann1.flags
         0
         >>> ann1.data
-        '1234'
+        b'1234'
 
     Note that:
 
@@ -1613,12 +1616,12 @@ class Announcement(Message):
 
         For instance:
 
-            >>> msg1 = Message('$.Fred', '12345678')
+            >>> msg1 = Message('$.Fred', b'12345678')
             >>> msg1
-            Message('$.Fred', data='12345678')
+            Message('$.Fred', data=b'12345678')
             >>> msg2 = Announcement.from_message(msg1, flags=1)
             >>> msg2
-            Announcement('$.Fred', data='12345678', flags=0x00000001)
+            Announcement('$.Fred', data=b'12345678', flags=0x00000001)
         """
         message = Announcement.__new__(Announcement,'')
         message._merge_args(msg.extract(), data, to, from_, None, None, None,
@@ -1639,12 +1642,12 @@ class Announcement(Message):
 
         For instance:
 
-            >>> msg1 = Message('$.Fred', '12345678')
+            >>> msg1 = Message('$.Fred', b'12345678')
             >>> msg1
-            Message('$.Fred', data='12345678')
+            Message('$.Fred', data=b'12345678')
             >>> msg2 = Announcement.from_sequence(msg1.extract(), flags=1)
             >>> msg2
-            Announcement('$.Fred', data='12345678', flags=0x00000001)
+            Announcement('$.Fred', data=b'12345678', flags=0x00000001)
         """
         if len(seq) != 9:
             raise ValueError("Sequence arg to Announcement.from_sequence() must have"
@@ -1667,10 +1670,10 @@ class Announcement(Message):
 
             >>> msg1 = Message('$.Fred', '12345678')
             >>> msg1
-            Message('$.Fred', data='12345678')
+            Message('$.Fred', data=b'12345678')
             >>> msg2 = Announcement.from_bytes(msg1.to_bytes())
             >>> msg2
-            Announcement('$.Fred', data='12345678')
+            Announcement('$.Fred', data=b'12345678')
         """
         message = Announcement.__new__(Announcement,'')
         message.msg = _entire_message_from_bytes(arg)
@@ -1689,7 +1692,7 @@ class Announcement(Message):
         (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data) = self.extract()
         args = [repr(name)]
         if data is not None:
-            args.append('data=%s'%repr(hexdata(data)))
+            args.append('data=%s'%repr(data))
         if to:
             args.append('to=%s'%repr(to))
         if from_:
@@ -1720,10 +1723,10 @@ class Request(Message):
 
         >>> msg = Message('$.Fred', data='1234', flags=Message.WANT_A_REPLY)
         >>> msg
-        Message('$.Fred', data='1234', flags=0x00000001)
+        Message('$.Fred', data=b'1234', flags=0x00000001)
         >>> req = Request('$.Fred', data='1234')
         >>> req
-        Request('$.Fred', data='1234', flags=0x00000001)
+        Request('$.Fred', data=b'1234', flags=0x00000001)
         >>> req == msg
         True
 
@@ -1732,18 +1735,18 @@ class Request(Message):
     instance, if the Replier had unbound and someone else had bound as Replier
     for this message name).
 
-        >>> req = Request('$.Fred', data='1234', to=1234)
+        >>> req = Request('$.Fred', data=b'1234', to=1234)
         >>> req
-        Request('$.Fred', data='1234', to=1234, flags=0x00000001)
+        Request('$.Fred', data=b'1234', to=1234, flags=0x00000001)
 
     A Stateful Request may also need to supply a `final_to` argument, if the
     original Replier is over a (Limpet) network. This should be taken from an
     earlier Reply from that Replier -- see the convenience function
     stateful_request(). However, it can be done by hand:
 
-        >>> req = Request('$.Fred', data='1234', to=1234, final_to=OrigFrom(12, 23), flags=0x00000001)
+        >>> req = Request('$.Fred', data=b'1234', to=1234, final_to=OrigFrom(12, 23), flags=0x00000001)
         >>> req
-        Request('$.Fred', data='1234', to=1234, final_to=OrigFrom(12, 23), flags=0x00000001)
+        Request('$.Fred', data=b'1234', to=1234, final_to=OrigFrom(12, 23), flags=0x00000001)
 
     Note that:
 
@@ -1776,10 +1779,10 @@ class Request(Message):
 
             >>> msg1 = Message('$.Fred', '12345678')
             >>> msg1
-            Message('$.Fred', data='12345678')
+            Message('$.Fred', data=b'12345678')
             >>> msg2 = Request.from_message(msg1, flags=2)
             >>> msg2
-            Request('$.Fred', data='12345678', flags=0x00000003)
+            Request('$.Fred', data=b'12345678', flags=0x00000003)
         """
         message = Request.__new__(Request,'')
         message._merge_args(msg.extract(), data, to, from_, None,
@@ -1801,10 +1804,10 @@ class Request(Message):
 
             >>> msg1 = Message('$.Fred', '12345678')
             >>> msg1
-            Message('$.Fred', data='12345678')
+            Message('$.Fred', data=b'12345678')
             >>> msg2 = Request.from_sequence(msg1.extract(), flags=2)
             >>> msg2
-            Request('$.Fred', data='12345678', flags=0x00000003)
+            Request('$.Fred', data=b'12345678', flags=0x00000003)
         """
         if len(seq) != 9:
             raise ValueError("Sequence arg to Request.from_sequence() must have"
@@ -1823,12 +1826,12 @@ class Request(Message):
 
         For instance:
 
-            >>> msg1 = Message('$.Fred', '12345678')
+            >>> msg1 = Message('$.Fred', b'12345678')
             >>> msg1
-            Message('$.Fred', data='12345678')
+            Message('$.Fred', data=b'12345678')
             >>> msg2 = Request.from_bytes(msg1.to_bytes())
             >>> msg2
-            Request('$.Fred', data='12345678', flags=0x00000001)
+            Request('$.Fred', data=b'12345678', flags=0x00000001)
         """
         message = Request.__new__(Request,'')
         message.msg = _entire_message_from_bytes(arg)
@@ -1840,7 +1843,7 @@ class Request(Message):
         (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data) = self.extract()
         args = [repr(name)]
         if data is not None:
-            args.append('data=%s'%repr(hexdata(data)))
+            args.append('data=%s'%repr(data))
         if to:
             args.append('to=%s'%repr(to))
         if from_:
@@ -1882,7 +1885,7 @@ class Reply(Message):
 
         >>> msg = Message('$.Fred', data='1234', from_=27, to=99, id=MessageId(0, 132), flags=Message.WANT_A_REPLY)
         >>> msg
-        Message('$.Fred', data='1234', to=99, from_=27, flags=0x00000001, id=MessageId(0, 132))
+        Message('$.Fred', data=b'1234', to=99, from_=27, flags=0x00000001, id=MessageId(0, 132))
         >>> reply = Reply.from_message(msg)
         Traceback (most recent call last):
         ...
@@ -1890,7 +1893,7 @@ class Reply(Message):
 
         >>> reply = Reply.from_message(msg, in_reply_to=MessageId(0, 5))
         >>> reply
-        Reply('$.Fred', data='1234', to=99, from_=27, in_reply_to=MessageId(0, 5), flags=0x00000001, id=MessageId(0, 132))
+        Reply('$.Fred', data=b'1234', to=99, from_=27, in_reply_to=MessageId(0, 5), flags=0x00000001, id=MessageId(0, 132))
 
     When Limpet networks are in use, it may be necessary to construct a Reply
     with its `orig_from` field set (this should only really be done by a Limpet
@@ -1898,7 +1901,7 @@ class Reply(Message):
 
         >>> reply = Reply.from_message(msg, in_reply_to=MessageId(0, 5), orig_from=OrigFrom(23, 92))
         >>> reply
-        Reply('$.Fred', data='1234', to=99, from_=27, orig_from=OrigFrom(23, 92), in_reply_to=MessageId(0, 5), flags=0x00000001, id=MessageId(0, 132))
+        Reply('$.Fred', data=b'1234', to=99, from_=27, orig_from=OrigFrom(23, 92), in_reply_to=MessageId(0, 5), flags=0x00000001, id=MessageId(0, 132))
 
     It's also possible to construct a Reply in most of the other ways a
     :class:`Message` can be constructed. For instance:
@@ -1938,10 +1941,10 @@ class Reply(Message):
 
             >>> msg1 = Message('$.Fred', '12345678')
             >>> msg1
-            Message('$.Fred', data='12345678')
+            Message('$.Fred', data=b'12345678')
             >>> msg2 = Reply.from_message(msg1, flags=2, in_reply_to=MessageId(0,5))
             >>> msg2
-            Reply('$.Fred', data='12345678', in_reply_to=MessageId(0, 5), flags=0x00000002)
+            Reply('$.Fred', data=b'12345678', in_reply_to=MessageId(0, 5), flags=0x00000002)
         """
         message = Reply.__new__(Reply,'')
         message._merge_args(msg.extract(), data, to, from_, orig_from,
@@ -1966,10 +1969,10 @@ class Reply(Message):
 
             >>> msg1 = Message('$.Fred', '12345678')
             >>> msg1
-            Message('$.Fred', data='12345678')
+            Message('$.Fred', data=b'12345678')
             >>> msg2 = Reply.from_sequence(msg1.extract(), flags=2, in_reply_to=MessageId(0,5))
             >>> msg2
-            Reply('$.Fred', data='12345678', in_reply_to=MessageId(0, 5), flags=0x00000002)
+            Reply('$.Fred', data=b'12345678', in_reply_to=MessageId(0, 5), flags=0x00000002)
         """
         if len(seq) != 9:
             raise ValueError("Sequence arg to Message.from_sequence() must have"
@@ -1991,12 +1994,12 @@ class Reply(Message):
 
         For instance:
 
-            >>> msg1 = Message('$.Fred', '12345678', in_reply_to=MessageId(0,5))
+            >>> msg1 = Message('$.Fred', b'12345678', in_reply_to=MessageId(0,5))
             >>> msg1
-            Message('$.Fred', data='12345678', in_reply_to=MessageId(0, 5))
+            Message('$.Fred', data=b'12345678', in_reply_to=MessageId(0, 5))
             >>> msg2 = Message.from_bytes(msg1.to_bytes())
             >>> msg2
-            Message('$.Fred', data='12345678', in_reply_to=MessageId(0, 5))
+            Message('$.Fred', data=b'12345678', in_reply_to=MessageId(0, 5))
         """
         message = Reply.__new__(Reply,'')
         message.msg = _entire_message_from_bytes(arg)
@@ -2008,7 +2011,7 @@ class Reply(Message):
         (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data) = self.extract()
         args = [repr(name)]
         if data is not None:
-            args.append('data=%s'%repr(hexdata(data)))
+            args.append('data=%s'%repr(data))
         if to:
             args.append('to=%s'%repr(to))
         if from_:
@@ -2065,7 +2068,7 @@ class Status(Message):
 
             >>> msg1 = Message('$.Fred', '12345678')
             >>> msg1
-            Message('$.Fred', data='12345678')
+            Message('$.Fred', data=b'12345678')
             >>> msg2 = Status.from_message(msg1, in_reply_to=MessageId(0,5))
             Traceback (most recent call last):
             ...
@@ -2080,7 +2083,7 @@ class Status(Message):
 
             >>> msg1 = Message('$.Fred', '12345678')
             >>> msg1
-            Message('$.Fred', data='12345678')
+            Message('$.Fred', data=b'12345678')
             >>> msg2 = Status.from_sequence(msg1.extract())
             Traceback (most recent call last):
             ...
@@ -2096,10 +2099,10 @@ class Status(Message):
 
             >>> msg1 = Message('$.Fred', '12345678')
             >>> msg1
-            Message('$.Fred', data='12345678')
+            Message('$.Fred', data=b'12345678')
             >>> msg2 = Status.from_bytes(msg1.to_bytes())
             >>> msg2
-            Status('$.Fred', data='12345678')
+            Status('$.Fred', data=b'12345678')
         """
         message = Status.__new__(Status,'')
         message.msg = _entire_message_from_bytes(arg)
@@ -2109,7 +2112,7 @@ class Status(Message):
         (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data) = self.extract()
         args = [repr(name)]
         if data is not None:
-            args.append('data=%s'%repr(hexdata(data)))
+            args.append('data=%s'%repr(data))
         if to:
             args.append('to=%s'%repr(to))
         if from_:
@@ -2129,9 +2132,9 @@ def reply_to(original, data=None, flags=0):
 
     For instance:
 
-        >>> msg = Message('$.Fred', data='1234', from_=27, to=99, id=MessageId(0, 132), flags=Message.WANT_A_REPLY|Message.WANT_YOU_TO_REPLY)
+        >>> msg = Message('$.Fred', data=b'1234', from_=27, to=99, id=MessageId(0, 132), flags=Message.WANT_A_REPLY|Message.WANT_YOU_TO_REPLY)
         >>> msg
-        Message('$.Fred', data='1234', to=99, from_=27, flags=0x00000003, id=MessageId(0, 132))
+        Message('$.Fred', data=b'1234', to=99, from_=27, flags=0x00000003, id=MessageId(0, 132))
         >>> reply = reply_to(msg)
         >>> reply
         Reply('$.Fred', to=27, in_reply_to=MessageId(0, 132))
@@ -2162,7 +2165,7 @@ def reply_to(original, data=None, flags=0):
 
         >>> rep4 = reply_to(msg, flags=Message.ALL_OR_WAIT, data='1234')
         >>> rep4
-        Reply('$.Fred', data='1234', to=27, in_reply_to=MessageId(0, 132), flags=0x00000100)
+        Reply('$.Fred', data=b'1234', to=27, in_reply_to=MessageId(0, 132), flags=0x00000100)
     """
 
     # Check we're allowed to reply to this
@@ -2230,7 +2233,7 @@ def stateful_request(earlier_msg, name, data=None, from_=None,
 
         >>> request = stateful_request(request, '$.Again', data='Aha!')
         >>> request
-        Request('$.Again', data='Aha!', to=39, final_to=OrigFrom(19, 23), flags=0x00000001)
+        Request('$.Again', data=b'Aha!', to=39, final_to=OrigFrom(19, 23), flags=0x00000001)
     """
     if earlier_msg.is_reply():
         final_to = earlier_msg.orig_from
@@ -2263,7 +2266,7 @@ def split_replier_bind_event_data(data):
 
     offset = ctypes.sizeof(_ReplierBindEventHeader)
 
-    name = data[offset:offset+hdr.name_len]
+    name = data[offset:offset+hdr.name_len].decode()
 
     return (hdr.is_bind, hdr.binder, name)
 
