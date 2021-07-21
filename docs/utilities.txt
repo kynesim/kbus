@@ -41,7 +41,8 @@ runlimpet and runlimpet.py
 --------------------------
 These are C and Python versions of the same utility, to run a Limpet. Their
 command lines are the same - run with no arguments, or with ``-help``, to get
-help.
+help. *(Note that runlimpet.py was written in Python 2, and as of July 2021
+has not been converted to Python 3).*
 
 Example usage - on one machine (the "server" - the host name is not actually
 used on the server)::

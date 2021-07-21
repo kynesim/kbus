@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 
 """Report on Unix error numbers, and also (if appropriate) what the error means
 in KBUS.
@@ -163,32 +163,32 @@ kbus_codes = {
 
 def check_kbus(errname):
     if errname in kbus_codes:
-        print
-        print 'KBUS:'
-        print kbus_codes[errname]
+        print()
+        print('KBUS:')
+        print(kbus_codes[errname])
 
 def main(args):
     if len(args) != 1:
-        print __doc__
+        print(__doc__)
         return
 
     thing = args[0]
 
     if thing == '-list':
         for key, value in errorcode.items():
-            print '%3d: %-20s %s'%(key, value, os.strerror(key))
+            print('%3d: %-20s %s'%(key, value, os.strerror(key)))
         return
 
     try:
         errnum = int(thing)
-        print 'Error %d (0x%x) is %s: %s'%(errnum, errnum,
-                                           errorcode[errnum], os.strerror(errnum))
+        print('Error %d (0x%x) is %s: %s'%(errnum, errnum,
+                                           errorcode[errnum], os.strerror(errnum)))
         check_kbus(errorcode[errnum])
         return
     except ValueError:
         pass
     except KeyError:
-        print 'Unrecognised error code number %d'%errnum
+        print('Unrecognised error code number %d'%errnum)
         return
 
     reverse = {}
@@ -197,9 +197,9 @@ def main(args):
 
     if thing in reverse:
         errnum = reverse[thing]
-        print '%s is error %d (0x%x): %s'%(thing, errnum, errnum, os.strerror(errnum))
+        print('%s is error %d (0x%x): %s'%(thing, errnum, errnum, os.strerror(errnum)))
     else:
-        print 'Unrecognised error code mnemonic %s'%thing
+        print('Unrecognised error code mnemonic %s'%thing)
 
     check_kbus(thing)
 

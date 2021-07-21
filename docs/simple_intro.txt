@@ -97,7 +97,11 @@ the audience can listen:
      *Terminal 2: Audience* ::
 
         >>> audience.read_next_msg()
-        Message('$.Actor.Speak', data='Ahem', from_=1L, id=MessageId(0,2))
+        Message('$.Actor.Speak', data=b'Ahem', from_=1, id=MessageId(0, 2))
+
+*(The data comes back as bytes rather than a Python string, because that's
+what you usually want.  In our example we are only sending text messages,
+so we can decode it straight back into a string.)*
 
 A friendlier representation of the message is given if one prints it:
 
@@ -105,8 +109,8 @@ A friendlier representation of the message is given if one prints it:
 
      *Terminal 2: Audience* ::
 
-        >>> print _
-       <Announcement '$.Actor.Speak', id=[0:2], from=1, data='Ahem'> 
+        >>> print(_)
+        <Announcement '$.Actor.Speak', id=[0:2], from=1, data=b'Ahem'>
 
 "Plain" messages are also termed "announcements", since they are just being
 broadcast to whoever might be listening.
@@ -122,7 +126,7 @@ anything new:
      *Terminal 2: Audience* ::
 
         >>> message = audience.read_next_msg()
-        >>> print message
+        >>> print(message)
         None
 
 and so they really need to set up a loop to wait for messages, something like:
@@ -136,7 +140,7 @@ and so they really need to set up a loop to wait for messages, something like:
         ...    (r,w,x) = select.select([audience], [], [])
         ...    # At this point, r should contain audience
         ...    message = audience.read_next_msg()
-        ...    print 'We heard', message.name, message.data
+        ...    print('We heard', message.name, message.data.decode())
         ...
 
   (although perhaps with more error checking, and maybe even a timeout, in a
@@ -191,7 +195,7 @@ Here, guildenstern is binding to any message whose name starts with
         >>> audience.bind('$.Actor.*')
         >>> while 1:
         ...    msg = audience.wait_for_msg()
-        ...    print 'We heard', msg.name, msg.data
+        ...    print('We heard', msg.name, msg.data.decode())
         ...
 
 (as a convenience, the Ksock class provides the ``wait_for_msg()`` wrapper
@@ -214,8 +218,8 @@ So let guildenstern speak:
         >>> guildenstern.send_msg(Message('$.Actor.Speak', 'Pssst!'))
         MessageId(0, 5)
         >>> # Remember guildenstern is also listening to '$.Actor.*'
-        >>> print guildenstern.read_next_msg()
-        <Announcement '$.Actor.Speak', id=[0:5], from=3, data='Pssst!'> 
+        >>> print(guildenstern.read_next_msg())
+        <Announcement '$.Actor.Speak', id=[0:5], from=3, data=b'Pssst!'> 
 
 and rosencrantz hears:
 
@@ -223,8 +227,8 @@ and rosencrantz hears:
 
      *Terminal 1: Rosencrantz* ::
 
-        >>> print rosencrantz.read_next_msg()
-        <Announcement '$.Actor.Speak', id=[0:5], from=3, data='Pssst!'>
+        >>> print(rosencrantz.read_next_msg())
+        <Announcement '$.Actor.Speak', id=[0:5], from=3, data=b'Pssst!'>
 
 However, when we look to the audience, we see:
 
@@ -252,7 +256,7 @@ The solution is simple - ask not to hear the more specific version:
         >>> audience.unbind('$.Actor.Speak')
         >>> while 1:
         ...    msg = audience.wait_for_msg()
-        ...    print 'We heard', msg.from_, 'say', msg.name, msg.data
+        ...    print('We heard', msg.from_, 'say', msg.name, msg.data.decode())
         ...
 
 Note that we've also amended the printout to say who the message was from.
@@ -263,7 +267,7 @@ Each Ksock connection has an id associated with it - for instance:
      *Terminal 1: Rosencrantz* ::
 
         >>> rosencrantz.ksock_id()
-        1L
+        1
 
 and every message indicates who sent it, so:
 
@@ -271,7 +275,7 @@ and every message indicates who sent it, so:
 
      *Terminal 1: Rosencrantz* ::
 
-        >>> print 'I heard', message.from_, 'say', message.name, message.data
+        >>> print('I heard', message.from_, 'say', message.name, message.data.decode())
         I heard 3 say $.Actor.Speak Pssst!
 
 We've shown that KBUS allows one to "announce" (or, less politely,
@@ -311,11 +315,11 @@ Guildenstern can receive it:
      *Terminal 3: Guildenstern* ::
 
         >>> msg2 = guildenstern.read_next_msg()
-        >>> print 'I heard', msg2
-        I heard <Request '$.Actor.Guildenstern.query', id=[0:6], from=1, flags=0x3 (REQ,YOU), data='Were you speaking to me?'>
+        >>> print('I heard', msg2)
+        I heard <Request '$.Actor.Guildenstern.query', id=[0:6], from=1, flags=0x3 (REQ,YOU), data=b'Were you speaking to me?'>
         >>> msg3 = guildenstern.read_next_msg()
-        >>> print msg3
-        <Request '$.Actor.Guildenstern.query', id=[0:6], from=1, flags=0x1 (REQ), data='Were you speaking to me?'>
+        >>> print(msg3)
+        <Request '$.Actor.Guildenstern.query', id=[0:6], from=1, flags=0x1 (REQ), data=b'Were you speaking to me?'>
 
 As we should expect, guildenstern is getting the message twice, once because
 he has bound as a listener to '$.Actor.*', and once because he is bound as a
@@ -333,7 +337,7 @@ guildenstern, which he is meant to answer:
 
      *Terminal 3: Guildenstern* ::
 
-        >>> print msg2.wants_us_to_reply()
+        >>> print(msg2.wants_us_to_reply())
         True
 
 (and that is what the ``YOU`` in the flags means).
@@ -344,7 +348,7 @@ And rosencrantz himself will also have received a copy:
 
      *Terminal 1: Rosencrantz* ::
 
-        >>> print rosencrantz.read_next_msg()
+        >>> print(rosencrantz.read_next_msg())
         <Request '$.Actor.Guildenstern.query', id=[0:6], from=1, flags=0x1 (REQ), data='Were you speaking to me?'>
 
 Guildenstern can then reply:
@@ -354,7 +358,7 @@ Guildenstern can then reply:
      *Terminal 3: Guildenstern* ::
 
         >>> reply = reply_to(msg2, 'Yes, I was')
-        >>> print reply
+        >>> print(reply)
         <Reply '$.Actor.Guildenstern.query', to=1, in_reply_to=[0:6], data='Yes, I was'>
         >>> guildenstern.send_msg(reply)
         MessageId(0, 7)
@@ -367,7 +371,7 @@ various message parts set in an appropriate manner. And thus:
      *Terminal 1: Rosencrantz* ::
 
         >>> rep = rosencrantz.read_next_msg()
-        >>> print 'I heard', rep.from_, 'say', rep.name, rep.data
+        >>> print('I heard', rep.from_, 'say', rep.name, rep.data.decode())
         I heard 3 say $.Actor.Guildenstern.query Yes, I was
 
 Note that Rosencrantz didn't need to bind to this message to receive it - he
