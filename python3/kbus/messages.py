@@ -230,8 +230,6 @@ def _equivalent_message_struct(this, that):
         return False
 
     if this.data_len:
-        #this_data = ctypes.string_at(this.data, this.data_len)
-        #that_data = ctypes.string_at(that.data, that.data_len)
         this_data = c_data_as_bytes(this.data, this.data_len)
         that_data = c_data_as_bytes(that.data, that.data_len)
         return this_data == that_data
@@ -240,14 +238,13 @@ def _equivalent_message_struct(this, that):
 def c_data_as_bytes(data, data_len):
     """Return the message data as a string.
     """
-    # Somewhat inefficiently, convert it to a (byte) string
-    #w = []
-    #for ii in range(data_len):
-    #    w.append(chr(data[ii]))
     return bytes(data[:data_len])
 
-def hexdata(data):
+def hexdata(data, encoding="utf-8", errors="strict"):
     r"""Return a representation of a 'string' in printable form.
+
+    If the string is a Python string rather than a bytes object, it will be
+    encoded using `encoding` and `errors` exactly as :meth:`str.encode()`.
 
     Doesn't use whitespace or anything not in letters, digits or punctuation.
     Thus, the resultant string should be entirely equivalent in "meaning" to
@@ -269,7 +266,7 @@ def hexdata(data):
     pretty = string.ascii_letters + string.digits + string.punctuation
     words = []
     if isinstance(data, str):
-        data = bytes(data, encoding="utf-8")
+        data = data.encode(encoding=encoding, errors=errors)
     for ch in data:
         if chr(ch) in pretty:
             words.append(chr(ch))
@@ -277,8 +274,11 @@ def hexdata(data):
             words.append('\\x%02x'%ch)
     return ''.join(words)
 
-def hexify(data):
+def hexify(data, encoding="utf-8", errors="strict"):
     r"""Return a representation of a 'string' as hex values.
+
+    If the string is a Python string rather than a bytes object, it will be
+    encoded using `encoding` and `errors` exactly as :meth:`str.encode()`.
 
     For instance:
 
@@ -291,7 +291,7 @@ def hexify(data):
     """
     words = []
     if isinstance(data, str):
-        data = bytes(data, encoding="utf-8")
+        data = data.encode(encoding=encoding, errors=errors)
     for ch in data:
         words.append('%02x'%ch)
     return ' '.join(words)
@@ -394,10 +394,10 @@ def _struct_to_bytes(struct):
     """
     return ctypes.string_at(ctypes.addressof(struct), ctypes.sizeof(struct))
 
-def _struct_from_bytes(struct_class, data):
+def _struct_from_bytes(struct_class, data, encoding="utf-8", errors="strict"):
     thing = struct_class()
     if isinstance(data, str):
-        data = bytes(data, encoding="utf-8")
+        data = data.encode(encoding=encoding, errors=errors)
     ctypes.memmove(ctypes.addressof(thing), data, ctypes.sizeof(thing))
     return thing
 
@@ -427,14 +427,16 @@ def calc_entire_message_len(name_len, data_len):
     return MSG_HEADER_LEN + calc_padded_name_len(name_len) + \
                             calc_padded_data_len(data_len) + 4
 
-def message_from_parts(id, in_reply_to, to, from_, orig_from, final_to, flags, name, data):
+def message_from_parts(id, in_reply_to, to, from_, orig_from, final_to, flags, name, data, encoding="utf-8", errors="strict"):
     """Return a new Message header structure, with name and data attached.
 
     - 'id' and 'in_reply_to' are (network_id, serial_num) tuples
     - 'to', 'in_reply_to' and 'from_' are 0 or a Ksock id
     - 'orig_from' and 'final_to' are None or a (network_id, local_id) tuple
-    - 'name' is a string
+    - 'name' is a (UTF-8) string
     - 'data' is a bytes object, a string or None
+    - 'encoding' is the encoding to use if 'data' is a string
+    - 'errors' is the error handling to use for encoding if 'data' is a string
     """
     if orig_from is None:
         orig_from = (0,0)
@@ -447,7 +449,7 @@ def message_from_parts(id, in_reply_to, to, from_, orig_from, final_to, flags, n
 
     if data:
         if isinstance(data, str):
-            data = bytes(data, "utf-8")
+            data = data.encode(encoding=encoding, errors=errors)
         data_len = len(data)
     else:
         data_len = 0
@@ -669,7 +671,7 @@ def _specific_entire_message_struct(padded_name_len, padded_data_len):
         return localEntireMessageStruct
 
 def _entire_message_from_parts(id, in_reply_to, to, from_, orig_from, final_to,
-                               flags, name, data):
+                               flags, name, data, encoding="utf-8", errors="strict"):
     """Return a new message structure of the correct shape.
 
     - 'id' and 'in_reply_to' are None or MessageId instance or (network_id,
@@ -677,8 +679,10 @@ def _entire_message_from_parts(id, in_reply_to, to, from_, orig_from, final_to,
     - 'to', 'in_reply_to' and 'from_' are 0 or a Ksock id
     - 'orig_from' and 'final_to' are None or OrigFrom instance or (network_id,
       local_id) tuple
-    - 'name' is a string
+    - 'name' is a (UTF-8) string
     - 'data' is a string, bytes or None
+    - 'encoding' and 'errors' are the parameters used to encode if 'data' is
+      a string
 
     Note that the result may be slightly longer than you expect - for instance,
     on a 64-bit machine, there will be 4 bytes of padding after the final
@@ -703,7 +707,7 @@ def _entire_message_from_parts(id, in_reply_to, to, from_, orig_from, final_to,
     if data is None:
         data = b''
     elif isinstance(data, str):
-        data = bytes(data, encoding="utf-8")
+        data = data.encode(encoding=encoding, errors=errors)
 
     data_len = len(data)
 
@@ -926,7 +930,8 @@ class Message:
             ignored.
 
     - `data` is data for the Message, either :const:`None`, a Python string
-      (which will be encoded in UTF-8) or a Python bytes object.
+      or a Python bytes object.  A Python string will be encoded to bytes
+      using the `encoding` and `errors` parameters below.
     - `to` is the Ksock id for the destination, for use in replies or in
       stateful messaging. Normally it should be left 0.
     - `from_` is the Ksock id of the sender. Normally this should be left
@@ -943,6 +948,8 @@ class Message:
       field is
       set, KBUS will ignore this and set the id internally (this can be useful
       when constructing a message to compare received messages against).
+    - `encoding` and `errors` are the parameters used when encoding if `data`
+      is a string.
 
     Our internal values are:
 
@@ -979,7 +986,8 @@ class Message:
     ALL_OR_FAIL         = _BIT(9)
 
     def __init__(self, name, data=None, to=None, from_=None, orig_from=None,
-                 final_to=None, in_reply_to=None, flags=None, id=None):
+                 final_to=None, in_reply_to=None, flags=None, id=None,
+                 encoding="utf-8", errors="strict"):
         """Initialise a Message.
         """
 
@@ -987,14 +995,15 @@ class Message:
             raise ValueError('Message name "%s" does not start "$."'%name)
 
         self._from_data(name, data, to, from_, orig_from, final_to,
-                        in_reply_to, flags, id)
+                        in_reply_to, flags, id, encoding, errors)
 
         # Make sure the result *looks* like a message
         self._check()
 
     @staticmethod
     def from_message(msg, data=None, to=None, from_=None, orig_from=None,
-                     final_to=None, in_reply_to=None, flags=None, id=None):
+                     final_to=None, in_reply_to=None, flags=None, id=None,
+                     encoding="utf-8", errors="strict"):
         """Construct a :class:`Message` from another message.
 
         All the values in the old message, except the name, may be changed
@@ -1011,12 +1020,13 @@ class Message:
         """
         message = Message.__new__(Message,'')
         message._merge_args(msg.extract(), data, to, from_, orig_from,
-                            final_to, in_reply_to, flags, id)
+                            final_to, in_reply_to, flags, id, encoding, errors)
         return message
 
     @staticmethod
     def from_sequence(seq, data=None, to=None, from_=None, orig_from=None,
-                      final_to=None, in_reply_to=None, flags=None, id=None):
+                      final_to=None, in_reply_to=None, flags=None, id=None,
+                      encoding="utf-8", errors="strict"):
         """Construct a :class:`Message` from a sequence, as returned by `extract`.
 
         All the values in the old message, except the name, may be changed
@@ -1037,7 +1047,7 @@ class Message:
 
         message = Message.__new__(Message,'')
         message._merge_args(seq, data, to, from_, orig_from,
-                            final_to, in_reply_to, flags, id)
+                            final_to, in_reply_to, flags, id, encoding, errors)
         return message
 
     @staticmethod
@@ -1060,7 +1070,7 @@ class Message:
 
     def _merge_args(self, extracted, this_data, this_to, this_from_,
                     this_orig_from, this_final_to, this_in_reply_to,
-                    this_flags, this_id):
+                    this_flags, this_id, encoding, errors):
         """Set our data from a msg.extract() tuple and optional arguments.
 
         Note that, if given, 'id' and 'in_reply_to' must be MessageId
@@ -1068,8 +1078,11 @@ class Message:
 
         Note that 'data' must be:
 
-        1. a string, or something else compatible.
+        1. a string, bytes, or something else compatible.
         2. None.
+
+        A string will be encoded to bytes using the 'encoding' and 'errors'
+        parameters.
         """
         (id, in_reply_to, to, from_, orig_from, final_to, flags, name, data) = extracted
         if this_data        is not None: data        = this_data
@@ -1080,9 +1093,9 @@ class Message:
         if this_in_reply_to is not None: in_reply_to = this_in_reply_to
         if this_flags       is not None: flags       = this_flags
         if this_id          is not None: id          = this_id
-        self._from_data(name, data, to, from_, orig_from, final_to, in_reply_to, flags, id)
+        self._from_data(name, data, to, from_, orig_from, final_to, in_reply_to, flags, id, encoding, errors)
 
-    def _from_data(self, name, data, to, from_, orig_from, final_to, in_reply_to, flags, id):
+    def _from_data(self, name, data, to, from_, orig_from, final_to, in_reply_to, flags, id, encoding, errors):
         """Set our data from individual arguments.
 
         Note that, if given, 'id' and 'in_reply_to' must be MessageId
@@ -1121,7 +1134,7 @@ class Message:
         self.msg = message_from_parts(id_tuple, in_reply_to_tuple,
                                       to, from_,
                                       orig_from_tuple, final_to_tuple,
-                                      flags, name, data)
+                                      flags, name, data, encoding, errors)
 
     def _check(self):
         """Perform some basic sanity checks on our data.
@@ -1435,7 +1448,7 @@ class Message:
                 self.final_to, self.flags, self.name, self.data)
 
     def to_bytes(self):
-        """Return the message as a string.
+        """Return the message as a bytes object.
 
         This returns the entirety of the message as a Python string.
 
@@ -1595,12 +1608,14 @@ class Announcement(Message):
 
     """
 
-    def __init__(self, name, data=None, to=None, from_=None, flags=None, id=None):
+    def __init__(self, name, data=None, to=None, from_=None, flags=None, id=None,
+                 encoding="utf-8", errors="strict"):
         """Arguments are the same as for Message itself, absent 'in_reply_to'.
         """
         # Just do what the caller asked for directly
-        super(Announcement, self).__init__(name, data=data, to=to,
-                                           from_=from_, flags=flags, id=id)
+        super().__init__(name, data=data, to=to,
+                         from_=from_, flags=flags, id=id,
+                         encoding=encoding, errors=errors)
         # And, in case 'in_reply_to' got set by that
         self.msg.in_reply_to = MessageId(0, 0)
         # Or 'orig_from' and friend
@@ -1608,7 +1623,8 @@ class Announcement(Message):
         self.msg.final_to = OrigFrom(0,0)
 
     @staticmethod
-    def from_message(msg, data=None, to=None, from_=None, flags=None, id=None):
+    def from_message(msg, data=None, to=None, from_=None, flags=None, id=None,
+                     encoding="utf-8", errors="utf-8"):
         """Construct an Announcement from another message.
 
         The optional arguments allow changing the named fields in the new
@@ -1625,7 +1641,7 @@ class Announcement(Message):
         """
         message = Announcement.__new__(Announcement,'')
         message._merge_args(msg.extract(), data, to, from_, None, None, None,
-                            flags, id)
+                            flags, id, encoding, errors)
         # Just in case...
         message.msg.in_reply_to = MessageId(0, 0)
         message.msg.orig_from = OrigFrom(0,0)
@@ -1633,7 +1649,8 @@ class Announcement(Message):
         return message
 
     @staticmethod
-    def from_sequence(seq, data=None, to=None, from_=None, flags=None, id=None):
+    def from_sequence(seq, data=None, to=None, from_=None, flags=None, id=None,
+                      encoding="utf-8", errors="strict"):
         """Construct an Announcement from a sequence, as returned by
         :meth:`~Message.extract`.
 
@@ -1655,7 +1672,7 @@ class Announcement(Message):
 
         message = Announcement.__new__(Announcement,'')
         message._merge_args(seq, data, to, from_, None, None, None,
-                            flags, id)
+                            flags, id, encoding, errors)
         # Just in case...
         message.msg.in_reply_to = MessageId(0, 0)
         message.msg.orig_from = OrigFrom(0,0)
@@ -1757,19 +1774,20 @@ class Request(Message):
     """
 
     def __init__(self, name, data=None, to=None, from_=None, final_to=None,
-                 flags=None, id=None):
+                 flags=None, id=None, encoding="utf-8", errors="strict"):
         """Arguments are exactly the same as for Message itself.
         """
         # First, just do what the caller asked for directly
         # but with 'in_reply_to' as 0
-        super(Request, self).__init__(name, data=data, to=to, from_=from_,
-                                      final_to=final_to, flags=flags, id=id)
+        super().__init__(name, data=data, to=to, from_=from_,
+                         final_to=final_to, flags=flags, id=id,
+                         encoding=encoding, errors=errors)
         # But then make sure that the "wants a reply" flag is set
-        super(Request, self).set_want_reply(True)
+        super().set_want_reply(True)
 
     @staticmethod
     def from_message(msg, data=None, to=None, from_=None, final_to=None,
-                     flags=None, id=None):
+                     flags=None, id=None, encoding="utf-8", errors="strict"):
         """Construct a Request from another message.
 
         The optional arguments allow changing the named fields in the new
@@ -1786,15 +1804,15 @@ class Request(Message):
         """
         message = Request.__new__(Request,'')
         message._merge_args(msg.extract(), data, to, from_, None,
-                            final_to, None, flags, id)
+                            final_to, None, flags, id, encoding, errors)
         # But then make sure that the "wants a reply" flag is set
         super(Request, message).set_want_reply(True)
         return message
 
     @staticmethod
     def from_sequence(seq, data=None, to=None, from_=None, final_to=None,
-                      flags=None, id=None):
-        """Construct a Request from a sequence, as returned by 
+                      flags=None, id=None, encoding="utf-8", errors="strict"):
+        """Construct a Request from a sequence, as returned by
         :meth:`~Message.extract`.
 
         The optional arguments allow changing the named fields in the new
@@ -1815,7 +1833,7 @@ class Request(Message):
 
         message = Request.__new__(Request,'')
         message._merge_args(seq, data, to, from_, None,
-                            final_to, None, flags, id)
+                            final_to, None, flags, id, encoding, errors)
         # But then make sure that the "wants a reply" flag is set
         super(Request, message).set_want_reply(True)
         return message
@@ -1915,20 +1933,21 @@ class Reply(Message):
     """
 
     def __init__(self, name, data=None, to=None, from_=None, orig_from=None,
-                 in_reply_to=None, flags=None, id=None):
+                 in_reply_to=None, flags=None, id=None, encoding="utf-8", errors="strict"):
         """Just do what the user asked, but they must give 'in_reply_to'.
         """
 
-        super(Reply, self).__init__(name, data=data, to=to, from_=from_,
-                                    orig_from=orig_from,
-                                    in_reply_to=in_reply_to, flags=flags,
-                                    id=id)
+        super().__init__(name, data=data, to=to, from_=from_,
+                         orig_from=orig_from,
+                         in_reply_to=in_reply_to, flags=flags,
+                         id=id, encoding=encoding, errors=errors)
         if self.in_reply_to is None:
             raise ValueError("A Reply must specify in_reply_to")
 
     @staticmethod
     def from_message(msg, data=None, to=None, from_=None, orig_from=None,
-                     in_reply_to=None, flags=None, id=None):
+                     in_reply_to=None, flags=None, id=None,
+                     encoding="utf-8", errors="strict"):
         """Construct a Message from another message.
 
         All the values in the old message, except the name, may be changed
@@ -1948,14 +1967,15 @@ class Reply(Message):
         """
         message = Reply.__new__(Reply,'')
         message._merge_args(msg.extract(), data, to, from_, orig_from,
-                            None, in_reply_to, flags, id)
+                            None, in_reply_to, flags, id, encoding, errors)
         if message.in_reply_to is None:
             raise ValueError("A Reply must specify in_reply_to")
         return message
 
     @staticmethod
     def from_sequence(seq, data=None, to=None, from_=None, orig_from=None,
-                      in_reply_to=None, flags=None, id=None):
+                      in_reply_to=None, flags=None, id=None,
+                      encoding="utf-8", errors="strict"):
         """Construct a Message from a sequence, as returned by
         :meth:`~Message.extract`.
 
@@ -1980,7 +2000,7 @@ class Reply(Message):
 
         message = Reply.__new__(Reply,'')
         message._merge_args(seq, data, to, from_, orig_from, None,
-                            in_reply_to, flags, id)
+                            in_reply_to, flags, id, encoding, errors)
         if message.in_reply_to is None:
             raise ValueError("A Reply must specify in_reply_to")
         return message
@@ -2063,7 +2083,8 @@ class Status(Message):
 
     @staticmethod
     def from_message(msg, data=None, to=None, from_=None, orig_from=None,
-                     final_to=None, in_reply_to=None, flags=None, id=None):
+                     final_to=None, in_reply_to=None, flags=None, id=None,
+                     encoding="utf-8", errors="strict"):
         """It is not meaningful to create a Status from another Message.
 
             >>> msg1 = Message('$.Fred', '12345678')
@@ -2078,7 +2099,8 @@ class Status(Message):
 
     @staticmethod
     def from_sequence(seq, data=None, to=None, from_=None, orig_from=None,
-                      final_to=None, in_reply_to=None, flags=None, id=None):
+                      final_to=None, in_reply_to=None, flags=None, id=None,
+                      encoding="utf-8", errors="strict"):
         """It is not meaningful to create a Status from a sequence.
 
             >>> msg1 = Message('$.Fred', '12345678')
@@ -2125,7 +2147,7 @@ class Status(Message):
             args.append('id=%s'%repr(id))
         return 'Status(%s)'%(', '.join(args))
 
-def reply_to(original, data=None, flags=0):
+def reply_to(original, data=None, flags=0, encoding="utf-8", errors="strict"):
     """Return a :class:`Reply` to the given :class:`Message`.
 
     This is intended to be the normal way of constructing a reply message.
@@ -2183,10 +2205,11 @@ def reply_to(original, data=None, flags=0):
     #
     # We don't need to set any flags. We definitely *don't* want to copy
     # any flags from the original message.
-    return Reply(name, data=data, in_reply_to=id, to=from_, flags=flags)
+    return Reply(name, data=data, in_reply_to=id, to=from_, flags=flags,
+                 encoding=encoding, errors=errors)
 
 def stateful_request(earlier_msg, name, data=None, from_=None,
-                     flags=None, id=None):
+                     flags=None, id=None, encoding="utf-8", errors="strict"):
     """Construct a stateful Request, based on an earlier :class:`Reply` or
     stateful :class:`Request`.
 
@@ -2246,7 +2269,7 @@ def stateful_request(earlier_msg, name, data=None, from_=None,
                          " Reply or a previous Stateful Request")
 
     return Request(name, data=data, to=to, from_=from_, final_to=final_to,
-                   flags=flags, id=id)
+                   flags=flags, id=id, encoding=encoding, errors=errors)
 
 
 class _ReplierBindEventHeader(ctypes.Structure):
