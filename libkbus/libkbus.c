@@ -525,6 +525,30 @@ extern int kbus_ksock_kernel_module_verbose(kbus_ksock_t       ksock,
 }
 
 /*
+ * Determine the maximum size of a message in bytes that can be written to
+ * this KBUS device.
+ *
+ * A 'max_bytes' of 0 does not actually change the value - on returning,
+ * 'max_bytes' will be set to the maximum message size.
+ *
+ * A 'max_bytes' of 1 also does not change the value, instead it returns the
+ * absolute maximum size that the value may be set to in 'max_bytes'.
+ *
+ * Otherwise sets the maximum message size to 'max_bytes'.
+ *
+ * Returns 0 for success, or a negative number (``-errno``) for failure.
+ */
+extern int kbus_ksock_max_message_size(kbus_ksock_t ksock,
+                                       uint32_t    *max_bytes)
+{
+  int rv = ioctl(ksock, KBUS_IOC_MAXMSGSIZE, max_bytes);
+  if (rv < 0)
+    return -errno;
+  else
+    return rv;
+}
+
+/*
  * Request the KBUS kernel module to create a new device (``/dev/kbus<n>``).
  *
  * `device_number` is the ``<n>`` for the new device.
